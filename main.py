@@ -2,17 +2,18 @@ from src.handlers.start import *
 from src.handlers.admin import *
 
 
-@dp.message_handler(text="💼Ish qidirish")
+
+@dp.message_handler(text="💼 Ish qidirish")
 async def search0(msg: Message):
     asyncio.create_task(search(msg))
 async def search(message: Message):
     pass
     user_id = message.from_user.id
     if await functions.check_on_start(message.from_user.id):
-        send = await  message.answer("⏳Iltimos biroz kuting,🔎 ish qidirilmoqda...")
+        send = await  message.answer("⏳ Iltimos biroz kuting,🔎 ish qidirilmoqda...")
         texts = await search_vakant(user_id, 1)
         try:
-            await message.answer(text=f"{texts[2]}\n{texts[0]}", reply_markup=await vacancie_btn(texts[1], texts[2], texts[3]))
+            await message.answer(text=f"{texts[0]}", reply_markup=await vacancie_btn(texts[1], texts[2], texts[3]))
         except:
             await message.answer(texts[0])
         try:
@@ -27,35 +28,10 @@ async def search(message: Message):
 
 ######################         ALL FILTERS
 
-@dp.message_handler(text="🛠Filtrni boshqarish")
+@dp.message_handler(text="🛠 Filtrni boshqarish")
 async def helper(message: types.Message):
     await message.answer("Kerakli sohani tanlang", reply_markup=await special_btn(message.from_user.id))
 
-
-@dp.callback_query_handler(text="✅Tanladim✅")
-async def check(call: CallbackQuery):
-    await call.answer()
-    try:
-        await call.message.delete()
-    except:
-        pass
-    await call.message.answer("Kerakli maosh miqdorini tanlang", reply_markup=await money_btn(call.from_user.id))
-
-@dp.callback_query_handler(text="✅️Tanladim✅")
-async def check(call: CallbackQuery):
-    user_id = call.from_user.id
-    await call.answer()
-    try:
-        await call.message.delete()
-    except:
-        pass
-    tes = sql.execute(f"""SELECT region FROM users WHERE user_id = {user_id} """).fetchone()[0]
-    if tes =='Barchasi':
-        await call.message.answer("Kerakli maosh miqdorini tanlang", reply_markup=await money_btn(user_id))
-    elif tes == None:
-        await call.message.answer("Kerakli maosh miqdorini tanlang", reply_markup=await money_btn(user_id))
-    else:
-        await call.message.answer("Kerakli hududni tanlang!", reply_markup=await district_btn(call.from_user.id))
 
 @dp.callback_query_handler(text = ['22,322,323,324', '71', '91,522,523', '61', '214', '213,312', '23,33', '83'])
 async def reg(call: CallbackQuery):
@@ -96,6 +72,7 @@ async def reg(call: CallbackQuery):
                                    'Paxtaobod tumani', "Xo'jaobod tumani", 'Andijon', 'Xonobod', 'Konimex tumani',
                                    'Qiziltepa tumani', 'Navbahor tumani', 'Karmana tumani', 'Nurota tumani', 'Tomdi tumani', 'Uchquduq tumani', 'Xatirchi tumani', 'Navoiy', 'Zarafshon', "G'ozg'on", "Oqqo'rg'on tumani", 'Ohangaron tumani', 'Bekobod tumani', "Bo'stonliq tumani", "Bo'ka tumani", 'Quyichirchiq tumani', 'Zangiota tumani', 'Yuqorichirchiq tumani', 'Qibray tumani', 'Parkent tumani', 'Pskent tumani', "O'rtachirchiq tumani", 'Chinoz tumani', "Yangiyo'l tumani", 'Toshkent tumani', 'Nurafshon', 'Olmaliq', 'Angren', 'Bekobod', 'Ohangaron', 'Chirchiq', "Yangiyo'l", "Bog'ot tumani", 'Gurlan tumani', "Qo'shko'pir tumani", 'Urganch tumani', 'Xazorasp tumani', "Tuproqqal'a tumani", 'Xonqa tumani', 'Xiva tumani', 'Shovot tumani', 'Yangiariq tumani', 'Yangibozor tumani', 'Urganch', 'Xiva', 'Oltinsoy tumani', 'Angor tumani', 'Bandixon tumani', 'Boysun tumani', 'Muzrabot tumani', 'Denov tumani', "Jarqo'rg'on tumani", "Qumqo'rg'on tumani", 'Qiziriq tumani', 'Sariosiyo tumani', 'Termiz tumani', 'Uzun tumani', 'Sherobod tumani', "Sho'rchi tumani", 'Termiz', "G'uzor tumani", 'Dehqonobod tumani', 'Qamashi tumani', 'Qarshi tumani', 'Koson tumani', 'Kitob tumani', 'Mirishkor tumani', 'Muborak tumani', 'Nishon tumani', 'Kasbi tumani', 'Chiroqchi tumani', 'Shahrisabz tumani', "Yakkabog' tumani", 'Qarshi', 'Shahrisabz', 'Mingbuloq tumani', 'Kosonsoy tumani', 'Namangan tumani', 'Norin tumani', 'Pop tumani', "To'raqo'rg'on tumani", 'Uychi tumani', "Uchqo'rg'on tumani", 'Chortoq tumani', 'Chust tumani', "Yangiqo'rg'on tumani", 'Namangan', 'Oqdaryo tumani', "Bulung'ur tumani", 'Jomboy tumani', 'Ishtixon tumani', "Kattaqo'rg'on tumani", "Qo'shrabot tumani", 'Narpay tumani', 'Payariq tumani', "Pastdarg'om tumani", 'Paxtachi tumani', 'Samarqand tumani', 'Nurobod tumani', 'Urgut tumani', 'Tayloq tumani', 'Samarqand', "Kattaqo'rg'on", 'Oqoltin tumani', 'Boyovut tumani', 'Sayxunobod tumani', 'Guliston tumani', 'Sardoba tumani', 'Mirzaobod tumani', 'Sirdaryo tumani', 'Xovos tumani', 'Guliston', 'Shirin', 'Yangiyer', 'Uchtepa tumani', 'Bektemir tumani', 'Yunusobod tumani', "Mirzo Ulug'bek tumani", 'Mirobod tumani', 'Shayxontoxur tumani', 'Olmazor tumani', "Sirg'ali tumani", 'Yakkasaroy tumani', 'Yashnobod tumani', 'Yangihayot tumani', 'Chilonzor tumani', 'Oltiariq tumani', "Qo'shtepa tumani", "Bog'dod tumani", 'Buvayda tumani', 'Beshariq tumani', 'Quva tumani', "Uchko'prik tumani", 'Rishton tumani', "So'x tumani", 'Toshloq tumani', "O'zbekiston tumani", "Farg'ona tumani", "Dang'ara tumani", 'Furqat tumani', 'Yozyovon tumani', "Farg'ona", "Qo'qon", 'Quvasoy', "Marg'ilon", 'Amudaryo tumani', 'Beruniy tumani', "Bo'zatov tumani", "Qorao'zak tumani", 'Kegeyli tumani', "Qo'ng'irot tumani", "Qanliko'l tumani", "Mo'ynoq tumani", 'Nukus tumani', 'Taxiatosh tumani', "Taxtako'pir tumani", "To'rtko'l tumani", "Xo'jayli tumani", 'Chimboy tumani', 'Shumanay tumani', 'Ellikkala tumani', 'Nukus', 'Olot tumani', 'Buxoro tumani', 'Vobkent tumani', "G'ijduvon tumani", 'Kogon tumani', "Qorako'l tumani", 'Qorovulbozor tumani', 'Peshku tumani', 'Romitan tumani', 'Jondor tumani', 'Shofirkon tumani', 'Buxoro', 'Kogon'])
 async def reg(call: CallbackQuery):
+    await call.answer("Saqlandi")
     user_id = call.from_user.id
     texts = call.data
     if texts != "Barchasi.":
@@ -104,7 +81,6 @@ async def reg(call: CallbackQuery):
     else:
         sql.execute(f"""UPDATE users SET district=NULL WHERE user_id="{user_id}" """)
         db.commit()
-    await call.answer("Saqlandi")
     try: await call.message.delete()
     except: pass
     await call.message.answer("Maosh saralashini o'rnating!", reply_markup=await money_btn(call.from_user.id))
@@ -117,25 +93,25 @@ async def reg(call: CallbackQuery):
     user_id = call.from_user.id
     texts = call.data
     if texts != 0:
-        sql.execute(f"""UPDATE users SET money="{texts}" WHERE user_id="{user_id}" """)
+        sql.execute(f"""UPDATE users SET money="{texts}" WHERE user_id={user_id} """)
         db.commit()
     else:
-        sql.execute(f"""UPDATE users SET money=NULL WHERE user_id="{user_id}" """)
+        sql.execute(f"""UPDATE users SET money=NULL WHERE user_id={user_id} """)
         db.commit()
     await call.answer("Saqlandi")
     try: await call.message.delete()
     except: pass
-    await call.message.answer("Davom etishingiz mumkin!", reply_markup = MM_btn)
+    await call.message.answer("Filtrlash yakunlandi, 'Ish qidirish' tugmasini bosing!", reply_markup = MM_btn)
 
 
 ##############################################                                               Personal information
 
-@dp.message_handler(text="🗂Saqlangan ishlar")
+@dp.message_handler(text="🗂 Saqlangan ishlar")
 async def helper(message: types.Message):
     user_id = message.from_user.id
 
     delete = types.InlineKeyboardMarkup(row_width=1)
-    delete.add(InlineKeyboardButton(text="🗑Saqlanganlarni o'chirish", callback_data="delete"))
+    delete.add(InlineKeyboardButton(text="🗑 Saqlanganlarni o'chirish", callback_data="delete"))
 
     sql.execute("""CREATE TABLE IF NOT EXISTS saves ("user_id"  INTEGER, "save_id"  INTEGER, "fake"  INTEGER);""")
     db.commit()
@@ -157,6 +133,7 @@ async def helper(message: types.Message):
 async def ss(call: CallbackQuery):
     try:
         sql.execute(f"DELETE from saves WHERE user_id='{call.from_user.id}'")
+        await call.message.delete()
     except:
         pass
     await call.answer("Hammasi o'chirildi")
@@ -175,7 +152,7 @@ async def ss(call: CallbackQuery):
                 try:
                     await call.answer()
                     texts = await search_vakant(user_id, int(data[1:])-1)
-                    await call.message.edit_text(text=f"""{int(call.message.text[0])-1}\n{texts[0]}""")
+                    await call.message.edit_text(text=f"""{texts[0]}""")
                     await call.message.edit_reply_markup(reply_markup=await vacancie_btn(texts[1], texts[2], texts[3]))
                 except:
                     pass
@@ -192,7 +169,7 @@ async def ss(call: CallbackQuery):
             else:
                 try:
                     texts = await search_vakant(user_id, int(data[1:]) + 1)
-                    await call.message.edit_text(text=f"""{int(call.message.text[0])+1}\n{texts[0]}""")
+                    await call.message.edit_text(text=f"""{texts[0]}""")
                     await call.message.edit_reply_markup(reply_markup=await vacancie_btn(texts[1], texts[2], texts[3]))
                 except:
                     pass
@@ -201,7 +178,7 @@ async def ss(call: CallbackQuery):
             try:
                 await call.answer()
                 texts = await search_vakant(user_id, data[1:])
-                await call.message.edit_text(text=f"""{call.message.text[0]}\n{texts[0]}""")
+                await call.message.edit_text(text=f"""{texts[0]}""")
                 await call.message.edit_reply_markup(reply_markup=await vacancie_btn(texts[1], texts[2], texts[3]))
             except:
                 pass
@@ -222,12 +199,11 @@ async def ss(call: CallbackQuery):
 
 
 
-        else:
-            try:
-                await call.message.delete()
-            except:
-                pass
-            print(call.data)
+        # else:
+            # try:
+            #     await call.message.delete()
+            # except:
+            #     pass
             # soup = await get_site_content(f'https://ishapi.mehnat.uz/api/v1/vacancies/{data}')
             # soup1 = soup['data']
             # status = soup1["active"]
@@ -255,6 +231,49 @@ async def ss(call: CallbackQuery):
             #                           f"<b>🗺Manzili: </b>{address}\n<b>📞Telefon raqami: </b>+{phones[0]}", reply_markup=sav)
 
 
+
+@dp.callback_query_handler()
+async def sinov(call: CallbackQuery):
+    try:
+        await call.message.delete()
+    except:
+        pass
+    data = call.data.split(':')
+    soup = await get_site_content(f'https://ishapi.mehnat.uz/api/v1/vacancies/{data[0]}')
+    soup1 = soup['data']
+    status = soup1["active"]
+    if status == True:
+        status = "Aktiv"
+    else:
+        status = "Band"
+
+    company_name = soup1['company_name']
+    position_name = soup1['position_name']
+    position_rate = soup1['position_rate']
+    position_duties = soup1['position_duties']
+    position_requirements = soup1['position_requirements']
+    position_conditions = soup1['position_conditions']
+    position_salary = soup1['position_salary']
+    phones = ''.join([num for num in soup1['phones']])
+    address = str(soup1['region']['name_uz_ln']) + ', ' + str(soup1['district']['name_uz_ln'])
+    date_start = soup1['date_start']
+
+    sav = types.InlineKeyboardMarkup(row_width=2)
+    sav.add(InlineKeyboardButton(text="📌 Saqlash", callback_data=f"🗂{data[0]}"))
+    sav.insert(InlineKeyboardButton(text="⬅ Orqaga", callback_data=f"🔙{data[1]}"))
+
+    await call.message.answer(text=f"<b>🏬 Ish beruvchi:</b> {company_name}\n"
+                                   f"<b>💺 Lavozim:</b> {position_name}\n"
+                                   f"<b>📋 Ish stavkasi:</b> {position_rate}\n"
+                                   f"<b>🛠 Majburiyatlar:</b> {position_duties}\n"
+                                   f"<b>🎓 Talab:</b> {position_requirements}\n"
+                                   f"<b>⏰ Ish vaqti:</b> {position_conditions}\n"
+                                   f"<b>💰 Maosh:</b> {position_salary}\n"
+                                   f"<b>🗺 Manzil:</b> {address}\n"
+                                   f"<b>📞 Bog'lanish:</b> {phones}\n"
+                                   f"<b>⏰ Ish joylangan sana:</b> {date_start}\n\n"
+                                   f"<b>♻️ Ushbu ma'lumot @mehnatuz_bot orqali taqdim etildi!</b>",
+                              reply_markup=sav)
 
 
 # 908180189

@@ -33,7 +33,7 @@ async def welcome(message: types.Message):
         title += 1
     join_inline.add(InlineKeyboardButton("✅Obuna bo'ldim", callback_data="check"))
     if await functions.check_on_start(message.from_user.id):
-        await message.answer(f"""Assalomu alaykum. Botimizga hush kelibsiz. Kerakli bo‘limni tanlang!""", reply_markup=MM_btn)
+        await message.answer(f"""Assalomu alaykum, botimizga xush kelibsiz. Kerakli bo‘limni tanlang!""", reply_markup=MM_btn)
     else:
         await message.answer("Botimizdan foydalanish uchun kanalimizga azo bo'ling", reply_markup=join_inline)
 
@@ -43,6 +43,6 @@ async def check(call: CallbackQuery):
     if await functions.check_on_start(user_id):
         await call.answer()
         await call.message.delete()
-        await call.message.answer("Assalomu alaykum. Botimizga xush kelibsiz.\n\nO'zingizga kerakli viloyatni tanlang va davom eting", reply_markup=await special_btn(user_id))
+        await call.message.answer("Assalomu alaykum, botimizga xush kelibsiz. Kerakli bo‘limni tanlang!", reply_markup=MM_btn)
     else:
         await call.answer(show_alert=True, text="Botimizdan foydalanish uchun kanalimizga azo bo'ling")

@@ -111,7 +111,6 @@ async def search_vakant(user_id, bet):
             if reg1 is None:
                 yurt = sql.execute(f"""SELECT reg_ids FROM locations WHERE regions = "{reg0}" """).fetchone()[0]
             else:
-                print(reg1)
                 yurt = sql.execute(f"""SELECT dist_ids FROM locations WHERE districts = "{reg1}" """).fetchone()[0]
 
         oyliq_basa = sql.execute(f"""SELECT money FROM users WHERE user_id = {user_id}""").fetchone()[0]
@@ -138,7 +137,12 @@ async def search_vakant(user_id, bet):
                 if position_salary == None:
                     position_salary = "Mavjud emas"
                 date_start = i['date_start']
-                texts += f"""<b>👨‍💻{num}- VAKANSIYA\n\n🆔ID raqami: </b>{id}\n<b>🏬 Ish beruvchi: </b>{company_name}\n<b>💺 Lavozim</b>: {position_name}\n<b>💰Maoshi: </b>{position_salary} so'm\n<b>⏰ Ish joylangan sana: </b>{date_start}\n------------------------------------\n"""
+                texts += (f"<b>👨‍💻 {num}- VAKANSIYA\n\n</b>"
+                          f"<b>🆔 ID raqami: </b>{id}\n"
+                          f"<b>🏬 Ish beruvchi: </b>{company_name}\n"
+                          f"<b>💺 Lavozim</b>: {position_name}\n"
+                          f"<b>💰 Maoshi: </b>{position_salary} so'm\n"
+                          f"<b>⏰ Ish joylangan sana: </b>{date_start}\n------------------------------------\n")
                 num += 1
                 ids.append(id)
             all = soup['data']['total']
@@ -146,7 +150,7 @@ async def search_vakant(user_id, bet):
             ga = soup['data']['to']
             joriy = soup['data']['current_page']
             end = soup['data']['last_page']
-            texts = f"<b>NATIJALAR</b>: {all} ta bo'sh ish o'rinlari topildi | {dan}-{ga}\n" + texts
+            texts = f"<b>NATIJALAR</b>: {all} ta bo'sh ish o'rinlari topildi | {dan}-{ga}\n\n" + texts
             if dan == None:
                 texts = "Sizning belgilagan filterlaringiz bo'yicha ma'lumot topilmadi, Filtrlarni o'zgartirib ko'ring"
         except:
@@ -161,7 +165,7 @@ async def search_vakant(user_id, bet):
 async def vacancie_btn(ids, joriy, ga):
     region_choos = types.InlineKeyboardMarkup(row_width=5)
     for name, id in zip(range(ga, ga+10), ids):
-        region_choos.insert(InlineKeyboardButton(name, callback_data=id))
+        region_choos.insert(InlineKeyboardButton(str(name), callback_data=f"{id}:{joriy}"))
 
     region_choos.add(InlineKeyboardButton("⬅", callback_data=f"⬅{joriy}"))
     region_choos.insert(InlineKeyboardButton("❌", callback_data="❌"))
@@ -173,8 +177,6 @@ async def vacancie_btn(ids, joriy, ga):
 
 async def get_regions():
     sql.execute("SELECT my_num, nom FROM viloyatlar")
-    # nom = [i[0] for i in sql.fetchall()]
-    # my_num = [i[1] for i in sql.fetchall()]
     all = [i for i in sql.fetchall()]
     return all
 
@@ -186,15 +188,7 @@ async def region_btn(user_id):
     region_choos = types.InlineKeyboardMarkup(row_width=2)
     title = 1
     for row in regs:
-        reg = sql.execute(f"""SELECT region FROM users WHERE user_id = {user_id}""").fetchone()
-
-        if row == reg[0]:
-            region_choos.insert(InlineKeyboardButton(text=f"🟢{row}", callback_data=row))
-        else:
-            if reg[0] is None and row == 'Barchasi':
-                region_choos.insert(InlineKeyboardButton(text=f"🟢{row}", callback_data=row))
-            else:
-                region_choos.insert(InlineKeyboardButton(row, callback_data=row))
+        region_choos.insert(InlineKeyboardButton(row, callback_data=row))
         title += 1
     return region_choos
 
@@ -206,34 +200,16 @@ async def district_btn(user_id):
     region_choos = types.InlineKeyboardMarkup(row_width=2)
     title = 1
     for row in districts:
-        reg = sql.execute(f"""SELECT district FROM users WHERE user_id = {user_id}""").fetchone()
-        if row == reg[0]:
-            region_choos.insert(InlineKeyboardButton(text=f"🟢{row}", callback_data=row))
-        else:
-            if reg[0] is None and row == 'Barchasi.':
-                region_choos.insert(InlineKeyboardButton(text=f"🟢{row}", callback_data=str(row[1])))
-            else:
-                region_choos.insert(InlineKeyboardButton(row, callback_data=row))
+        region_choos.insert(InlineKeyboardButton(row, callback_data=row))
         title += 1
     return region_choos
 
 
 async def money_btn(user_id):
-    rr = [('⭕️Ahamiyatsiz️',0), ('2 mln ➕',2000000), ('3 mln ➕',3000000), ('4 mln ➕',4000000), ('5 mln ➕',5000000)]
-    # rows = ['⭕️Ahamiyatsiz️', '2 mln ➕', '3 mln ➕', '4 mln ➕', '5 mln ➕']
+    rr = [('❌Ahamiyatsiz️',0), ('2 mln ➕',2000000), ('3 mln ➕',3000000), ('4 mln ➕',4000000), ('5 mln ➕',5000000)]
     region_choos = types.InlineKeyboardMarkup(row_width=2)
-    title = 1
     for row in rr:
-        reg = sql.execute(f"""SELECT money FROM users WHERE user_id = {user_id}""").fetchone()
-
-        if row == reg[0]:
-            region_choos.insert(InlineKeyboardButton(text=f"🟢{row[0]}", callback_data=str(row[1])))
-        else:
-            if reg[0] is None and row == '⭕️Ahamiyatsiz️':
-                region_choos.insert(InlineKeyboardButton(text=f"🟢{row}", callback_data=str(row[1])))
-            else:
-                region_choos.insert(InlineKeyboardButton(row[0], callback_data=str(row[1])))
-        title += 1
+        region_choos.insert(InlineKeyboardButton(row[0], callback_data=str(row[1])))
     return region_choos
 
 
@@ -243,12 +219,7 @@ async def special_btn(user_id):
 
     spec_choos = types.InlineKeyboardMarkup(row_width=2)
     for spec, back in zip(specs, backs):
-        reg = sql.execute(f"""SELECT specs FROM users WHERE user_id = {user_id}""").fetchone()[0]
-        sp = str(reg)
-        if back == sp:
-            spec_choos.insert(InlineKeyboardButton(text=f"🟢{spec}", callback_data=back))
-        else:
-            spec_choos.insert(InlineKeyboardButton(spec, callback_data=back))
+        spec_choos.insert(InlineKeyboardButton(spec, callback_data=back))
     return spec_choos
 
 
@@ -261,18 +232,30 @@ async def saves_info(data):
         soup1 = soup['data']
         status = soup1["active"]
         if status == True:
-            status = "Aktiv"
+            status = "Faol"
         else:
             status = "Band"
-        comp_name = soup1['company_name']
-        work_title = soup1['position_name']
-        salary = soup1['position_salary']
-        commitment = soup1['position_duties']
-        demand = soup1['position_requirements']
-        condition = soup1['position_conditions']
-        phones = soup1['phones']
+        company_name = soup1['company_name']
+        position_name = soup1['position_name']
+        position_rate = soup1['position_rate']
+        position_duties = soup1['position_duties']
+        position_requirements = soup1['position_requirements']
+        position_conditions = soup1['position_conditions']
+        position_salary = soup1['position_salary']
+        phones = ''.join([num for num in soup1['phones']])
         address = str(soup1['region']['name_uz_ln']) + ', ' + str(soup1['district']['name_uz_ln'])
-        text = f"<b>🏢Komponiya nomi: </b>{comp_name}\n<b>🧑‍🏭Ish nomi: </b>{work_title}\n\n<b>ℹ️Ish haqida: </b>{condition}\n\n<b>📌Majburiyatlari: </b>{commitment}\n\n<b>📎Talab: </b>{demand}\n\n<b>💸Maoshi: </b>{salary}\n\n\n<b>📣Ishning holati: </b>{status}\n<b>🗺Manzili: </b>{address}\n<b>📞Telefon raqami: </b>+{phones[0]}"
+        date_start = soup1['date_start']
+        text = (f"<b>🏬 Ish beruvchi:</b> {company_name}\n"
+               f"<b>💺 Lavozim:</b> {position_name}\n"
+               f"<b>📋 Ish stavkasi:</b> {position_rate}\n"
+               f"<b>🛠 Majburiyatlar:</b> {position_duties}\n"
+               f"<b>🎓 Talab:</b> {position_requirements}\n"
+               f"<b>⏰ Ish vaqti:</b> {position_conditions}\n"
+               f"<b>💰 Maosh:</b> {position_salary}\n"
+               f"<b>🗺 Manzil:</b> {address}\n"
+               f"<b>📞 Bog'lanish:</b> {phones}\n"
+               f"<b>⏰ Ish joylangan sana:</b> {date_start}\n\n"
+               f"<b>♻️ Ushbu ma'lumot @mehnatuz_bot orqali taqdim etildi!</b>")
     else:
         text = "Not Found"
     return text

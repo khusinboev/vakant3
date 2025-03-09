@@ -9,7 +9,7 @@ adminPanel = [1918760732, 619839487, 5246872049]
 
 BASE_DIR = str(Path(__file__).resolve().parent)+"/src/database/"
 
-TOKEN = "7751506046:AAEIyk2cWffauEa3FItb9By9ydQS_bRjDog"
+TOKEN = "7751506046:AAG0fa7vX5_CbtnvEIYRQWOQvkwnbYgjsmI"
 bot = Bot(token=TOKEN, parse_mode='html')
 dp = Dispatcher(bot=bot, storage=storage)
 

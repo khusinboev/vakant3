@@ -14,4 +14,4 @@ reklama_btn.add("📨Forward xabar yuborish", "📬Oddiy xabar yuborish", "🔙O
 
 
 MM_btn = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-MM_btn.add("💼Ish qidirish", "🛠Filtrni boshqarish", "🗂Saqlangan ishlar")
+MM_btn.add("💼 Ish qidirish", "🛠 Filtrni boshqarish", "🗂 Saqlangan ishlar")
