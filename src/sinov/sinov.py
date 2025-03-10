@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import sqlite3
+from pathlib import Path
 # from config import db, sql
 
 # reg0 = sql.execute(f"""SELECT region FROM users WHERE user_id = {5484714936}""").fetchone()[0]
