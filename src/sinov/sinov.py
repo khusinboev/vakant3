@@ -8,11 +8,11 @@ from config import db, sql
 #
 # reg1 = sql.execute(f"""SELECT reg_ids FROM locations WHERE regions = {5484714936}""").fetchone()[0]
 
-sql.execute("UPDATE users SET region = NULL, district = NULL, money = NULL, specs = NULL")
+sql.execute("DELETE FROM users")  # Barcha ma'lumotlarni o‘chirish
 db.commit()
 
 
-
+print("Barcha ma'lumotlar o‘chirildi!")
 
 
 
