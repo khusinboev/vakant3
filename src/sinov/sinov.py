@@ -1,13 +1,15 @@
 import aiohttp
 import asyncio
-
-from config import db, sql
+import sqlite3
+# from config import db, sql
 
 # reg0 = sql.execute(f"""SELECT region FROM users WHERE user_id = {5484714936}""").fetchone()[0]
 #
 #
 # reg1 = sql.execute(f"""SELECT reg_ids FROM locations WHERE regions = {5484714936}""").fetchone()[0]
-
+BASE_DIR = str(Path(__file__).resolve().parent)+"/src/database/"
+db = sqlite3.connect(BASE_DIR+'database.sqlite3')
+sql = db.cursor()
 sql.execute("DELETE FROM users")  # Barcha ma'lumotlarni o‘chirish
 db.commit()
 
