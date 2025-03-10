@@ -119,7 +119,7 @@ async def search_vakant(user_id, bet):
         else:
             oyliq=oyliq_basa
 
-        url2 = f'https://ishapi.mehnat.uz/api/v1/vacancies?per_page=5&salary={oyliq}&vacancy_soato_code={yurt}&sort_key=salary_asc&nskz={soha}&page={bet}'
+        url2 = f'https://ishapi.mehnat.uz/api/v1/vacancies?per_page=5&salary={oyliq}&vacancy_soato_code={yurt}&sort_key=created_at&nskz={soha}&page={bet}'
         soup = await get_site_content(url2)
 
         try:
