@@ -3,8 +3,8 @@ from aiogram.dispatcher.middlewares import BaseMiddleware
 from aiogram.types import Message
 import datetime
 import sqlite3  # Yoki PostgreSQL/MySQL ishlatsang asyncpg yoki aiomysql
-
-from config import BASE_DIR
+from pathlib import Path
+BASE_DIR = str(Path(__file__).resolve().parent)+"/src/database/database.sqlite3"
 
 
 class StatsMiddleware(BaseMiddleware):
