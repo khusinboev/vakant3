@@ -7,21 +7,6 @@ from config import sql, db
 
 @dp.message_handler(commands='start')
 async def welcome(message: types.Message):
-    user_id = message.chat.id
-    sql.execute("""CREATE TABLE IF NOT EXISTS users ("user_id"  INTEGER,"date"  INTEGER, "lang" INTEGER, "region" INTEGER, "district" INTEGER, "money" INTEGER);""")
-    db.commit()
-    sql.execute("""CREATE TABLE IF NOT EXISTS channels ("id"  INTEGER);""")
-    db.commit()
-    sql.execute("""CREATE TABLE IF NOT EXISTS locations ("regions"  INTEGER, "reg_ids"  INTEGER, "districts"  INTEGER, "dist_ids"  INTEGER, "addition"  INTEGER);""")
-    db.commit()
-    check = sql.execute(f"""SELECT user_id FROM users WHERE user_id = {user_id}""").fetchone()
-
-
-    if check == None:
-        sana = datetime.datetime.now(pytz.timezone('Asia/Tashkent')).strftime('%d-%m-%Y %H:%M')
-        sql.execute(f"""INSERT INTO users (user_id, date, lang) VALUES ('{user_id}', '{sana}', '{message.from_user.language_code}')""")
-        db.commit()
-
     sql.execute("SELECT id FROM channels")
     rows = sql.fetchall()
     join_inline = types.InlineKeyboardMarkup(row_width=1)
@@ -32,7 +17,7 @@ async def welcome(message: types.Message):
         join_inline.insert(InlineKeyboardButton(f"{title} - kanal", url=url))
         title += 1
     join_inline.add(InlineKeyboardButton("✅Obuna bo'ldim", callback_data="check"))
-    if await functions.check_on_start(message.from_user.id):
+    if await functions.check_on_start(message.chat.id):
         await message.answer(f"""Assalomu alaykum, botimizga xush kelibsiz. Kerakli bo‘limni tanlang!""", reply_markup=MM_btn)
     else:
         await message.answer("Botimizdan foydalanish uchun kanalimizga azo bo'ling", reply_markup=join_inline)

@@ -1,14 +1,23 @@
-import aiohttp
-import asyncio
-# from config import db, sql
+import sqlite3
+import datetime
+import pytz
 
+from config import BASE_DIR
 
+# Toshkent vaqti bo‘yicha bugungi sana timestamp
+tz_uzbekistan = pytz.timezone("Asia/Tashkent")
+today_timestamp = int(datetime.datetime.now(tz_uzbekistan).timestamp())
 
+# Baza bilan ishlash
+conn = sqlite3.connect(BASE_DIR)
+cursor = conn.cursor()
 
+# Hamma foydalanuvchilarning sanasini yangilash
+cursor.execute("UPDATE users SET date = ?", (today_timestamp,))
+conn.commit()
+conn.close()
 
-
-
-
+print("Barcha userlarning sanasi bugungi kunga yangilandi.")
 
 
 

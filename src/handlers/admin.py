@@ -1,6 +1,10 @@
+import sqlite3
+import pytz, datetime
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.utils.exceptions import *
+
+from config import BASE_DIR
 from src.buttons.buttuns import *
 from src.functions.functions import *
 
@@ -36,15 +40,61 @@ async def backs(message: types.Message):
 
 @dp.message_handler( text = "📊Statistika", user_id = Admin)
 async def new(msg: types.Message):
-	sql.execute("SELECT COUNT(*) FROM users WHERE lang = ?", ('uz',))
-	followersuz = sql.fetchone()[0]
-	sql.execute("SELECT COUNT(*) FROM users WHERE lang = ?", ('ru',))
-	followersru = sql.fetchone()[0]
-	sql.execute("SELECT COUNT(*) FROM users WHERE lang = ?", ('en',))
-	followersen = sql.fetchone()[0]
-	sql.execute("SELECT COUNT(*) FROM users")
-	followersall = sql.fetchone()[0]
-	await msg.answer(f"👥Botdagi jami azolar soni👇👇\n\n🇺🇿O'zbeklar soni {followersuz}\n\n🇷🇺Ruslar soni - {followersru}\n\n🇺🇸Ingilizlar soni - {followersen}\n\n👤Jami azolar soni: > {followersall}")
+	conn = sqlite3.connect(BASE_DIR)
+	cursor = conn.cursor()
+
+	# Toshkent vaqti bo‘yicha vaqtni olish
+	tz_uzbekistan = pytz.timezone("Asia/Tashkent")
+	now = datetime.datetime.now(tz_uzbekistan)
+
+	# Jami foydalanuvchilar
+	cursor.execute("SELECT COUNT(*) FROM users")
+	total_users = cursor.fetchone()[0]
+
+	# So‘nggi 3 oyda qo‘shilgan foydalanuvchilar
+	three_months_ago = now - datetime.timedelta(days=90)
+	three_months_ago_ts = int(three_months_ago.timestamp())
+
+	cursor.execute("SELECT COUNT(*) FROM users WHERE date >= ?", (three_months_ago_ts,))
+	last_3_months_users = cursor.fetchone()[0]
+
+	# Oxirgi 3 oy nomlari va timestamplarini olish
+	months_stats = {}
+	for i in range(3):
+		first_day = (now.replace(day=1) - datetime.timedelta(days=30 * i)).replace(day=1)
+		last_day = (first_day + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(seconds=1)
+
+		month_name = first_day.strftime("%B")  # Oyning nomi (Mart, Fevral, Yanvar)
+
+		cursor.execute("SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?",
+					   (int(first_day.timestamp()), int(last_day.timestamp())))
+		months_stats[month_name] = cursor.fetchone()[0]
+
+	# So‘nggi 7 kunlik statistika
+	last_7_days = {}
+	for i in range(7):
+		date = (now - datetime.timedelta(days=i))
+		date_str = date.strftime("%d-%m-%Y")
+
+		start_ts = int(date.replace(hour=0, minute=0, second=0).timestamp())
+		end_ts = int(date.replace(hour=23, minute=59, second=59).timestamp())
+
+		cursor.execute("SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?", (start_ts, end_ts))
+		last_7_days[date_str] = cursor.fetchone()[0]
+
+	conn.close()
+
+	# Statistikani formatlash
+	stat_text = f"""📊 **Foydalanuvchilar statistikasi** 📊
+
+	Jami: {total_users} ta
+	So‘nggi 3 oy (Jami: {last_3_months_users} ta) -
+	""" + "\n".join([f"🔹 {month}: {count} ta" for month, count in months_stats.items()]) + f"""
+
+	So‘nggi 7 kun ({sum(last_7_days.values())} ta):
+	""" + "\n".join([f"🔹 {date}: {count} ta" for date, count in last_7_days.items()])
+
+	await msg.answer(stat_text)
 
 ###########################           KANALLAR              """""""""""""""""""""
 
