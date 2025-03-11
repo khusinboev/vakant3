@@ -4,11 +4,10 @@ from aiogram.types import Message
 import datetime
 import sqlite3  # Yoki PostgreSQL/MySQL ishlatsang asyncpg yoki aiomysql
 from pathlib import Path
-BASE_DIR = str(Path(__file__).resolve().parent)+"/src/database/database.sqlite3"
 
 
 class StatsMiddleware(BaseMiddleware):
-    def __init__(self, db_path=BASE_DIR):
+    def __init__(self, db_path=str(Path(__file__).resolve().parent)+"/src/database/database.sqlite3"):
         self.db_path = db_path
         self.init_db()
         super().__init__()
