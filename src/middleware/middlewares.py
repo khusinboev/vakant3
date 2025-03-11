@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 class StatsMiddleware(BaseMiddleware):
-    def __init__(self, db_path=str(Path(__file__).resolve().parent)+"/src/database/database.sqlite3"):
+    def __init__(self, db_path="/home/vakant2/vakant3/src/database/database.sqlite3"):
         self.db_path = db_path
         self.init_db()
         super().__init__()
