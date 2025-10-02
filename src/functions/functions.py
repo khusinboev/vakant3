@@ -102,10 +102,10 @@ async def get_site_content(URL):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
-        await page.goto(URL)
-        html = await page.content()
+        resp = await page.goto(URL)
+        data = await resp.json()
         await browser.close()
-        return html
+        return data
 
 
 async def search_vakant(user_id, bet):
