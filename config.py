@@ -12,7 +12,7 @@ adminPanel = [1918760732, 619839487, 5246872049]
 
 BASE_DIR = str(Path(__file__).resolve().parent)+"/src/database/database.sqlite3"
 
-TOKEN = "5631190031:AAFOEMHcXwQuL3kr-o1junIU0fyli7npeAc" 
+TOKEN = "7855267108:AAG1DRIP6cpfe5VDVWd1b2HGlb6WWFaCxDo " 
 bot = Bot(token=TOKEN, parse_mode='html')
 dp = Dispatcher(bot=bot, storage=storage)
 # dp.middleware.setup(StatsMiddleware())
