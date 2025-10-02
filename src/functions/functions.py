@@ -96,20 +96,17 @@ async def join_inline_btn(user_id):
 #             text = await resp.json()
 #     return text
 
-from playwright.async_api import async_playwright
 
-async def get_site_content(URL: str):
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-
-        # JSON API'ga so'rov yuboramiz
-        resp = await page.request.get(URL)
-        data = await resp.json()
-        print(data) 
-        await browser.close()
-        return data
-
+async def get_site_content(URL):
+    headers = {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/118.0.0.0 Safari/537.36",
+        "accept": "application/json",
+    }
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(URL, ssl=False, timeout=60) as resp:
+            return await resp.json()
 
 async def search_vakant(user_id, bet):
         reg0 = sql.execute(f"""SELECT region FROM users WHERE user_id = {user_id}""").fetchone()[0]
