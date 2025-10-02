@@ -106,7 +106,7 @@ async def get_site_content(URL: str):
         # JSON API'ga so'rov yuboramiz
         resp = await page.request.get(URL)
         data = await resp.json()
-
+        print(data) 
         await browser.close()
         return data
 
