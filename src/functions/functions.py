@@ -90,11 +90,22 @@ async def join_inline_btn(user_id):
 
 ##    Parsing uchun funksiya
 
+# async def get_site_content(URL):
+#     async with aiohttp.ClientSession() as session:
+#         async with session.get(URL, ssl=False) as resp:
+#             text = await resp.json()
+#     return text
+
+from playwright.async_api import async_playwright
+
 async def get_site_content(URL):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(URL, ssl=False) as resp:
-            text = await resp.json()
-    return text
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        await page.goto(URL)
+        html = await page.content()
+        await browser.close()
+        return html
 
 
 async def search_vakant(user_id, bet):
