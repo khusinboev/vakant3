@@ -98,12 +98,17 @@ async def join_inline_btn(user_id):
 
 from playwright.async_api import async_playwright
 
-async def get_site_content(URL):
+async def get_site_content(URL: str):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
-        resp = await page.goto(URL)
+        
+        # API endpoint'ga boramiz (bu JSON qaytaradi)
+        resp = await page.goto(URL, wait_until="commit", timeout=60000)
+        
+        # JSON ni dict sifatida olish
         data = await resp.json()
+        
         await browser.close()
         return data
 
