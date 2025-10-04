@@ -18,7 +18,7 @@ UZ_PROXIES = [
 ]
 
 TARGET_URL = "https://ish.mehnat.uz/vacancies"
-API_URL = "https://api.mehnat.uz/api/v1/vacancies?per_page=5&isVisible=true&page=1"
+API_URL = "https://ishapi.mehnat.uz/api/v1/vacancies?per_page=5&kodp_keys=[]&vacancy_soato_code=1733&pagination_type=simplePaginate&sort_key=created_at&nskz=213,312&is_reserved=0&for_students=0&isVisible=true&page=1"
 
 
 async def test_single_proxy(proxy_url):
@@ -33,7 +33,7 @@ async def test_single_proxy(proxy_url):
         try:
             browser = await p.chromium.launch(
                 headless=True,
-                proxy={'server': proxy_url}
+                proxy={'server': proxy_url} if proxy_url else None
             )
 
             context = await browser.new_context(
@@ -60,7 +60,7 @@ async def test_single_proxy(proxy_url):
 
             await asyncio.sleep(2)
 
-            # API
+            # API orqali ma'lumot olish
             print(f"Fetching API: {API_URL}")
             data = await page.evaluate(f"""
                 async () => {{
@@ -75,17 +75,26 @@ async def test_single_proxy(proxy_url):
 
             await browser.close()
 
-            if data and 'error' not in data:
+            if data and 'error' not in data and data.get('success'):
                 elapsed = time.time() - start
-                print(f"\nSUCCESS! Data received in {elapsed:.1f}s")
-                print(f"Sample: {str(data)[:150]}...")
+                print(f"\n✓ SUCCESS! Data received in {elapsed:.1f}s")
+
+                # Ma'lumotlarni chiroyli ko'rsatish
+                vacancies = data.get('data', {}).get('data', [])
+                print(f"\n📋 Found {len(vacancies)} vacancies:")
+                for i, v in enumerate(vacancies[:3], 1):
+                    print(f"\n{i}. {v.get('position_name', 'N/A')}")
+                    print(f"   Company: {v.get('company_name', 'N/A')}")
+                    print(f"   Salary: {v.get('position_salary', 'N/A')} UZS")
+
                 return True
             else:
-                print(f"\nAPI Error: {data.get('error', 'Unknown')}")
+                error_msg = data.get('error', 'No data or unsuccessful response')
+                print(f"\n✗ API Error: {error_msg}")
                 return False
 
         except Exception as e:
-            print(f"\nFAILED: {str(e)[:100]}")
+            print(f"\n✗ FAILED: {str(e)[:150]}")
             try:
                 await browser.close()
             except:
@@ -114,14 +123,15 @@ async def main():
         if result:
             success = True
             print("\n" + "=" * 70)
-            print("BYPASS SUCCESSFUL!")
+            print("🎉 BYPASS SUCCESSFUL!")
+            print(f"Working Proxy: {proxy}")
             print("=" * 70)
             break
         await asyncio.sleep(2)
 
     if not success:
         print("\n" + "=" * 70)
-        print("ALL PROXIES FAILED")
+        print("❌ ALL PROXIES FAILED")
         print("Try adding fresh proxies from:")
         print("  - https://spys.one/free-proxy-list/UZ/")
         print("  - https://free-proxy-list.net/")
@@ -145,9 +155,9 @@ async def quick_proxy_test():
                 await page.goto('https://api.ipify.org?format=json', timeout=8000)
                 ip = await page.evaluate('() => document.body.innerText')
                 await browser.close()
-                print(f"   WORKS! IP: {ip}")
+                print(f"   ✓ WORKS! IP: {ip}")
         except Exception as e:
-            print(f"   FAILED: {str(e)[:60]}")
+            print(f"   ✗ FAILED: {str(e)[:60]}")
 
 
 if __name__ == "__main__":
