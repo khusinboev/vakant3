@@ -108,8 +108,8 @@ async def scrape_with_stealth(use_tor=False, use_proxy=False):
 
         try:
             # Saytga kirish
-            print(f"📡 Saytga ulanish: https://mytestweb.uz/vacancies")
-            await page.goto("https://mytestweb.uz/vacancies",
+            print(f"📡 Saytga ulanish: https://ish.mehnat.uz/vacancies")
+            await page.goto("https://ish.mehnat.uz/vacancies",
                             timeout=60000,
                             wait_until='networkidle')
 
@@ -121,7 +121,7 @@ async def scrape_with_stealth(use_tor=False, use_proxy=False):
             data = await page.evaluate("""
                 async () => {
                     try {
-                        const res = await fetch('https://api.mytestweb.uz/api/v1/vacancies?per_page=5&isVisible=true&page=1');
+                        const res = await fetch('https://ishapi.mehnat.uz/api/v1/vacancies?per_page=5&isVisible=true&page=1');
                         return await res.json();
                     } catch (e) {
                         return { error: e.message };
