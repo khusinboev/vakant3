@@ -4,186 +4,163 @@ import random
 import time
 from playwright.async_api import async_playwright
 
-# 1. USER AGENT ROTATION
+# USER AGENTS
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
 ]
 
-# 2. BEPUL PROXY'LAR (misol - https://free-proxy-list.net dan oling)
-FREE_PROXIES = [
-    # Misol formatlar:
-    # {'server': 'http://proxy-ip:port'},
-    # {'server': 'socks5://proxy-ip:port'},
+# O'ZBEKISTON PROXY'LAR - bularni yangilab turing!
+# Quyidagi saytlardan oling:
+# 1. https://proxyscrape.com/free-proxy-list/uzbekistan
+# 2. https://www.ditatompel.com/proxy/country/uz
+# 3. https://spys.one/free-proxy-list/UZ/
+
+UZBEK_PROXIES = [
+    # Misol format (hozircha test uchun):
+    # {'server': 'http://IP:PORT'},
+    {'server': 'http://195.158.10.99:8080'},
+    # Bepul proxy'lar tez o'zgaradi, shuning uchun har doim yangi ro'yxat oling!
 ]
 
-# 3. TOR KONFIGURATSIYASI
-TOR_PROXY = {
-    'server': 'socks5://127.0.0.1:9050'
-}
+# GLOBAL BEPUL PROXY'LAR (test uchun)
+GLOBAL_PROXIES = [
+    # Bu yerga https://free-proxy-list.net dan oling
+    # {'server': 'http://IP:PORT'},
+]
 
-# 4. VPN KONFIGURATSIYASI (agar bor bo'lsa)
-VPN_PROXY = {
-    # Misol: ProtonVPN, NordVPN SOCKS5
-    # 'server': 'socks5://vpn-server:1080',
-    # 'username': 'your_username',
-    # 'password': 'your_password'
-}
+# TOR
+TOR_PROXY = {'server': 'socks5://127.0.0.1:9050'}
 
 
-async def get_current_ip(proxy=None):
-    """IP manzilni tekshirish"""
-    async with async_playwright() as p:
-        launch_opts = {'headless': True}
-        if proxy:
-            launch_opts['proxy'] = proxy
-
-        browser = await p.chromium.launch(**launch_opts)
-        page = await browser.new_page()
-        try:
-            await page.goto('https://api.ipify.org?format=json', timeout=15000)
-            ip_text = await page.evaluate('() => document.body.innerText')
-            ip_data = json.loads(ip_text)
-            await browser.close()
-            return ip_data['ip']
-        except Exception as e:
-            await browser.close()
-            return f"Error: {str(e)[:50]}"
-
-
-async def test_tor_connection():
-    """TOR ishlashini test qilish"""
-    print("\n🧅 TOR CONNECTION TEST")
-    print("-" * 60)
-
-    # 1. TOR yoqilganini tekshirish
+async def fetch_uzbek_proxies():
+    """
+    ProxyScrape API orqali O'zbekiston proxy'larini olish
+    """
+    print("🔍 O'zbekiston proxy'larini qidiryapman...")
     try:
-        tor_ip = await get_current_ip(TOR_PROXY)
-        print(f"✅ TOR ishlayapti! IP: {tor_ip}")
+        import aiohttp
+        url = "https://api.proxyscrape.com/v2/?request=get&protocol=http&timeout=5000&country=UZ&ssl=all&anonymity=all"
 
-        # 2. TOR circuit'ini restart qilish (yangi IP olish)
-        print("🔄 Yangi TOR circuit olish...")
-        # Bu yerda TOR controller orqali yangi circuit so'rash mumkin
-        # Lekin sodda usul: biroz kutish, TOR o'zi yangilaydi
-        await asyncio.sleep(2)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    text = await response.text()
+                    proxies = []
+                    for line in text.strip().split('\n'):
+                        if line and ':' in line:
+                            ip, port = line.split(':')
+                            proxies.append({'server': f'http://{ip.strip()}:{port.strip()}'})
 
-        new_tor_ip = await get_current_ip(TOR_PROXY)
-        print(f"🆕 Yangi IP: {new_tor_ip}")
-
-        return True
+                    if proxies:
+                        print(f"✅ {len(proxies)} ta UZ proxy topildi!")
+                        return proxies[:10]  # Faqat birinchi 10 ta
+                    else:
+                        print("⚠️ UZ proxy topilmadi")
+                        return []
+    except ImportError:
+        print("⚠️ aiohttp o'rnatilmagan: pip install aiohttp")
+        return []
     except Exception as e:
-        print(f"❌ TOR ishlamayapti: {e}")
-        return False
+        print(f"⚠️ Proxy olishda xatolik: {e}")
+        return []
 
 
-async def scrape_with_advanced_bypass(target_url, api_url, method="direct"):
+async def test_proxy(proxy_config, test_url="https://api.ipify.org?format=json"):
     """
-    Kengaytirilgan bypass usullari
-    method: direct, tor, tor_slow, proxy, vpn
+    Proxy ishlashini tezkor test qilish
     """
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                proxy=proxy_config
+            )
+            page = await browser.new_page()
+            await page.goto(test_url, timeout=10000)
+            ip = await page.evaluate('() => document.body.innerText')
+            await browser.close()
+            return True, ip
+    except Exception as e:
+        return False, str(e)[:50]
+
+
+async def scrape_with_proxy(target_url, api_url, proxy_config, proxy_name="Unknown"):
+    """
+    Proxy orqali scraping
+    """
+    start = time.time()
+    print(f"\n{'=' * 70}")
+    print(f"🧪 TEST: {proxy_name}")
+    print(f"{'=' * 70}")
+
     async with async_playwright() as p:
-        launch_options = {
-            'headless': True,
-            'args': [
-                '--disable-blink-features=AutomationControlled',
-                '--disable-dev-shm-usage',
-                '--no-sandbox',
-                '--disable-web-security',
-            ]
-        }
-
-        # Proxy tanlash
-        proxy_config = None
-        timeout_ms = 60000
-
-        if method == "tor":
-            proxy_config = TOR_PROXY
-            timeout_ms = 120000  # TOR uchun ko'proq vaqt
-            print("🧅 TOR orqali (standart)")
-        elif method == "tor_slow":
-            proxy_config = TOR_PROXY
-            timeout_ms = 180000  # 3 minut - juda sekin saytlar uchun
-            print("🐌 TOR orqali (sekin rejim - 3 min timeout)")
-        elif method == "proxy" and FREE_PROXIES:
-            proxy_config = random.choice(FREE_PROXIES)
-            print(f"🌐 Proxy orqali: {proxy_config['server']}")
-        elif method == "vpn" and VPN_PROXY.get('server'):
-            proxy_config = VPN_PROXY
-            print(f"🔐 VPN orqali: {proxy_config['server']}")
-        else:
-            print("🔓 To'g'ridan-to'g'ri (proxy/VPN yo'q)")
-
-        if proxy_config:
-            launch_options['proxy'] = proxy_config
-
-        browser = await p.chromium.launch(**launch_options)
-
-        # Stealth context
-        selected_user_agent = random.choice(USER_AGENTS)
-        context = await browser.new_context(
-            user_agent=selected_user_agent,
-            viewport={'width': 1920, 'height': 1080},
-            locale='en-US',
-            timezone_id='Asia/Tashkent',
-            extra_http_headers={
-                'Accept-Language': 'en-US,en;q=0.9,uz;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Connection': 'keep-alive',
-                'DNT': '1',
-                'Upgrade-Insecure-Requests': '1',
-            }
-        )
-
-        page = await context.new_page()
-
-        # Anti-detection
-        await page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            window.chrome = { runtime: {} };
-            Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
-            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-        """)
-
-        print(f"🎭 User-Agent: {selected_user_agent[:50]}...")
-
         try:
+            # Browser launch
+            launch_opts = {
+                'headless': True,
+                'args': [
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                ]
+            }
+
+            if proxy_config:
+                launch_opts['proxy'] = proxy_config
+                print(f"🌐 Proxy: {proxy_config['server']}")
+
+            browser = await p.chromium.launch(**launch_opts)
+
+            # Context
+            user_agent = random.choice(USER_AGENTS)
+            context = await browser.new_context(
+                user_agent=user_agent,
+                viewport={'width': 1920, 'height': 1080},
+                locale='uz-UZ',  # O'zbek locale
+                timezone_id='Asia/Tashkent',
+                extra_http_headers={
+                    'Accept-Language': 'uz-UZ,uz;q=0.9,en;q=0.8',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'DNT': '1',
+                }
+            )
+
+            page = await context.new_page()
+
+            # Anti-detection
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                window.chrome = { runtime: {} };
+            """)
+
             # IP tekshirish
             if proxy_config:
                 try:
                     ip_page = await context.new_page()
-                    await ip_page.goto('https://api.ipify.org?format=json', timeout=15000)
+                    await ip_page.goto('https://api.ipify.org?format=json', timeout=8000)
                     ip_data = await ip_page.evaluate('() => document.body.innerText')
-                    print(f"🌍 Hozirgi IP: {ip_data}")
+                    print(f"📍 IP: {ip_data}")
                     await ip_page.close()
                 except:
-                    print("⚠️ IP tekshirib bo'lmadi (normal, davom etamiz)")
+                    print("⚠️ IP tekshirib bo'lmadi")
 
-            # Saytga kirish (katta timeout bilan)
-            print(f"📡 Ulanish: {target_url} (timeout: {timeout_ms / 1000}s)")
-            start_time = time.time()
-
-            await page.goto(
-                target_url,
-                timeout=timeout_ms,
-                wait_until='domcontentloaded'  # networkidle emas, tezroq
-            )
-
-            load_time = time.time() - start_time
-            print(f"⏱️ Sahifa yuklandi: {load_time:.2f}s")
+            # Asosiy sahifa
+            print(f"📡 Ulanmoqda: {target_url}")
+            await page.goto(target_url, timeout=45000, wait_until='domcontentloaded')
+            print(f"✅ Sahifa yuklandi! ({time.time() - start:.1f}s)")
 
             # Random delay
-            await asyncio.sleep(random.uniform(2, 4))
+            await asyncio.sleep(random.uniform(1.5, 3))
 
-            # API so'rovi
+            # API
             print(f"📥 API: {api_url}")
             data = await page.evaluate(f"""
                 async () => {{
                     try {{
                         const res = await fetch('{api_url}');
-                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        if (!res.ok) return {{ error: 'HTTP ' + res.status }};
                         return await res.json();
                     }} catch (e) {{
                         return {{ error: e.message }};
@@ -191,144 +168,127 @@ async def scrape_with_advanced_bypass(target_url, api_url, method="direct"):
                 }}
             """)
 
-            if data and 'error' not in data:
-                print("✅ Ma'lumot olindi!")
-                # Faqat qisqa natija ko'rsatish
-                if isinstance(data, dict):
-                    keys = list(data.keys())[:3]
-                    print(f"📊 Data keys: {keys}...")
-                return data
-            else:
-                print(f"⚠️ API xatolik: {data.get('error', 'Unknown')}")
-                return None
-
-        except Exception as e:
-            error_msg = str(e)
-            print(f"❌ Xatolik: {error_msg[:100]}")
-
-            # Screenshot
-            try:
-                screenshot_name = f'error_{method}_{int(time.time())}.png'
-                await page.screenshot(path=screenshot_name, timeout=5000)
-                print(f"📸 Screenshot: {screenshot_name}")
-            except:
-                pass
-
-            return None
-
-        finally:
             await context.close()
             await browser.close()
 
+            # Natija
+            if data and 'error' not in data:
+                elapsed = time.time() - start
+                print(f"✅ SUCCESS! Ma'lumot olindi! ({elapsed:.1f}s)")
+                print(f"📊 Data sample: {str(data)[:100]}...")
+                return {'success': True, 'data': data, 'time': elapsed, 'proxy': proxy_name}
+            else:
+                print(f"❌ API Error: {data.get('error', 'Unknown')}")
+                return {'success': False, 'error': 'API failed', 'proxy': proxy_name}
 
-async def rotate_tor_identity():
-    """
-    TOR identity'sini o'zgartirish (yangi circuit)
-    Bu uchun TOR Controller kerak
-    """
-    try:
-        from stem import Signal
-        from stem.control import Controller
-
-        with Controller.from_port(port=9051) as controller:
-            controller.authenticate()
-            controller.signal(Signal.NEWNYM)
-            print("✅ TOR identity yangilandi!")
-            await asyncio.sleep(5)  # Yangi circuit tayyor bo'lguncha
-            return True
-    except ImportError:
-        print("⚠️ 'stem' kutubxonasi o'rnatilmagan: pip install stem")
-        return False
-    except Exception as e:
-        print(f"⚠️ TOR identity yangilab bo'lmadi: {e}")
-        return False
+        except Exception as e:
+            elapsed = time.time() - start
+            error_msg = str(e)[:80]
+            print(f"❌ FAILED: {error_msg} ({elapsed:.1f}s)")
+            return {'success': False, 'error': error_msg, 'time': elapsed, 'proxy': proxy_name}
 
 
 async def main():
     """
-    Barcha usullarni ketma-ket sinash
+    O'zbekiston IP bilan bypass test
     """
-    print("=" * 70)
-    print("🚀 ADVANCED IP BYPASS TEST - REAL WORLD SCENARIO")
-    print("=" * 70)
+    print("🇺🇿" * 35)
+    print("🚀 O'ZBEKISTON IP BYPASS - ULTIMATE TEST")
+    print("🇺🇿" * 35)
 
-    # O'Z SAYT URL'LARINGIZNI BU YERGA KIRITING!
+    # SIZNING SAYT URL'LARINGIZ!
     TARGET_URL = "https://ish.mehnat.uz/vacancies"
     API_URL = "https://api.mehnat.uz/api/v1/vacancies?per_page=5&isVisible=true&page=1"
 
     print(f"\n🎯 Target: {TARGET_URL}")
-    print(f"🎯 API: {API_URL}")
+    print(f"🎯 API: {API_URL}\n")
 
-    # Hozirgi IP
-    current_ip = await get_current_ip()
-    print(f"\n📍 Server IP (bloklangan): {current_ip}")
-    print("=" * 70)
+    results = []
 
-    results = {}
+    # 1. Bloklangan IP (baseline)
+    print("\n1️⃣ BLOKLANGAN IP (baseline)")
+    result = await scrape_with_proxy(TARGET_URL, API_URL, None, "Direct (Blocked)")
+    results.append(result)
+    await asyncio.sleep(2)
 
-    # TEST 1: To'g'ridan-to'g'ri (bloklangan)
-    print("\n1️⃣ TO'G'RIDAN-TO'G'RI (bloklangan IP)")
-    print("-" * 70)
-    results['direct'] = await scrape_with_advanced_bypass(TARGET_URL, API_URL, "direct")
-    await asyncio.sleep(3)
+    # 2. O'zbekiston proxy'larini olish va sinash
+    print("\n2️⃣ O'ZBEKISTON PROXY'LARI")
+    uz_proxies = await fetch_uzbek_proxies()
 
-    # TEST 2: TOR (standart timeout)
-    print("\n\n2️⃣ TOR ORQALI (standart - 2min timeout)")
-    print("-" * 70)
-    results['tor'] = await scrape_with_advanced_bypass(TARGET_URL, API_URL, "tor")
-    await asyncio.sleep(3)
+    if uz_proxies:
+        # Har bir UZ proxy'ni sinash
+        for i, proxy in enumerate(uz_proxies[:5], 1):  # Faqat 5 tasini sinash
+            print(f"\n🇺🇿 UZ Proxy #{i}")
+            # Avval tezkor test
+            works, info = await test_proxy(proxy)
+            if works:
+                print(f"✅ Proxy ishlayapti: {info}")
+                result = await scrape_with_proxy(TARGET_URL, API_URL, proxy, f"UZ-Proxy-{i}")
+                results.append(result)
 
-    # TEST 3: TOR (sekin rejim)
-    print("\n\n3️⃣ TOR ORQALI (sekin rejim - 3min timeout)")
-    print("-" * 70)
-    results['tor_slow'] = await scrape_with_advanced_bypass(TARGET_URL, API_URL, "tor_slow")
+                # Agar muvaffaqiyatli bo'lsa, to'xtatamiz!
+                if result['success']:
+                    print("\n🎉🎉🎉 MUVAFFAQIYAT! Bypass qilindi! 🎉🎉🎉")
+                    break
+            else:
+                print(f"❌ Proxy ishlamayapti: {info}")
 
-    # NATIJALAR
+            await asyncio.sleep(2)
+    else:
+        print("⚠️ O'zbekiston proxy topilmadi")
+        print("💡 Qo'lda quyidagi saytlardan proxy qo'shing:")
+        print("   - https://proxyscrape.com/free-proxy-list/uzbekistan")
+        print("   - https://www.ditatompel.com/proxy/country/uz")
+
+    # 3. Manual UZ proxy (agar UZBEK_PROXIES to'ldirilgan bo'lsa)
+    if UZBEK_PROXIES:
+        print("\n3️⃣ MANUAL O'ZBEKISTON PROXY'LAR")
+        for i, proxy in enumerate(UZBEK_PROXIES, 1):
+            result = await scrape_with_proxy(TARGET_URL, API_URL, proxy, f"Manual-UZ-{i}")
+            results.append(result)
+            if result['success']:
+                print("\n🎉 BYPASS QILINDI!")
+                break
+            await asyncio.sleep(2)
+
+    # FINAL NATIJALAR
     print("\n\n" + "=" * 70)
     print("📊 FINAL NATIJALAR:")
     print("=" * 70)
-    for method, result in results.items():
-        status = "✅ MUVAFFAQIYATLI" if result else "❌ MUVAFFAQIYATSIZ"
-        print(f"{method.upper():20} : {status}")
+
+    success_count = sum(1 for r in results if r['success'])
+
+    for i, result in enumerate(results, 1):
+        status = "✅ MUVAFFAQIYAT" if result['success'] else "❌ MUVAFFAQIYATSIZ"
+        proxy_name = result.get('proxy', 'Unknown')
+        time_taken = result.get('time', 0)
+        print(f"{i}. {proxy_name:25} : {status:20} ({time_taken:.1f}s)")
+
     print("=" * 70)
+    print(f"📈 Umumiy: {success_count}/{len(results)} muvaffaqiyatli")
 
-    # Tavsiyalar
-    print("\n💡 TAVSIYALAR:")
-    if not results.get('tor') and not results.get('tor_slow'):
-        print("""
-1. TOR exit node'lar bloklangan bo'lishi mumkin
-2. Bepul proxy sinab ko'ring (FREE_PROXIES ga qo'shing)
-3. VPN ishlatib ko'ring (tezroq va ishonchli)
-4. Cloud server'dan ishlatib ko'ring (AWS, DigitalOcean)
-5. Residential proxy xizmatlari (pullik lekin ishonchli):
-   - Bright Data (luminati.io)
-   - Oxylabs
-   - Smartproxy
-        """)
+    if success_count > 0:
+        print("\n🎊 TABRIKLAYMAN! Saytingiz bypass qilindi!")
+        print("💡 Bu degani:")
+        print("   ✅ Sizning IP blok mexanizmi ishlayapti")
+        print("   ✅ Lekin O'zbekiston IP'lari orqali kirishsa bo'ladi")
+        print("   🔐 Qo'shimcha himoya kerak bo'lsa:")
+        print("      - Rate limiting qo'shing")
+        print("      - CAPTCHA qo'shing")
+        print("      - User-Agent tekshiring")
+        print("      - Browser fingerprint tekshiring")
+    else:
+        print("\n🛡️ AJOYIB! Saytingiz juda mustahkam!")
+        print("💪 Hech qanday usul ishlamadi!")
+        print("   Ehtimol barcha proxy'lar ham bloklangan")
+        print("   yoki proxy'lar ishlamayapti")
 
-
-async def test_multiple_proxies():
-    """
-    Bir nechta proxy'ni ketma-ket sinash
-    """
-    print("\n🔄 KO'P PROXY SINOVI")
     print("=" * 70)
-
-    test_proxies = [
-        TOR_PROXY,
-        # Bu yerga bepul proxy'lar qo'shing
-    ]
-
-    for i, proxy in enumerate(test_proxies, 1):
-        print(f"\n{i}. Proxy: {proxy['server']}")
-        ip = await get_current_ip(proxy)
-        print(f"   IP: {ip}")
-        await asyncio.sleep(2)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # aiohttp o'rnatish haqida eslatma
+    print("📦 Kerakli paket: pip install aiohttp playwright")
+    print("💡 Agar aiohttp bo'lmasa, faqat manual proxy'lar sinab ko'riladi\n")
 
-    # Qo'shimcha testlar (kerak bo'lsa uncomment qiling)
-    # asyncio.run(test_tor_connection())
-    # asyncio.run(test_multiple_proxies())
+    asyncio.run(main())
