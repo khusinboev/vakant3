@@ -20,7 +20,7 @@ USER_AGENTS = [
 UZBEK_PROXIES = [
     # Misol format (hozircha test uchun):
     # {'server': 'http://IP:PORT'},
-    {'server': 'http://195.158.10.99:8080'},
+    # {'server': 'http://91.214.169.252:8080'},
     # Bepul proxy'lar tez o'zgaradi, shuning uchun har doim yangi ro'yxat oling!
 ]
 
