@@ -163,6 +163,24 @@ async def scrape_with_stealth(use_tor=False, use_proxy=False):
             await browser.close()
 
 
+async def check_current_ip():
+    """
+    Hozirgi IP manzilni tekshirish
+    """
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        try:
+            await page.goto('https://api.ipify.org?format=json', timeout=10000)
+            ip_text = await page.evaluate('() => document.body.innerText')
+            ip_data = json.loads(ip_text)
+            await browser.close()
+            return ip_data['ip']
+        except:
+            await browser.close()
+            return "Unknown"
+
+
 async def main():
     """
     Turli usullarni sinab ko'rish
@@ -171,25 +189,33 @@ async def main():
     print("🚀 ADVANCED WEB SCRAPING TEST")
     print("=" * 60)
 
-    # 1. Oddiy usul
-    print("\n1️⃣ ODDIY USUL (Hech qanday stealth yoq)")
+    # Hozirgi IP ni ko'rsatish
+    current_ip = await check_current_ip()
+    print(f"\n📍 Sizning hozirgi server IP: {current_ip}")
+    print(f"⚠️  Agar bu IP bloklanSA bo'lsa, oddiy usul ishlamaydi!")
+    print("=" * 60)
+
+    # 1. Oddiy usul (Bloklangan IP bilan)
+    print("\n1️⃣ ODDIY USUL (Bloklangan IP bilan)")
     print("-" * 60)
-    await scrape_with_stealth(use_tor=False, use_proxy=False)
+    print("⏳ Kutilayotgan natija: MUVAFFAQIYATSIZ (agar IP bloklangan bo'lsa)")
+    result1 = await scrape_with_stealth(use_tor=False, use_proxy=False)
 
-    await asyncio.sleep(3)
+    await asyncio.sleep(2)
 
-    # 2. Stealth usul (fingerprint spoofing + headers)
-    print("\n\n2️⃣ STEALTH USUL (Fingerprint spoofing + Header forgery)")
+    # 2. TOR orqali (IP o'zgaradi!)
+    print("\n\n2️⃣ TOR ORQALI (IP o'zgaradi - blokdan o'tish kerak!)")
     print("-" * 60)
-    await scrape_with_stealth(use_tor=False, use_proxy=False)
-
-    # 3. TOR orqali (agar Tor o'rnatilgan bo'lsa)
-    # print("\n\n3️⃣ TOR ORQALI")
-    # print("-" * 60)
-    # await scrape_with_stealth(use_tor=True, use_proxy=False)
+    print("⏳ Kutilayotgan natija: MUVAFFAQIYATLI (yangi IP bilan)")
+    print("📝 TOR ishga tushirilganligiga ishonch hosil qiling!")
+    result2 = await scrape_with_stealth(use_tor=True, use_proxy=False)
 
     print("\n\n" + "=" * 60)
-    print("✅ Barcha testlar tugadi!")
+    print("📊 TEST NATIJALARI:")
+    print("=" * 60)
+    print(f"1️⃣ Oddiy usul: {'✅ MUVAFFAQIYATLI' if result1 else '❌ MUVAFFAQIYATSIZ (kutilganidek)'}")
+    print(
+        f"2️⃣ TOR usuli: {'✅ MUVAFFAQIYATLI (blokdan o`tildi!)' if result2 else '❌ MUVAFFAQIYATSIZ (TOR ishlamayapti?)'}")
     print("=" * 60)
 
 
