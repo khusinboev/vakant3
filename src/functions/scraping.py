@@ -13,6 +13,7 @@ async def get_site_content(URL: str) -> Optional[Any]:
     Avval ishlaydigan O'zbekiston proksilarini ProxyManager orqali oladi.
     Agar hech biri ishlamasa — to'g'ridan-to'g'ri ulanadi.
     """
+    print(URL)
     pm = ProxyManager()
     proxies = await pm.get_working_proxies(max_proxies=5)
 
