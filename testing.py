@@ -113,26 +113,28 @@ async def scrape_with_stealth(use_tor=False, use_proxy=False):
         print(f"🔧 User-Agent: {selected_user_agent[:60]}...")
 
         try:
-            # Saytga kirish
-            print(f"📡 Saytga ulanish: https://ish.mehnat.uz/vacancies")
-            await page.goto("https://ish.mehnat.uz/vacancies",
+            # Saytga kirish - O'Z SAYTINGIZ URL'INI KIRITING!
+            target_url = "https://ish.mehnat.uz/vacancies"  # BU JOYGA O'Z SAYTINGIZNI KIRITING
+            print(f"📡 Saytga ulanish: {target_url}")
+            await page.goto(target_url,
                             timeout=60000,
                             wait_until='networkidle')
 
             # Random delay (bot detection oldini olish)
             await asyncio.sleep(random.uniform(1, 3))
 
-            # API orqali ma'lumot olish
-            print("📥 API dan ma'lumot olish...")
-            data = await page.evaluate("""
-                async () => {
-                    try {
-                        const res = await fetch('https://ishapi.mehnat.uz/api/v1/vacancies?per_page=5&isVisible=true&page=1');
+            # API orqali ma'lumot olish - O'Z API URL'INGIZNI KIRITING!
+            api_url = "https://ishapi.mehnat.uz/api/v1/vacancies?per_page=5&isVisible=true&page=1"
+            print(f"📥 API dan ma'lumot olish: {api_url}")
+            data = await page.evaluate(f"""
+                async () => {{
+                    try {{
+                        const res = await fetch('{api_url}');
                         return await res.json();
-                    } catch (e) {
-                        return { error: e.message };
-                    }
-                }
+                    }} catch (e) {{
+                        return {{ error: e.message }};
+                    }}
+                }}
             """)
 
             # IP manzilni tekshirish (agar TOR/Proxy ishlatilsa)
@@ -153,9 +155,12 @@ async def scrape_with_stealth(use_tor=False, use_proxy=False):
 
         except Exception as e:
             print(f"❌ Xatolik: {e}")
-            # Screenshot olish (debug uchun)
-            await page.screenshot(path='error_screenshot.png')
-            print("📸 Screenshot saqlandi: error_screenshot.png")
+            # Screenshot olish (debug uchun) - faqat page ochiq bo'lsa
+            try:
+                await page.screenshot(path='error_screenshot.png', timeout=5000)
+                print("📸 Screenshot saqlandi: error_screenshot.png")
+            except:
+                print("⚠️ Screenshot olib bo'lmadi (page yopilgan yoki timeout)")
             return None
 
         finally:
