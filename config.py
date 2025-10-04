@@ -3,7 +3,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from pathlib import Path
 
-# from src.middleware.middlewares import StatsMiddleware
+from src.middleware.middlewares import StatsMiddleware
 
 storage = MemoryStorage()
 
@@ -16,7 +16,7 @@ TOKEN = "7855267108:AAG1DRIP6cpfe5VDVWd1b2HGlb6WWFaCxDo"
 
 bot = Bot(token=TOKEN, parse_mode='html')
 dp = Dispatcher(bot=bot, storage=storage)
-# dp.middleware.setup(StatsMiddleware())
+dp.middleware.setup(StatsMiddleware())
 
 
 db = sqlite3.connect(BASE_DIR)
