@@ -1,219 +1,347 @@
-import sqlite3
-import pytz, datetime
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import StatesGroup, State
-from aiogram.utils.exceptions import *
+# ============================================
+# src/handlers/admin.py - Aiogram 3.x (1-qism)
+# ============================================
+import aiosqlite
+import pytz
+import datetime
+import asyncio
+from aiogram import Router, F
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.types import Message, ContentType
+from config import BASE_DIR, bot, ADMIN_IDS
+from src.buttons.buttuns import main_btn, channel_btn, reklama_btn, back_btn
+from src.functions.functions import panel_func
 
-from config import BASE_DIR
-from src.buttons.buttuns import *
-from src.functions.functions import *
-
-class From(StatesGroup):
-	channelAdd = State()
-	channelDelete = State()
-	send_msg = State()
-	forward_msg = State()
-	clear_msg = State()
-
-	sent_num = State()
-
-	one_S = State()
+router = Router()
 
 
-@dp.message_handler(commands = ["developer", 'coder', 'programmer'])
-async def coder(msg: types.Message):
-	await msg.reply("Bot dasturchisi @coder_admin_py\n\nPowered by @coder_admin_py", parse_mode='html')
-
-Admin = [5246872049, 619839487, 1918760732]
-markup = ReplyKeyboardMarkup(resize_keyboard=True)
-markup.add("🔙Orqaga qaytish")
-@dp.message_handler(commands=['admin', 'panel'], user_id = Admin)
-async def new(msg: types.Message):
-	await msg.answer("Assalomu alaykum admin janoblari", reply_markup=main_btn)
-	# await From.teststate.set()   state=From.teststate,
-
-@dp.message_handler(text = "🔙Orqaga qaytish", user_id = Admin)
-async def backs(message: types.Message):
-	await message.reply("Bosh menyu", reply_markup=main_btn)
-
-############################          STATISTIKA            """"""""""""""""""""""
-
-@dp.message_handler( text = "📊Statistika", user_id = Admin)
-async def new(msg: types.Message):
-	conn = sqlite3.connect(BASE_DIR)
-	cursor = conn.cursor()
-
-	# Toshkent vaqti bo‘yicha vaqtni olish
-	tz_uzbekistan = pytz.timezone("Asia/Tashkent")
-	now = datetime.datetime.now(tz_uzbekistan)
-
-	# Jami foydalanuvchilar
-	cursor.execute("SELECT COUNT(*) FROM users")
-	total_users = cursor.fetchone()[0]
-
-	# So‘nggi 3 oyda qo‘shilgan foydalanuvchilar
-	three_months_ago = now - datetime.timedelta(days=90)
-	three_months_ago_ts = int(three_months_ago.timestamp())
-
-	cursor.execute("SELECT COUNT(*) FROM users WHERE date >= ?", (three_months_ago_ts,))
-	last_3_months_users = cursor.fetchone()[0]
-
-	# Oxirgi 3 oy nomlari va timestamplarini olish
-	months_stats = {}
-	for i in range(3):
-		first_day = (now.replace(day=1) - datetime.timedelta(days=30 * i)).replace(day=1)
-		last_day = (first_day + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(seconds=1)
-
-		month_name = first_day.strftime("%B")  # Oyning nomi (Mart, Fevral, Yanvar)
-
-		cursor.execute("SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?",
-					   (int(first_day.timestamp()), int(last_day.timestamp())))
-		months_stats[month_name] = cursor.fetchone()[0]
-
-	# So‘nggi 7 kunlik statistika
-	last_7_days = {}
-	for i in range(7):
-		date = (now - datetime.timedelta(days=i))
-		date_str = date.strftime("%d-%m-%Y")
-
-		start_ts = int(date.replace(hour=0, minute=0, second=0).timestamp())
-		end_ts = int(date.replace(hour=23, minute=59, second=59).timestamp())
-
-		cursor.execute("SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?", (start_ts, end_ts))
-		last_7_days[date_str] = cursor.fetchone()[0]
-
-	conn.close()
-
-	# Statistikani formatlash
-	stat_text = f"""📊 **Foydalanuvchilar statistikasi** 📊
-
-	Jami: {total_users} ta
-	So‘nggi 3 oy (Jami: {last_3_months_users} ta) -
-	""" + "\n".join([f"🔹 {month}: {count} ta" for month, count in months_stats.items()]) + f"""
-
-	So‘nggi 7 kun ({sum(last_7_days.values())} ta):
-	""" + "\n".join([f"🔹 {date}: {count} ta" for date, count in last_7_days.items()])
-
-	await msg.answer(stat_text)
-
-###########################           KANALLAR              """""""""""""""""""""
-
-@dp.message_handler(text = '🔧Kanallar', user_id = Admin)
-async def new(msg: types.Message):
-	await msg.answer("Tanlang", reply_markup=channel_btn)
+class AdminStates(StatesGroup):
+    channel_add = State()
+    channel_delete = State()
+    send_msg = State()
+    forward_msg = State()
 
 
-@dp.message_handler(text = "➕Kanal qo'shish", user_id = Admin)
-async def channel_add(message: types.Message):
-	markup = ReplyKeyboardMarkup(resize_keyboard=True)
-	markup.add("🔙Orqaga qaytish")
-	await message.reply("Kanal qo'shish uchun kanalning userini yuboring.\nMisol uchun @coder_admin", reply_markup=markup)
-	await From.channelAdd.set()
+@router.message(Command("admin", "panel"))
+async def admin_panel(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await message.answer("Assalomu alaykum admin", reply_markup=main_btn)
 
 
-@dp.message_handler(state=From.channelAdd, user_id = Admin)
-async def channelAdd1(message: types.Message, state: FSMContext):
-	channel_id = [message.text.upper()]
-	data = sql.execute(f"SELECT id FROM channels WHERE id = '{message.text.upper()}'").fetchone()
-	if data is None:
-		if message.text[0]=='@':
-			await panel_func.channel_add(channel_id)
-			await state.finish()
-			await message.reply("Kanal qo'shildi🎉🎉", reply_markup=channel_btn)
-		else:
-			await message.reply("Kanal useri xato kiritildi\nIltimos userni @coder_admin ko'rinishida kiriting", reply_markup=channel_btn)
-	else:
-		await message.reply("Bu kanal avvaldan bor", reply_markup=channel_btn)
-	await state.finish()
+@router.message(F.text == "🔙Orqaga qaytish")
+async def back_handler(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await state.clear()
+    await message.reply("Bosh menyu", reply_markup=main_btn)
 
 
-@dp.message_handler(text = "❌Kanalni olib tashlash", user_id = Admin)
-async def channelD(message: types.Message):
-	await message.reply("O'chiriladigan kanalning userini yuboring.\nMisol uchun @coder_admin", reply_markup=markup)
-	await From.channelDelete.set()
+@router.message(F.text == "📊Statistika")
+async def statistics_handler(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
 
-@dp.message_handler(state=From.channelDelete, user_id = Admin)
-async def ChannelDel(message: types.Message, state: FSMContext):
-	channel_id = message.text.upper()
-	data = sql.execute(f"""SELECT id FROM channels WHERE id = '{channel_id}'""").fetchone()
-	if data is None:
-		await message.reply("Bunday kanal yo'q", reply_markup=channel_btn)
-	else:
-		if message.text[0]=='@':
-			await panel_func.channel_delete(channel_id)
-			await state.finish()
-			await message.reply("Kanal muvaffaqiyatli o'chirildi", reply_markup=channel_btn)
-		else:
-			await message.reply("Kanal useri xato kiritildi\nIltimos userni @coder_admin ko'rinishida kiriting", reply_markup=channel_btn)
+    tz_uzbekistan = pytz.timezone("Asia/Tashkent")
+    now = datetime.datetime.now(tz_uzbekistan)
 
-	await state.finish()
+    async with aiosqlite.connect(BASE_DIR) as conn:
+        cursor = await conn.execute("SELECT COUNT(*) FROM users")
+        total_users = (await cursor.fetchone())[0]
 
-@dp.message_handler(text = "📋 Kanallar ro'yxati")
-async def channelList(message: types.Message):
-	if len(await panel_func.channel_list()) > 3:
-		await message.reply(await panel_func.channel_list())
-	else:
-		await message.reply("Hozircha kanallar yo'q")
+        three_months_ago = now - datetime.timedelta(days=90)
+        three_months_ago_ts = int(three_months_ago.timestamp())
 
-################################            REKLAMA          """"""""""""""""""""""
+        cursor = await conn.execute(
+            "SELECT COUNT(*) FROM users WHERE date >= ?",
+            (three_months_ago_ts,)
+        )
+        last_3_months_users = (await cursor.fetchone())[0]
 
-@dp.message_handler(text = "📤Reklama", user_id = Admin)
-async def all_send(message: types.Message):
-	await message.reply("Foydalanuvchilarga xabar yuborish bo'limi", reply_markup=reklama_btn)
+        months_stats = {}
+        for i in range(3):
+            first_day = (now.replace(day=1) - datetime.timedelta(days=30 * i)).replace(day=1)
+            last_day = (first_day + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(seconds=1)
+            month_name = first_day.strftime("%B")
 
-@dp.message_handler(lambda message: message.text == "📨Forward xabar yuborish", user_id=Admin)
-async def all_users(message: types.Message, state: FSMContext):
-	markup = ReplyKeyboardMarkup(resize_keyboard=True)
-	markup.add("🔙Orqaga qaytish")
-	await message.answer("Forward yuboriladigan xabarni yuboring", reply_markup=markup)
-	await From.forward_msg.set()
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?",
+                (int(first_day.timestamp()), int(last_day.timestamp()))
+            )
+            months_stats[month_name] = (await cursor.fetchone())[0]
 
-@dp.message_handler(state=From.forward_msg, text = "🔙Orqaga qaytish", content_types=ContentType.ANY, user_id=Admin)
-async def all_users2(message: types.Message, state: FSMContext):
-	await state.finish()
-	await message.reply("Orqaga qaytildi", reply_markup=main_btn)
+        last_7_days = {}
+        for i in range(7):
+            date = now - datetime.timedelta(days=i)
+            date_str = date.strftime("%d-%m-%Y")
 
-@dp.message_handler(state=From.forward_msg, content_types=ContentType.ANY, user_id=Admin)
-async def all_users2(message: types.Message, state: FSMContext):
-	await state.finish()
-	markup = ReplyKeyboardMarkup(resize_keyboard=True)
-	markup.add("🔙Orqaga qaytish")
-	rows = sql.execute(f"SELECT user_id FROM users ").fetchall()
-	soni = 0
-	for row in rows:
-		id = row[0]
-		raqami = await forward_send_msg(from_chat_id=message.chat.id, message_id=message.message_id, chat_id=id)
-		soni += raqami
-		await asyncio.sleep(0.07)
+            start_ts = int(date.replace(hour=0, minute=0, second=0).timestamp())
+            end_ts = int(date.replace(hour=23, minute=59, second=59).timestamp())
 
-	await message.answer(f"Xabar yuborish yakunlandi. Bu xabar {soni} ta odamga yuborildi", reply_markup=reklama_btn)
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?",
+                (start_ts, end_ts)
+            )
+            last_7_days[date_str] = (await cursor.fetchone())[0]
+
+    stat_text = f"""📊 **Foydalanuvchilar statistikasi** 📊
+
+Jami: {total_users} ta
+So'nggi 3 oy (Jami: {last_3_months_users} ta):
+""" + "\n".join([f"🔹 {month}: {count} ta" for month, count in months_stats.items()]) + f"""
+
+So'nggi 7 kun ({sum(last_7_days.values())} ta):
+""" + "\n".join([f"🔹 {date}: {count} ta" for date, count in last_7_days.items()])
+
+    await message.answer(stat_text)
 
 
-@dp.message_handler(lambda message: message.text == "📬Oddiy xabar yuborish", user_id=Admin)
-async def all_users(message: types.Message, state: FSMContext):
-	markup = ReplyKeyboardMarkup(resize_keyboard=True)
-	markup.add("🔙Orqaga qaytish")
-	await message.answer("Yuborilishi kerak bo'lgan xabarni yuboring", reply_markup=markup)
-	await From.send_msg.set()
-
-@dp.message_handler(state=From.send_msg, text = "🔙Orqaga qaytish", content_types=ContentType.ANY, user_id=Admin)
-async def all_users2(message: types.Message, state: FSMContext):
-	await state.finish()
-	await message.reply("Orqaga qaytildi", reply_markup=main_btn)
-
-@dp.message_handler(state=From.send_msg, content_types=ContentType.ANY, user_id=Admin)
-async def all_users2(message: types.Message, state: FSMContext):
-	await state.finish()
-	markup = ReplyKeyboardMarkup(resize_keyboard=True)
-	markup.add("🔙Orqaga qaytish")
-	rows = sql.execute(f"SELECT user_id FROM users ").fetchall()
-	soni = 0
-	for row in rows:
-		id = row[0]
-		raqami = await send_message_chats(from_chat_id=message.chat.id, message_id=message.message_id, chat_id=id)
-		soni += raqami
-		await asyncio.sleep(0.07)
-
-	await message.answer(f"Xabar yuborish yakunlandi. Bu xabar {soni} ta odamga yuborildi", reply_markup=reklama_btn)
+@router.message(F.text == '🔧Kanallar')
+async def channels_menu(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await message.answer("Tanlang", reply_markup=channel_btn)
 
 
+@router.message(F.text == "➕Kanal qo'shish")
+async def channel_add_start(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    await message.reply(
+        "Kanal qo'shish uchun kanalning userini yuboring.\n"
+        "Misol: @coder_admin",
+        reply_markup=back_btn
+    )
+    await state.set_state(AdminStates.channel_add)
+
+
+@router.message(AdminStates.channel_add)
+async def channel_add_process(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    if message.text == "🔙Orqaga qaytish":
+        await state.clear()
+        await message.reply("Bekor qilindi", reply_markup=main_btn)
+        return
+
+    channel_username = message.text.strip().upper()
+
+    if not channel_username.startswith('@'):
+        await message.reply(
+            "Kanal useri xato! @coder_admin formatida kiriting",
+            reply_markup=channel_btn
+        )
+        await state.clear()
+        return
+
+    async with aiosqlite.connect(BASE_DIR) as conn:
+        cursor = await conn.execute(
+            "SELECT id FROM channels WHERE id = ?",
+            (channel_username,)
+        )
+        exists = await cursor.fetchone()
+
+    if exists:
+        await message.reply("Bu kanal allaqachon qo'shilgan", reply_markup=channel_btn)
+    else:
+        await panel_func.channel_add(channel_username)
+        await message.reply("Kanal qo'shildi 🎉", reply_markup=channel_btn)
+
+    await state.clear()
+
+
+@router.message(F.text == "❌Kanalni olib tashlash")
+async def channel_delete_start(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    await message.reply(
+        "O'chiriladigan kanalning userini yuboring.\n"
+        "Misol: @coder_admin",
+        reply_markup=back_btn
+    )
+    await state.set_state(AdminStates.channel_delete)
+
+
+@router.message(AdminStates.channel_delete)
+async def channel_delete_process(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    if message.text == "🔙Orqaga qaytish":
+        await state.clear()
+        await message.reply("Bekor qilindi", reply_markup=main_btn)
+        return
+
+    channel_username = message.text.strip().upper()
+
+    if not channel_username.startswith('@'):
+        await message.reply(
+            "Kanal useri xato! @coder_admin formatida kiriting",
+            reply_markup=channel_btn
+        )
+        await state.clear()
+        return
+
+    async with aiosqlite.connect(BASE_DIR) as conn:
+        cursor = await conn.execute(
+            "SELECT id FROM channels WHERE id = ?",
+            (channel_username,)
+        )
+        exists = await cursor.fetchone()
+
+    if not exists:
+        await message.reply("Bunday kanal yo'q", reply_markup=channel_btn)
+    else:
+        await panel_func.channel_delete(channel_username)
+        await message.reply("Kanal o'chirildi", reply_markup=channel_btn)
+
+    await state.clear()
+
+
+@router.message(F.text == "📋 Kanallar ro'yxati")
+async def channel_list_handler(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    channels_info = await panel_func.channel_list(bot)
+
+    if len(channels_info) > 3:
+        await message.reply(channels_info)
+    else:
+        await message.reply("Hozircha kanallar yo'q")
+
+
+@router.message(F.text == "📤Reklama")
+async def broadcast_menu(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    await message.reply(
+        "Foydalanuvchilarga xabar yuborish bo'limi",
+        reply_markup=reklama_btn
+    )
+
+
+@router.message(F.text == "📨Forward xabar yuborish")
+async def forward_broadcast_start(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    await message.answer(
+        "Forward yuboriladigan xabarni yuboring",
+        reply_markup=back_btn
+    )
+    await state.set_state(AdminStates.forward_msg)
+
+
+@router.message(AdminStates.forward_msg)
+async def forward_broadcast_send(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    if message.text == "🔙Orqaga qaytish":
+        await state.clear()
+        await message.reply("Bekor qilindi", reply_markup=main_btn)
+        return
+
+    await state.clear()
+
+    async with aiosqlite.connect(BASE_DIR) as conn:
+        cursor = await conn.execute("SELECT user_id FROM users")
+        users = await cursor.fetchall()
+
+    success_count = 0
+    failed_count = 0
+
+    status_msg = await message.answer(f"Yuborilmoqda... 0/{len(users)}")
+
+    for idx, (user_id,) in enumerate(users, 1):
+        try:
+            await bot.forward_message(user_id, message.chat.id, message.message_id)
+            success_count += 1
+        except:
+            failed_count += 1
+
+        if idx % 50 == 0:
+            try:
+                await status_msg.edit_text(
+                    f"Yuborilmoqda... {idx}/{len(users)}\n"
+                    f"✅ Muvaffaqiyatli: {success_count}\n"
+                    f"❌ Xato: {failed_count}"
+                )
+            except:
+                pass
+
+        await asyncio.sleep(0.05)
+
+    await status_msg.edit_text(
+        f"✅ Yuborish yakunlandi!\n\n"
+        f"📊 Jami: {len(users)} ta\n"
+        f"✅ Yuborildi: {success_count} ta\n"
+        f"❌ Yuborilmadi: {failed_count} ta"
+    )
+
+
+@router.message(F.text == "📬Oddiy xabar yuborish")
+async def copy_broadcast_start(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    await message.answer(
+        "Yuborilishi kerak bo'lgan xabarni yuboring",
+        reply_markup=back_btn
+    )
+    await state.set_state(AdminStates.send_msg)
+
+
+@router.message(AdminStates.send_msg)
+async def copy_broadcast_send(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    if message.text == "🔙Orqaga qaytish":
+        await state.clear()
+        await message.reply("Bekor qilindi", reply_markup=main_btn)
+        return
+
+    await state.clear()
+
+    async with aiosqlite.connect(BASE_DIR) as conn:
+        cursor = await conn.execute("SELECT user_id FROM users")
+        users = await cursor.fetchall()
+
+    success_count = 0
+    failed_count = 0
+
+    status_msg = await message.answer(f"Yuborilmoqda... 0/{len(users)}")
+
+    for idx, (user_id,) in enumerate(users, 1):
+        try:
+            await bot.copy_message(user_id, message.chat.id, message.message_id)
+            success_count += 1
+        except:
+            failed_count += 1
+
+        if idx % 50 == 0:
+            try:
+                await status_msg.edit_text(
+                    f"Yuborilmoqda... {idx}/{len(users)}\n"
+                    f"✅ Muvaffaqiyatli: {success_count}\n"
+                    f"❌ Xato: {failed_count}"
+                )
+            except:
+                pass
+
+        await asyncio.sleep(0.05)
+
+    await status_msg.edit_text(
+        f"✅ Yuborish yakunlandi!\n\n"
+        f"📊 Jami: {len(users)} ta\n"
+        f"✅ Yuborildi: {success_count} ta\n"
+        f"❌ Yuborilmadi: {failed_count} ta"
+    )

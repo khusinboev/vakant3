@@ -1,15 +1,16 @@
 # ============================================
-# middlewares.py - ASYNC VERSION
+# src/middleware/middlewares.py - Aiogram 3.x
 # ============================================
 import pytz
 import aiosqlite
-from aiogram.dispatcher.middlewares import BaseMiddleware
-from aiogram.types import Message
 import datetime
+from typing import Callable, Dict, Any, Awaitable
+from aiogram import BaseMiddleware
+from aiogram.types import Message
 
 
 class StatsMiddleware(BaseMiddleware):
-    def __init__(self, db_path):
+    def __init__(self, db_path: str):
         self.db_path = db_path
         super().__init__()
 
@@ -29,7 +30,7 @@ class StatsMiddleware(BaseMiddleware):
             """)
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS channels (
-                    id INTEGER PRIMARY KEY
+                    id TEXT PRIMARY KEY
                 )
             """)
             await conn.execute("""
@@ -49,12 +50,24 @@ class StatsMiddleware(BaseMiddleware):
                     PRIMARY KEY (user_id, save_id)
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS viloyatlar (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nom TEXT,
+                    my_num INTEGER
+                )
+            """)
             await conn.commit()
 
-    async def on_pre_process_message(self, message: Message, data: dict):
-        """Foydalanuvchini bazaga qo'shish"""
-        user_id = message.from_user.id
-        lang = message.from_user.language_code or 'uz'
+    async def __call__(
+        self,
+        handler: Callable[[Message, Dict[str, Any]], Awaitable[Any]],
+        event: Message,
+        data: Dict[str, Any]
+    ) -> Any:
+        """Har bir xabar uchun foydalanuvchini bazaga qo'shish"""
+        user_id = event.from_user.id
+        lang = event.from_user.language_code or 'uz'
 
         tz_uzbekistan = pytz.timezone("Asia/Tashkent")
         today = int(datetime.datetime.now(tz_uzbekistan).timestamp())
@@ -68,8 +81,9 @@ class StatsMiddleware(BaseMiddleware):
 
             if not result:
                 await conn.execute(
-                    """INSERT INTO users (user_id, date, lang) 
-                       VALUES (?, ?, ?)""",
+                    "INSERT INTO users (user_id, date, lang) VALUES (?, ?, ?)",
                     (user_id, today, lang)
                 )
                 await conn.commit()
+
+        return await handler(event, data)

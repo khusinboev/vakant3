@@ -1,35 +1,36 @@
 # ============================================
-# functions.py - XAVFSIZ VERSIYA
+# src/functions/functions.py - Aiogram 3.x
 # ============================================
 import aiosqlite
-from aiogram import types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from config import BASE_DIR, dp
+from config import BASE_DIR
 
 
 class functions:
     @staticmethod
-    async def check_on_start(user_id):
+    async def check_on_start(user_id: int, bot):
         """Kanalga obuna tekshiruvi"""
         async with aiosqlite.connect(BASE_DIR) as conn:
             cursor = await conn.execute("SELECT id FROM channels")
             rows = await cursor.fetchall()
 
-        error_code = 0
-        for row in rows:
-            try:
-                r = await dp.bot.get_chat_member(chat_id=row[0], user_id=user_id)
-                if r.status not in ['member', 'creator', 'administrator']:
-                    error_code = 1
-            except:
-                error_code = 1
+        if not rows:
+            return True
 
-        return error_code == 0
+        for (channel_id,) in rows:
+            try:
+                member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+                if member.status not in ['member', 'creator', 'administrator']:
+                    return False
+            except:
+                return False
+
+        return True
 
 
 class panel_func:
     @staticmethod
-    async def channel_add(channel_id):
+    async def channel_add(channel_id: str):
         """Kanal qo'shish"""
         async with aiosqlite.connect(BASE_DIR) as conn:
             try:
@@ -42,7 +43,7 @@ class panel_func:
                 pass
 
     @staticmethod
-    async def channel_delete(channel_id):
+    async def channel_delete(channel_id: str):
         """Kanal o'chirish"""
         async with aiosqlite.connect(BASE_DIR) as conn:
             await conn.execute(
@@ -52,7 +53,7 @@ class panel_func:
             await conn.commit()
 
     @staticmethod
-    async def channel_list():
+    async def channel_list(bot):
         """Kanallar ro'yxati"""
         async with aiosqlite.connect(BASE_DIR) as conn:
             cursor = await conn.execute("SELECT id FROM channels")
@@ -61,7 +62,7 @@ class panel_func:
         result = ''
         for row in rows:
             try:
-                chat = await dp.bot.get_chat(chat_id=row[0])
+                chat = await bot.get_chat(chat_id=row[0])
                 result += (
                     f"------------------------------------------------\n"
                     f"Kanal useri: {row[0]}\n"
@@ -75,32 +76,40 @@ class panel_func:
         return result or "Kanallar mavjud emas"
 
 
-async def join_inline_btn(user_id):
+async def join_inline_btn(user_id: int, bot):
     """Kanalga obuna tugmalari"""
     async with aiosqlite.connect(BASE_DIR) as conn:
         cursor = await conn.execute("SELECT id FROM channels")
         rows = await cursor.fetchall()
 
-    join_inline = InlineKeyboardMarkup(row_width=1)
-    for idx, row in enumerate(rows, 1):
+    buttons = []
+    for idx, (channel_id,) in enumerate(rows, 1):
         try:
-            chat = await dp.bot.get_chat(chat_id=row[0])
+            chat = await bot.get_chat(chat_id=channel_id)
             url = chat.invite_link
+            if not url:
+                url = await bot.export_chat_invite_link(channel_id)
             if url:
-                join_inline.add(InlineKeyboardButton(f"{idx} - kanal", url=url))
+                buttons.append([InlineKeyboardButton(
+                    text=f"{idx} - kanal",
+                    url=url
+                )])
         except:
             pass
 
-    join_inline.add(InlineKeyboardButton("✅ Obuna bo'ldim", callback_data="check"))
-    return join_inline
+    buttons.append([InlineKeyboardButton(
+        text="✅ Obuna bo'ldim",
+        callback_data="check"
+    )])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-async def search_vakant(user_id, page):
-    """Vakansiya qidirish - XAVFSIZ"""
+async def search_vakant(user_id: int, page: int):
+    """Vakansiya qidirish"""
     from src.functions.scraping import get_site_content
 
     async with aiosqlite.connect(BASE_DIR) as conn:
-        # ✅ SQL Injection'dan himoyalangan
         cursor = await conn.execute(
             "SELECT region, district, specs, money FROM users WHERE user_id = ?",
             (user_id,)
@@ -112,7 +121,6 @@ async def search_vakant(user_id, page):
 
     region, district, specs, money = user_data
 
-    # Region/district ID'larini olish
     yurt = ''
     if region:
         async with aiosqlite.connect(BASE_DIR) as conn:
@@ -130,7 +138,6 @@ async def search_vakant(user_id, page):
             if result:
                 yurt = result[0]
 
-    # API URL tuzish
     url = (
         f'https://ishapi.mehnat.uz/api/v1/vacancies?'
         f'per_page=5&salary={money or ""}&'
@@ -155,7 +162,7 @@ async def search_vakant(user_id, page):
                 f"<b>👨‍💻 {num}- VAKANSIYA\n\n</b>"
                 f"<b>🆔 ID: </b>{item['id']}\n"
                 f"<b>🏬 Ish beruvchi: </b>{item['company_name']}\n"
-                f"<b>👔 Lavozim: </b>{item['position_name']}\n"
+                f"<b>💼 Lavozim: </b>{item['position_name']}\n"
                 f"<b>💰 Maosh: </b>{salary_str} so'm\n"
                 f"<b>⏰ Sana: </b>{item['date_start']}\n"
                 f"------------------------------------\n"
@@ -177,45 +184,51 @@ async def search_vakant(user_id, page):
         return (f"Xatolik: {str(e)}", [], 0, 0, 0)
 
 
-async def vacancie_btn(ids, current_page, from_num):
+async def vacancie_btn(ids: list, current_page: int, from_num: int):
     """Vakansiya tugmalari"""
-    keyboard = InlineKeyboardMarkup(row_width=5)
+    buttons = []
 
+    # Raqamlar qatori
+    row = []
     for num, vacancy_id in enumerate(ids, start=from_num):
-        keyboard.insert(
-            InlineKeyboardButton(
-                str(num),
-                callback_data=f"{vacancy_id}:{current_page}"
-            )
-        )
+        row.append(InlineKeyboardButton(
+            text=str(num),
+            callback_data=f"{vacancy_id}:{current_page}"
+        ))
+    buttons.append(row)
 
-    keyboard.row(
-        InlineKeyboardButton("⬅", callback_data=f"⬅{current_page}"),
-        InlineKeyboardButton("❌", callback_data="❌"),
-        InlineKeyboardButton("➡", callback_data=f"➡{current_page}")
-    )
+    # Navigatsiya
+    buttons.append([
+        InlineKeyboardButton(text="⬅", callback_data=f"⬅{current_page}"),
+        InlineKeyboardButton(text="❌", callback_data="❌"),
+        InlineKeyboardButton(text="➡", callback_data=f"➡{current_page}")
+    ])
 
-    return keyboard
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-async def region_btn(user_id):
+async def region_btn(user_id: int):
     """Viloyatlar tugmalari"""
     async with aiosqlite.connect(BASE_DIR) as conn:
-        cursor = await conn.execute(
-            "SELECT nom FROM viloyatlar ORDER BY my_num"
-        )
+        cursor = await conn.execute("SELECT nom FROM viloyatlar ORDER BY my_num")
         regions = await cursor.fetchall()
 
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(InlineKeyboardButton("Barchasi", callback_data="Barchasi"))
+    buttons = [[InlineKeyboardButton(text="Barchasi", callback_data="Barchasi")]]
 
-    for region in regions:
-        keyboard.insert(InlineKeyboardButton(region[0], callback_data=region[0]))
+    row = []
+    for idx, (region,) in enumerate(regions):
+        row.append(InlineKeyboardButton(text=region, callback_data=region))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
 
-    return keyboard
+    if row:
+        buttons.append(row)
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-async def district_btn(user_id):
+async def district_btn(user_id: int):
     """Tumanlar tugmalari"""
     async with aiosqlite.connect(BASE_DIR) as conn:
         cursor = await conn.execute(
@@ -225,9 +238,9 @@ async def district_btn(user_id):
         result = await cursor.fetchone()
 
         if not result or not result[0]:
-            return InlineKeyboardMarkup().add(
-                InlineKeyboardButton("❌ Avval viloyat tanlang", callback_data="error")
-            )
+            return InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❌ Avval viloyat tanlang", callback_data="error")]
+            ])
 
         cursor = await conn.execute(
             "SELECT districts FROM locations WHERE regions = ?",
@@ -235,17 +248,23 @@ async def district_btn(user_id):
         )
         districts = await cursor.fetchall()
 
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(InlineKeyboardButton("Barchasi.", callback_data="Barchasi."))
+    buttons = [[InlineKeyboardButton(text="Barchasi.", callback_data="Barchasi.")]]
 
-    for district in districts:
-        if district[0]:
-            keyboard.insert(InlineKeyboardButton(district[0], callback_data=district[0]))
+    row = []
+    for district, in districts:
+        if district:
+            row.append(InlineKeyboardButton(text=district, callback_data=district))
+            if len(row) == 2:
+                buttons.append(row)
+                row = []
 
-    return keyboard
+    if row:
+        buttons.append(row)
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-async def money_btn(user_id):
+async def money_btn(user_id: int):
     """Maosh tugmalari"""
     options = [
         ('❌ Ahamiyatsiz', '0'),
@@ -255,14 +274,21 @@ async def money_btn(user_id):
         ('5 mln ➕', '5000000')
     ]
 
-    keyboard = InlineKeyboardMarkup(row_width=2)
+    buttons = []
+    row = []
     for text, value in options:
-        keyboard.insert(InlineKeyboardButton(text, callback_data=value))
+        row.append(InlineKeyboardButton(text=text, callback_data=value))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
 
-    return keyboard
+    if row:
+        buttons.append(row)
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-async def special_btn(user_id):
+async def special_btn(user_id: int):
     """Soha tugmalari"""
     specs = [
         ("Sog'liqni saqlash", '22,322,323,324'),
@@ -275,14 +301,21 @@ async def special_btn(user_id):
         ("Haydovchilik", '83')
     ]
 
-    keyboard = InlineKeyboardMarkup(row_width=2)
+    buttons = []
+    row = []
     for name, code in specs:
-        keyboard.insert(InlineKeyboardButton(name, callback_data=code))
+        row.append(InlineKeyboardButton(text=name, callback_data=code))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
 
-    return keyboard
+    if row:
+        buttons.append(row)
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-async def saves_info(vacancy_id):
+async def saves_info(vacancy_id: int):
     """Vakansiya to'liq ma'lumoti"""
     from src.functions.scraping import get_site_content
 
@@ -293,11 +326,10 @@ async def saves_info(vacancy_id):
         return "Vakansiya topilmadi"
 
     data = soup['data']
-    status = "Faol" if data.get("active") else "Band"
 
     return (
         f"<b>🏬 Ish beruvchi:</b> {data.get('company_name', 'N/A')}\n"
-        f"<b>👔 Lavozim:</b> {data.get('position_name', 'N/A')}\n"
+        f"<b>💼 Lavozim:</b> {data.get('position_name', 'N/A')}\n"
         f"<b>📋 Stavka:</b> {data.get('position_rate', 'N/A')}\n"
         f"<b>🛠 Vazifalar:</b> {data.get('position_duties', 'N/A')}\n"
         f"<b>🎓 Talab:</b> {data.get('position_requirements', 'N/A')}\n"
@@ -309,21 +341,3 @@ async def saves_info(vacancy_id):
         f"<b>⏰ Sana:</b> {data.get('date_start', 'N/A')}\n\n"
         f"<b>♻️ @mehnatuz_bot</b>"
     )
-
-
-async def forward_send_msg(chat_id: int, from_chat_id: int, message_id: int) -> int:
-    """Xabar forward qilish"""
-    try:
-        await dp.bot.forward_message(chat_id, from_chat_id, message_id)
-        return 1
-    except:
-        return 0
-
-
-async def send_message_chats(chat_id: int, from_chat_id: int, message_id: int) -> int:
-    """Xabar nusxalash"""
-    try:
-        await dp.bot.copy_message(chat_id, from_chat_id, message_id)
-        return 1
-    except:
-        return 0

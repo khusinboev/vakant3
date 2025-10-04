@@ -1,17 +1,44 @@
-from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
-from config import sql
+# ============================================
+# src/buttons/buttuns.py - Aiogram 3.x
+# ============================================
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-main_btn = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-main_btn.add("📊Statistika", "🔧Kanallar", "📤Reklama")
+# Admin panel
+main_btn = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📊Statistika"), KeyboardButton(text="🔧Kanallar")],
+        [KeyboardButton(text="📤Reklama")]
+    ],
+    resize_keyboard=True
+)
 
-channel_btn = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-channel_btn.add("➕Kanal qo'shish", "❌Kanalni olib tashlash")
-channel_btn.add("📋 Kanallar ro'yxati", "🔙Orqaga qaytish")
+channel_btn = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="➕Kanal qo'shish"), KeyboardButton(text="❌Kanalni olib tashlash")],
+        [KeyboardButton(text="📋 Kanallar ro'yxati"), KeyboardButton(text="🔙Orqaga qaytish")]
+    ],
+    resize_keyboard=True
+)
 
-reklama_btn = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-reklama_btn.add("📨Forward xabar yuborish", "📬Oddiy xabar yuborish", "🔙Orqaga qaytish")
+reklama_btn = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📨Forward xabar yuborish"), KeyboardButton(text="📬Oddiy xabar yuborish")],
+        [KeyboardButton(text="🔙Orqaga qaytish")]
+    ],
+    resize_keyboard=True
+)
 
+# User menu
+MM_btn = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="💼 Ish qidirish"), KeyboardButton(text="🛠 Filtrni boshqarish")],
+        [KeyboardButton(text="🗂 Saqlangan ishlar")]
+    ],
+    resize_keyboard=True
+)
 
-
-MM_btn = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-MM_btn.add("💼 Ish qidirish", "🛠 Filtrni boshqarish", "🗂 Saqlangan ishlar")
+# Orqaga qaytish
+back_btn = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="🔙Orqaga qaytish")]],
+    resize_keyboard=True
+)
