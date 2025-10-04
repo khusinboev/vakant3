@@ -1,54 +1,75 @@
+# ============================================
+# middlewares.py - ASYNC VERSION
+# ============================================
 import pytz
+import aiosqlite
 from aiogram.dispatcher.middlewares import BaseMiddleware
 from aiogram.types import Message
 import datetime
-import sqlite3  # Yoki PostgreSQL/MySQL ishlatsang asyncpg yoki aiomysql
-from pathlib import Path
 
 
 class StatsMiddleware(BaseMiddleware):
-    def __init__(self, db_path="/home/vakant2/vakant3/src/database/database.sqlite3"):
+    def __init__(self, db_path):
         self.db_path = db_path
-        self.init_db()
         super().__init__()
 
-    def init_db(self):
-        """Bazani yaratish (faqat bir marta ishga tushiriladi)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """CREATE TABLE IF NOT EXISTS users ("user_id"  INTEGER,"date"  INTEGER, "lang" INTEGER, "region" INTEGER, "district" INTEGER, "money" INTEGER);""")
-        conn.commit()
-        cursor.execute("""CREATE TABLE IF NOT EXISTS channels ("id"  INTEGER);""")
-        conn.commit()
-        cursor.execute(
-            """CREATE TABLE IF NOT EXISTS locations ("regions"  INTEGER, "reg_ids"  INTEGER, "districts"  INTEGER, "dist_ids"  INTEGER, "addition"  INTEGER);""")
-        conn.commit()
-        conn.close()
+    async def init_db(self):
+        """Bazani yaratish"""
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY,
+                    date INTEGER,
+                    lang TEXT,
+                    region TEXT,
+                    district TEXT,
+                    specs TEXT,
+                    money INTEGER
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS channels (
+                    id INTEGER PRIMARY KEY
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS locations (
+                    regions TEXT,
+                    reg_ids TEXT,
+                    districts TEXT,
+                    dist_ids TEXT,
+                    addition INTEGER
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS saves (
+                    user_id INTEGER,
+                    save_id INTEGER,
+                    fake INTEGER,
+                    PRIMARY KEY (user_id, save_id)
+                )
+            """)
+            await conn.commit()
 
     async def on_pre_process_message(self, message: Message, data: dict):
-        """Foydalanuvchini bazaga qo'shish yoki sanani yangilash"""
+        """Foydalanuvchini bazaga qo'shish"""
         user_id = message.from_user.id
-        lang = message.from_user.language_code
+        lang = message.from_user.language_code or 'uz'
 
-        # Toshkent vaqtini olish
         tz_uzbekistan = pytz.timezone("Asia/Tashkent")
-        today = int(datetime.datetime.now(tz_uzbekistan).timestamp())  # UNIX timestamp (Toshkent vaqti bo‘yicha)
+        today = int(datetime.datetime.now(tz_uzbekistan).timestamp())
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute(
+                "SELECT user_id FROM users WHERE user_id = ?",
+                (user_id,)
+            )
+            result = await cursor.fetchone()
 
-        # Foydalanuvchi bazada bor yoki yo‘qligini tekshiramiz
-        cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
-        result = cursor.fetchone()
-
-        if result:
-            pass
-            # Agar foydalanuvchi bor bo‘lsa, sanasini yangilaymiz
-            # cursor.execute("UPDATE users SET date = ? WHERE user_id = ?", (today, user_id))
-        else:
-            # Agar foydalanuvchi yangi bo‘lsa, qo‘shamiz
-            cursor.execute("INSERT INTO users (user_id, date, lang) VALUES (?, ?, ?)", (user_id, today, lang))
-
-        conn.commit()
-        conn.close()
+            if not result:
+                await conn.execute(
+                    """INSERT INTO users (user_id, date, lang) 
+                       VALUES (?, ?, ?)""",
+                    (user_id, today, lang)
+                )
+                await conn.commit()

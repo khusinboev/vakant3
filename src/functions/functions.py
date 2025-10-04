@@ -1,262 +1,329 @@
-from sqlite3 import connect
-
-# from aiohttp_proxy import ProxyConnector
-
-from aiogram import *
-from aiogram.types import *
-import asyncio
-import aiohttp
-
-from config import sql, db, dp
-from src.functions.scraping import get_site_content
+# ============================================
+# functions.py - XAVFSIZ VERSIYA
+# ============================================
+import aiosqlite
+from aiogram import types
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from config import BASE_DIR, dp
 
 
-###   Admin panel uchun kerakli funksiyalar
 class functions:
     @staticmethod
     async def check_on_start(user_id):
-        rows = sql.execute("SELECT id FROM channels").fetchall()
+        """Kanalga obuna tekshiruvi"""
+        async with aiosqlite.connect(BASE_DIR) as conn:
+            cursor = await conn.execute("SELECT id FROM channels")
+            rows = await cursor.fetchall()
+
         error_code = 0
         for row in rows:
-            r = await dp.bot.get_chat_member(chat_id=row[0], user_id=user_id)
-            if r.status in ['member', 'creator', 'admin']:
-                pass
-            else:
+            try:
+                r = await dp.bot.get_chat_member(chat_id=row[0], user_id=user_id)
+                if r.status not in ['member', 'creator', 'administrator']:
+                    error_code = 1
+            except:
                 error_code = 1
-        if error_code == 0:
-            return True
-        else:
-            return False
+
+        return error_code == 0
+
 
 class panel_func:
     @staticmethod
-    async def channel_add(id):
-        sql.execute("""CREATE TABLE IF NOT EXISTS channels(id)""")
-        db.commit()
-        sql.execute("INSERT INTO channels VALUES(?);", id)
-        db.commit()
-
+    async def channel_add(channel_id):
+        """Kanal qo'shish"""
+        async with aiosqlite.connect(BASE_DIR) as conn:
+            try:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO channels (id) VALUES (?)",
+                    (channel_id,)
+                )
+                await conn.commit()
+            except:
+                pass
 
     @staticmethod
-    async def channel_delete(id):
-        sql.execute(f'DELETE FROM channels WHERE id = "{id}"')
-        db.commit()
+    async def channel_delete(channel_id):
+        """Kanal o'chirish"""
+        async with aiosqlite.connect(BASE_DIR) as conn:
+            await conn.execute(
+                "DELETE FROM channels WHERE id = ?",
+                (channel_id,)
+            )
+            await conn.commit()
 
     @staticmethod
     async def channel_list():
-        sql.execute("SELECT id from channels")
-        str = ''
-        for row in sql.fetchall():
-            id = row[0]
+        """Kanallar ro'yxati"""
+        async with aiosqlite.connect(BASE_DIR) as conn:
+            cursor = await conn.execute("SELECT id FROM channels")
+            rows = await cursor.fetchall()
+
+        result = ''
+        for row in rows:
             try:
-                all_details = await dp.bot.get_chat(chat_id=id)
-                title = all_details["title"]
-                channel_id = all_details["id"]
-                info = all_details["description"]
-                str+= f"------------------------------------------------\nKanal useri: > {id}\nKamal nomi: > {title}\nKanal id si: > {channel_id}\nKanal haqida: > {info}\n"
+                chat = await dp.bot.get_chat(chat_id=row[0])
+                result += (
+                    f"------------------------------------------------\n"
+                    f"Kanal useri: {row[0]}\n"
+                    f"Kanal nomi: {chat.title}\n"
+                    f"Kanal ID: {chat.id}\n"
+                    f"Haqida: {chat.description or 'Mavjud emas'}\n"
+                )
             except:
-                str+= "Kanalni admin qiling"
-        return str
+                result += f"Kanal {row[0]} - botni admin qiling\n"
 
-async def forward_send_msg(chat_id: int, from_chat_id: int, message_id: int) -> int:
-    try:
-        await dp.bot.forward_message(chat_id=chat_id, from_chat_id=from_chat_id, message_id=message_id)
-        return 1
-    except:
-        return 0
-
-async def send_message_chats(chat_id: int, from_chat_id: int, message_id: int) -> int:
-    try:
-        await dp.bot.copy_message(chat_id=chat_id, from_chat_id=from_chat_id, message_id=message_id)
-        return 1
-    except:
-        return 0
+        return result or "Kanallar mavjud emas"
 
 
-### kanalga qo'shilish
 async def join_inline_btn(user_id):
-    sql.execute("SELECT id FROM channels")
-    rows = sql.fetchall()
-    join_inline = types.InlineKeyboardMarkup(row_width=1)
-    title = 1
-    for row in rows:
-        all_details = await dp.bot.get_chat(chat_id=row[0])
-        url = all_details['invite_link']
-        join_inline.insert(InlineKeyboardButton(f"{title} - kanal", url=url))
-        title += 1
-    join_inline.add(InlineKeyboardButton("✅Obuna bo'ldim", callback_data="check"))
+    """Kanalga obuna tugmalari"""
+    async with aiosqlite.connect(BASE_DIR) as conn:
+        cursor = await conn.execute("SELECT id FROM channels")
+        rows = await cursor.fetchall()
 
+    join_inline = InlineKeyboardMarkup(row_width=1)
+    for idx, row in enumerate(rows, 1):
+        try:
+            chat = await dp.bot.get_chat(chat_id=row[0])
+            url = chat.invite_link
+            if url:
+                join_inline.add(InlineKeyboardButton(f"{idx} - kanal", url=url))
+        except:
+            pass
+
+    join_inline.add(InlineKeyboardButton("✅ Obuna bo'ldim", callback_data="check"))
     return join_inline
 
 
-##    Parsing uchun funksiya
+async def search_vakant(user_id, page):
+    """Vakansiya qidirish - XAVFSIZ"""
+    from src.functions.scraping import get_site_content
 
-# async def get_site_content(URL):
-#     async with aiohttp.ClientSession() as session:
-#         async with session.get(URL, ssl=False) as resp:
-#             text = await resp.json()
-#     return text
+    async with aiosqlite.connect(BASE_DIR) as conn:
+        # ✅ SQL Injection'dan himoyalangan
+        cursor = await conn.execute(
+            "SELECT region, district, specs, money FROM users WHERE user_id = ?",
+            (user_id,)
+        )
+        user_data = await cursor.fetchone()
 
+    if not user_data:
+        return ("Foydalanuvchi topilmadi", [], 0, 0, 0)
 
-async def search_vakant(user_id, bet):
-        reg0 = sql.execute(f"""SELECT region FROM users WHERE user_id = {user_id}""").fetchone()[0]
-        reg1 = sql.execute(f"""SELECT district FROM users WHERE user_id = {user_id} """).fetchone()[0]
-        specs = sql.execute(f"""SELECT specs FROM users WHERE user_id = {user_id} """).fetchone()[0]
-        if specs==None:
-            soha = ""
-        else:
-            soha = specs
-        if reg0 is None:
-            yurt = ''
-        else:
-            if reg1 is None:
-                yurt = sql.execute(f"""SELECT reg_ids FROM locations WHERE regions = "{reg0}" """).fetchone()[0]
+    region, district, specs, money = user_data
+
+    # Region/district ID'larini olish
+    yurt = ''
+    if region:
+        async with aiosqlite.connect(BASE_DIR) as conn:
+            if district:
+                cursor = await conn.execute(
+                    "SELECT dist_ids FROM locations WHERE districts = ?",
+                    (district,)
+                )
             else:
-                yurt = sql.execute(f"""SELECT dist_ids FROM locations WHERE districts = "{reg1}" """).fetchone()[0]
+                cursor = await conn.execute(
+                    "SELECT reg_ids FROM locations WHERE regions = ?",
+                    (region,)
+                )
+            result = await cursor.fetchone()
+            if result:
+                yurt = result[0]
 
-        oyliq_basa = sql.execute(f"""SELECT money FROM users WHERE user_id = {user_id}""").fetchone()[0]
-        if oyliq_basa == None:
-            oyliq=''
-        else:
-            oyliq=oyliq_basa
+    # API URL tuzish
+    url = (
+        f'https://ishapi.mehnat.uz/api/v1/vacancies?'
+        f'per_page=5&salary={money or ""}&'
+        f'vacancy_soato_code={yurt}&sort_key=created_at&'
+        f'nskz={specs or ""}&page={page}'
+    )
 
-        url2 = f'https://ishapi.mehnat.uz/api/v1/vacancies?per_page=5&salary={oyliq}&vacancy_soato_code={yurt}&sort_key=created_at&nskz={soha}&page={bet}'
-        soup = await get_site_content(url2)
+    soup = await get_site_content(url)
 
-        try:
-            text = soup['data']['data']
+    try:
+        if not soup or 'data' not in soup:
+            return ("Xatolik yuz berdi", [], 0, 0, 0)
 
-            num = soup['data']['from']
-            texts = ''
-            ids = []
-            for i in text:
+        data = soup['data']['data']
+        num = soup['data']['from'] or 1
+        texts = ''
+        ids = []
 
-                id = i['id']
-                company_name = i['company_name']
-                position_name = i['position_name']
-                position_salary = i['position_salary']
-                if position_salary == None:
-                    position_salary = "Mavjud emas"
-                date_start = i['date_start']
-                texts += (f"<b>👨‍💻 {num}- VAKANSIYA\n\n</b>"
-                          f"<b>🆔 ID raqami: </b>{id}\n"
-                          f"<b>🏬 Ish beruvchi: </b>{company_name}\n"
-                          f"<b>💺 Lavozim</b>: {position_name}\n"
-                          f"<b>💰 Maoshi: </b>{position_salary} so'm\n"
-                          f"<b>⏰ Ish joylangan sana: </b>{date_start}\n------------------------------------\n")
-                num += 1
-                ids.append(id)
-            all = soup['data']['total']
-            dan = soup['data']['from']
-            ga = soup['data']['to']
-            joriy = soup['data']['current_page']
-            end = soup['data']['last_page']
-            texts = f"<b>NATIJALAR</b>: {all} ta bo'sh ish o'rinlari topildi | {dan}-{ga}\n\n" + texts
-            if dan == None:
-                texts = "Sizning belgilagan filterlaringiz bo'yicha ma'lumot topilmadi, Filtrlarni o'zgartirib ko'ring"
-        except:
-            texts="Xato yuz berdi"
-            ids = 1
-            joriy = 0
-            dan = 0
-            end = 0
-        return texts, ids, joriy, dan, end
+        for item in data:
+            salary_str = item.get('position_salary') or "Mavjud emas"
+            texts += (
+                f"<b>👨‍💻 {num}- VAKANSIYA\n\n</b>"
+                f"<b>🆔 ID: </b>{item['id']}\n"
+                f"<b>🏬 Ish beruvchi: </b>{item['company_name']}\n"
+                f"<b>👔 Lavozim: </b>{item['position_name']}\n"
+                f"<b>💰 Maosh: </b>{salary_str} so'm\n"
+                f"<b>⏰ Sana: </b>{item['date_start']}\n"
+                f"------------------------------------\n"
+            )
+            num += 1
+            ids.append(item['id'])
 
+        total = soup['data']['total']
+        from_page = soup['data']['from']
+        to_page = soup['data']['to']
+        current = soup['data']['current_page']
+        last = soup['data']['last_page']
 
-async def vacancie_btn(ids, joriy, ga):
-    region_choos = types.InlineKeyboardMarkup(row_width=5)
-    for name, id in zip(range(ga, ga+10), ids):
-        region_choos.insert(InlineKeyboardButton(str(name), callback_data=f"{id}:{joriy}"))
+        texts = f"<b>NATIJALAR</b>: {total} ta | {from_page}-{to_page}\n\n" + texts
 
-    region_choos.add(InlineKeyboardButton("⬅", callback_data=f"⬅{joriy}"))
-    region_choos.insert(InlineKeyboardButton("❌", callback_data="❌"))
-    region_choos.insert(InlineKeyboardButton("➡", callback_data=f"➡{joriy}"))
-    return region_choos
+        return (texts, ids, current, from_page, last)
+
+    except Exception as e:
+        return (f"Xatolik: {str(e)}", [], 0, 0, 0)
 
 
-###  Viloyat va tumanlarni basadan olish
+async def vacancie_btn(ids, current_page, from_num):
+    """Vakansiya tugmalari"""
+    keyboard = InlineKeyboardMarkup(row_width=5)
 
-async def get_regions():
-    sql.execute("SELECT my_num, nom FROM viloyatlar")
-    all = [i for i in sql.fetchall()]
-    return all
+    for num, vacancy_id in enumerate(ids, start=from_num):
+        keyboard.insert(
+            InlineKeyboardButton(
+                str(num),
+                callback_data=f"{vacancy_id}:{current_page}"
+            )
+        )
 
+    keyboard.row(
+        InlineKeyboardButton("⬅", callback_data=f"⬅{current_page}"),
+        InlineKeyboardButton("❌", callback_data="❌"),
+        InlineKeyboardButton("➡", callback_data=f"➡{current_page}")
+    )
 
-########################         tugmalarni chiqarish uchun funksiyalar
+    return keyboard
+
 
 async def region_btn(user_id):
-    regs = ['Barchasi'] + [r1 for r, r1 in await get_regions()]
-    region_choos = types.InlineKeyboardMarkup(row_width=2)
-    title = 1
-    for row in regs:
-        region_choos.insert(InlineKeyboardButton(row, callback_data=row))
-        title += 1
-    return region_choos
+    """Viloyatlar tugmalari"""
+    async with aiosqlite.connect(BASE_DIR) as conn:
+        cursor = await conn.execute(
+            "SELECT nom FROM viloyatlar ORDER BY my_num"
+        )
+        regions = await cursor.fetchall()
+
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(InlineKeyboardButton("Barchasi", callback_data="Barchasi"))
+
+    for region in regions:
+        keyboard.insert(InlineKeyboardButton(region[0], callback_data=region[0]))
+
+    return keyboard
 
 
 async def district_btn(user_id):
-    regs = sql.execute(f"""SELECT region FROM users WHERE user_id = {user_id}""").fetchone()[0]
-    districts = ['Barchasi.'] + [dis[0] for dis in sql.execute(f"""SELECT districts FROM locations WHERE regions = "{regs}" """).fetchall()]
+    """Tumanlar tugmalari"""
+    async with aiosqlite.connect(BASE_DIR) as conn:
+        cursor = await conn.execute(
+            "SELECT region FROM users WHERE user_id = ?",
+            (user_id,)
+        )
+        result = await cursor.fetchone()
 
-    region_choos = types.InlineKeyboardMarkup(row_width=2)
-    title = 1
-    for row in districts:
-        region_choos.insert(InlineKeyboardButton(row, callback_data=row))
-        title += 1
-    return region_choos
+        if not result or not result[0]:
+            return InlineKeyboardMarkup().add(
+                InlineKeyboardButton("❌ Avval viloyat tanlang", callback_data="error")
+            )
+
+        cursor = await conn.execute(
+            "SELECT districts FROM locations WHERE regions = ?",
+            (result[0],)
+        )
+        districts = await cursor.fetchall()
+
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(InlineKeyboardButton("Barchasi.", callback_data="Barchasi."))
+
+    for district in districts:
+        if district[0]:
+            keyboard.insert(InlineKeyboardButton(district[0], callback_data=district[0]))
+
+    return keyboard
 
 
 async def money_btn(user_id):
-    rr = [('❌Ahamiyatsiz️',0), ('2 mln ➕',2000000), ('3 mln ➕',3000000), ('4 mln ➕',4000000), ('5 mln ➕',5000000)]
-    region_choos = types.InlineKeyboardMarkup(row_width=2)
-    for row in rr:
-        region_choos.insert(InlineKeyboardButton(row[0], callback_data=str(row[1])))
-    return region_choos
+    """Maosh tugmalari"""
+    options = [
+        ('❌ Ahamiyatsiz', '0'),
+        ('2 mln ➕', '2000000'),
+        ('3 mln ➕', '3000000'),
+        ('4 mln ➕', '4000000'),
+        ('5 mln ➕', '5000000')
+    ]
+
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    for text, value in options:
+        keyboard.insert(InlineKeyboardButton(text, callback_data=value))
+
+    return keyboard
 
 
 async def special_btn(user_id):
-    specs = ["Sog'liqni saqlash", "Qurilish sohasi", "Savdo va xizmat ko'rsatish", "Qishloq xo'jaligi", "Arxitektura va Texnika", "IT sohasi", "Ta'lim sohasi", "Haydovchilik sohasi"]
-    backs = ['22,322,323,324', '71', '91,522,523', '61', '214', '213,312', '23,33', '83']
+    """Soha tugmalari"""
+    specs = [
+        ("Sog'liqni saqlash", '22,322,323,324'),
+        ("Qurilish", '71'),
+        ("Savdo", '91,522,523'),
+        ("Qishloq xo'jaligi", '61'),
+        ("Arxitektura", '214'),
+        ("IT", '213,312'),
+        ("Ta'lim", '23,33'),
+        ("Haydovchilik", '83')
+    ]
 
-    spec_choos = types.InlineKeyboardMarkup(row_width=2)
-    for spec, back in zip(specs, backs):
-        spec_choos.insert(InlineKeyboardButton(spec, callback_data=back))
-    return spec_choos
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    for name, code in specs:
+        keyboard.insert(InlineKeyboardButton(name, callback_data=code))
+
+    return keyboard
 
 
-#######################
+async def saves_info(vacancy_id):
+    """Vakansiya to'liq ma'lumoti"""
+    from src.functions.scraping import get_site_content
 
-async def saves_info(data):
-    url = f'https://ishapi.mehnat.uz/api/v1/vacancies/{data}'
+    url = f'https://ishapi.mehnat.uz/api/v1/vacancies/{vacancy_id}'
     soup = await get_site_content(url)
-    if soup["success"]:
-        soup1 = soup['data']
-        status = soup1["active"]
-        if status == True:
-            status = "Faol"
-        else:
-            status = "Band"
-        company_name = soup1['company_name']
-        position_name = soup1['position_name']
-        position_rate = soup1['position_rate']
-        position_duties = soup1['position_duties']
-        position_requirements = soup1['position_requirements']
-        position_conditions = soup1['position_conditions']
-        position_salary = soup1['position_salary']
-        phones = ''.join([num for num in soup1['phones']])
-        address = str(soup1['region']['name_uz_ln']) + ', ' + str(soup1['district']['name_uz_ln'])
-        date_start = soup1['date_start']
-        text = (f"<b>🏬 Ish beruvchi:</b> {company_name}\n"
-               f"<b>💺 Lavozim:</b> {position_name}\n"
-               f"<b>📋 Ish stavkasi:</b> {position_rate}\n"
-               f"<b>🛠 Majburiyatlar:</b> {position_duties}\n"
-               f"<b>🎓 Talab:</b> {position_requirements}\n"
-               f"<b>⏰ Ish vaqti:</b> {position_conditions}\n"
-               f"<b>💰 Maosh:</b> {position_salary}\n"
-               f"<b>🗺 Manzil:</b> {address}\n"
-               f"<b>📞 Bog'lanish:</b> {phones}\n"
-               f"<b>⏰ Ish joylangan sana:</b> {date_start}\n\n"
-               f"<b>♻️ Ushbu ma'lumot @mehnatuz_bot orqali taqdim etildi!</b>")
-    else:
-        text = "Not Found"
-    return text
+
+    if not soup or not soup.get("success"):
+        return "Vakansiya topilmadi"
+
+    data = soup['data']
+    status = "Faol" if data.get("active") else "Band"
+
+    return (
+        f"<b>🏬 Ish beruvchi:</b> {data.get('company_name', 'N/A')}\n"
+        f"<b>👔 Lavozim:</b> {data.get('position_name', 'N/A')}\n"
+        f"<b>📋 Stavka:</b> {data.get('position_rate', 'N/A')}\n"
+        f"<b>🛠 Vazifalar:</b> {data.get('position_duties', 'N/A')}\n"
+        f"<b>🎓 Talab:</b> {data.get('position_requirements', 'N/A')}\n"
+        f"<b>⏰ Vaqt:</b> {data.get('position_conditions', 'N/A')}\n"
+        f"<b>💰 Maosh:</b> {data.get('position_salary', 'N/A')}\n"
+        f"<b>🗺 Manzil:</b> {data.get('region', {}).get('name_uz_ln', '')}, "
+        f"{data.get('district', {}).get('name_uz_ln', '')}\n"
+        f"<b>📞 Tel:</b> {', '.join(data.get('phones', []))}\n"
+        f"<b>⏰ Sana:</b> {data.get('date_start', 'N/A')}\n\n"
+        f"<b>♻️ @mehnatuz_bot</b>"
+    )
+
+
+async def forward_send_msg(chat_id: int, from_chat_id: int, message_id: int) -> int:
+    """Xabar forward qilish"""
+    try:
+        await dp.bot.forward_message(chat_id, from_chat_id, message_id)
+        return 1
+    except:
+        return 0
+
+
+async def send_message_chats(chat_id: int, from_chat_id: int, message_id: int) -> int:
+    """Xabar nusxalash"""
+    try:
+        await dp.bot.copy_message(chat_id, from_chat_id, message_id)
+        return 1
+    except:
+        return 0
