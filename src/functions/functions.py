@@ -8,6 +8,7 @@ import asyncio
 import aiohttp
 
 from config import sql, db, dp
+from src.functions.scraping import get_site_content
 
 
 ###   Admin panel uchun kerakli funksiyalar
@@ -96,17 +97,6 @@ async def join_inline_btn(user_id):
 #             text = await resp.json()
 #     return text
 
-
-async def get_site_content(URL):
-    headers = {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/118.0.0.0 Safari/537.36",
-        "accept": "application/json",
-    }
-    async with aiohttp.ClientSession(headers=headers) as session:
-        async with session.get(URL, ssl=False, timeout=60) as resp:
-            return await resp.json()
 
 async def search_vakant(user_id, bet):
         reg0 = sql.execute(f"""SELECT region FROM users WHERE user_id = {user_id}""").fetchone()[0]
