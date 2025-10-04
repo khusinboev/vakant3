@@ -53,9 +53,12 @@ async def scrape_with_stealth(use_tor=False, use_proxy=False):
 
         browser = await p.chromium.launch(**launch_options)
 
+        # User-Agent ni tanlash
+        selected_user_agent = random.choice(USER_AGENTS)
+
         # Context yaratish (fingerprint spoofing uchun)
         context = await browser.new_context(
-            user_agent=random.choice(USER_AGENTS),  # Random User-Agent
+            user_agent=selected_user_agent,  # Random User-Agent
             viewport={'width': 1920, 'height': 1080},
             locale='en-US',
             timezone_id='Asia/Tashkent',
@@ -68,6 +71,9 @@ async def scrape_with_stealth(use_tor=False, use_proxy=False):
                 'Upgrade-Insecure-Requests': '1',
             }
         )
+
+        # User-Agent ni saqlash (print uchun)
+        selected_user_agent = random.choice(USER_AGENTS)
 
         page = await context.new_page()
 
@@ -104,7 +110,7 @@ async def scrape_with_stealth(use_tor=False, use_proxy=False):
         """)
 
         print(f"🎭 Fingerprint spoofing aktiv")
-        print(f"🔧 User-Agent: {context._options['user_agent'][:60]}...")
+        print(f"🔧 User-Agent: {selected_user_agent[:60]}...")
 
         try:
             # Saytga kirish
