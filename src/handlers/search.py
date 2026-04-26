@@ -18,15 +18,6 @@ from src.functions.functions import (
 
 router = Router()
 
-# Viloyatlar ro'yxati
-REGIONS = [
-    'Barchasi', 'Andijon viloyati', 'Buxoro viloyati', 'Jizzax viloyati',
-    'Qashqadaryo viloyati', 'Navoiy viloyati', 'Namangan viloyati',
-    'Samarqand viloyati', 'Surxondaryo viloyati', 'Sirdaryo viloyati',
-    'Toshkent shahri', 'Toshkent viloyati', "Farg'ona viloyati",
-    'Xorazm viloyati', "Qoraqalpog'iston Respublikasi"
-]
-
 
 @router.message(F.text == "💼 Ish qidirish")
 async def search_handler(message: Message):
@@ -94,10 +85,10 @@ async def specialty_handler(call: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.in_(REGIONS))
+@router.callback_query(F.data.startswith("reg:"))
 async def region_handler(call: CallbackQuery):
     user_id = call.from_user.id
-    region = call.data
+    region = call.data[4:]   # "reg:" prefixini olib tashlaymiz
 
     async with aiosqlite.connect(BASE_DIR) as conn:
         if region == "Barchasi":

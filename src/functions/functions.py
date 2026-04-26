@@ -129,12 +129,14 @@ async def search_vakant(user_id: int, page: int):
         async with aiosqlite.connect(BASE_DIR) as conn:
             if district:
                 cursor = await conn.execute(
-                    "SELECT dist_ids FROM locations WHERE districts = ?",
-                    (district,)
+                    "SELECT d.soato FROM districts d "
+                    "JOIN regions r ON d.region_soato = r.soato "
+                    "WHERE d.name_uz = ? AND r.name_uz = ?",
+                    (district, region)
                 )
             else:
                 cursor = await conn.execute(
-                    "SELECT reg_ids FROM locations WHERE regions = ?",
+                    "SELECT soato FROM regions WHERE name_uz = ?",
                     (region,)
                 )
             result = await cursor.fetchone()
@@ -219,14 +221,16 @@ async def vacancie_btn(ids: list, current_page: int, from_num: int):
 async def region_btn(user_id: int):
     """Viloyatlar tugmalari"""
     async with aiosqlite.connect(BASE_DIR) as conn:
-        cursor = await conn.execute("SELECT nom FROM viloyatlar ORDER BY my_num")
+        cursor = await conn.execute(
+            "SELECT name_uz FROM regions ORDER BY CAST(soato AS INTEGER)"
+        )
         regions = await cursor.fetchall()
 
-    buttons = [[InlineKeyboardButton(text="Barchasi", callback_data="Barchasi")]]
+    buttons = [[InlineKeyboardButton(text="Barchasi", callback_data="reg:Barchasi")]]
 
     row = []
-    for idx, (region,) in enumerate(regions):
-        row.append(InlineKeyboardButton(text=region, callback_data=region))
+    for (name_uz,) in regions:
+        row.append(InlineKeyboardButton(text=name_uz, callback_data=f"reg:{name_uz}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
@@ -252,17 +256,28 @@ async def district_btn(user_id: int):
             ])
 
         cursor = await conn.execute(
-            "SELECT districts FROM locations WHERE regions = ?",
+            "SELECT soato FROM regions WHERE name_uz = ?",
             (result[0],)
+        )
+        region_row = await cursor.fetchone()
+
+        if not region_row:
+            return InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❌ Viloyat topilmadi", callback_data="error")]
+            ])
+
+        cursor = await conn.execute(
+            "SELECT name_uz FROM districts WHERE region_soato = ? ORDER BY name_uz",
+            (region_row[0],)
         )
         districts = await cursor.fetchall()
 
     buttons = [[InlineKeyboardButton(text="Barchasi.", callback_data="dist:Barchasi.")]]
 
     row = []
-    for district, in districts:
-        if district:
-            row.append(InlineKeyboardButton(text=district, callback_data=f"dist:{district}"))
+    for (name_uz,) in districts:
+        if name_uz:
+            row.append(InlineKeyboardButton(text=name_uz, callback_data=f"dist:{name_uz}"))
             if len(row) == 2:
                 buttons.append(row)
                 row = []

@@ -1,24 +1,27 @@
 # ============================================
 # config.py - Aiogram 3.x
 # ============================================
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from pathlib import Path
 
-# Admin'lar
-ADMIN_IDS = [1918760732, 619839487, 5246872049]
+load_dotenv()
 
-# Database
-BASE_DIR = str(Path(__file__).resolve().parent) + "/src/database/database.sqlite3"
+_raw_admins = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS = [int(x.strip()) for x in _raw_admins.split(",") if x.strip().isdigit()]
 
-# Token
-TOKEN = "token"
+BASE_DIR = str(Path(__file__).resolve().parent / "src" / "database" / "database.sqlite3")
 
-# Bot va Dispatcher
-bot = Bot(
-    token=TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
+TOKEN = os.getenv("TOKEN", "")
+if not TOKEN:
+    raise RuntimeError("TOKEN topilmadi. .env faylga TOKEN= qo'shing.")
+
+TOR_PORT = int(os.getenv("TOR_PORT", "9050"))
+CONTROL_PORT = int(os.getenv("CONTROL_PORT", "9051"))
+
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
