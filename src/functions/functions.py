@@ -2,8 +2,11 @@
 # src/functions/functions.py - Aiogram 3.x
 # ============================================
 import aiosqlite
+import logging
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from config import BASE_DIR
+
+logger = logging.getLogger(__name__)
 
 
 class functions:
@@ -107,7 +110,7 @@ async def join_inline_btn(user_id: int, bot):
 
 async def search_vakant(user_id: int, page: int):
     """Vakansiya qidirish"""
-    from src.functions.scraping import get_site_content
+    from src.functions.scraping import fetch
 
     async with aiosqlite.connect(BASE_DIR) as conn:
         cursor = await conn.execute(
@@ -145,43 +148,49 @@ async def search_vakant(user_id: int, page: int):
         f'nskz={specs or ""}&page={page}'
     )
 
-    soup = await get_site_content(url)
+    soup = await fetch(url)
+    if soup is None:
+        logger.warning("search_vakant: API javob bermadi. user_id=%s page=%s", user_id, page)
+        return ("⚠️ Serverga ulanib bo'lmadi. Keyinroq urinib ko'ring.", [], 0, 0, 0)
 
     try:
-        if not soup or 'data' not in soup:
-            return ("Xatolik yuz berdi", [], 0, 0, 0)
+        data_block = soup.get('data', {})
+        if not isinstance(data_block, dict) or 'data' not in data_block:
+            logger.error("search_vakant: API javobi noto'g'ri tuzilishda")
+            return ("⚠️ Serverdan noto'g'ri javob keldi.", [], 0, 0, 0)
 
-        data = soup['data']['data']
-        num = soup['data']['from'] or 1
+        items = data_block['data']
+        num = data_block.get('from') or 1
         texts = ''
         ids = []
 
-        for item in data:
+        for item in items:
             salary_str = item.get('position_salary') or "Mavjud emas"
             texts += (
                 f"<b>👨‍💻 {num}- VAKANSIYA\n\n</b>"
-                f"<b>🆔 ID: </b>{item['id']}\n"
-                f"<b>🏬 Ish beruvchi: </b>{item['company_name']}\n"
-                f"<b>💼 Lavozim: </b>{item['position_name']}\n"
+                f"<b>🆔 ID: </b>{item.get('id', 'N/A')}\n"
+                f"<b>🏬 Ish beruvchi: </b>{item.get('company_name', 'N/A')}\n"
+                f"<b>💼 Lavozim: </b>{item.get('position_name', 'N/A')}\n"
                 f"<b>💰 Maosh: </b>{salary_str} so'm\n"
-                f"<b>⏰ Sana: </b>{item['date_start']}\n"
+                f"<b>⏰ Sana: </b>{item.get('date_start', 'N/A')}\n"
                 f"------------------------------------\n"
             )
             num += 1
-            ids.append(item['id'])
+            ids.append(item.get('id'))
 
-        total = soup['data']['total']
-        from_page = soup['data']['from']
-        to_page = soup['data']['to']
-        current = soup['data']['current_page']
-        last = soup['data']['last_page']
+        total = data_block.get('total', 0)
+        from_page = data_block.get('from', 1)
+        to_page = data_block.get('to', 1)
+        current = data_block.get('current_page', 1)
+        last = data_block.get('last_page', 1)
 
         texts = f"<b>NATIJALAR</b>: {total} ta | {from_page}-{to_page}\n\n" + texts
 
         return (texts, ids, current, from_page, last)
 
     except Exception as e:
-        return (f"Xatolik: {str(e)}", [], 0, 0, 0)
+        logger.error("search_vakant: parse xatosi: %s", e, exc_info=True)
+        return ("⚠️ Ma'lumotlarni qayta ishlashda xato.", [], 0, 0, 0)
 
 
 async def vacancie_btn(ids: list, current_page: int, from_num: int):
@@ -248,12 +257,12 @@ async def district_btn(user_id: int):
         )
         districts = await cursor.fetchall()
 
-    buttons = [[InlineKeyboardButton(text="Barchasi.", callback_data="Barchasi.")]]
+    buttons = [[InlineKeyboardButton(text="Barchasi.", callback_data="dist:Barchasi.")]]
 
     row = []
     for district, in districts:
         if district:
-            row.append(InlineKeyboardButton(text=district, callback_data=district))
+            row.append(InlineKeyboardButton(text=district, callback_data=f"dist:{district}"))
             if len(row) == 2:
                 buttons.append(row)
                 row = []
@@ -317,15 +326,23 @@ async def special_btn(user_id: int):
 
 async def saves_info(vacancy_id: int):
     """Vakansiya to'liq ma'lumoti"""
-    from src.functions.scraping import get_site_content
+    from src.functions.scraping import fetch
 
     url = f'https://ishapi.mehnat.uz/api/v1/vacancies/{vacancy_id}'
-    soup = await get_site_content(url)
+    soup = await fetch(url)
 
-    if not soup or not soup.get("success"):
-        return "Vakansiya topilmadi"
+    if not soup:
+        logger.warning("saves_info: API javob bermadi. vacancy_id=%s", vacancy_id)
+        return "⚠️ Vakansiya ma'lumoti topilmadi."
 
-    data = soup['data']
+    if not soup.get("success"):
+        logger.warning("saves_info: success=False. vacancy_id=%s", vacancy_id)
+        return "⚠️ Vakansiya topilmadi yoki o'chirilgan."
+
+    data = soup.get('data')
+    if not isinstance(data, dict):
+        logger.error("saves_info: 'data' noto'g'ri. vacancy_id=%s", vacancy_id)
+        return "⚠️ Serverdan noto'g'ri javob keldi."
 
     return (
         f"<b>🏬 Ish beruvchi:</b> {data.get('company_name', 'N/A')}\n"

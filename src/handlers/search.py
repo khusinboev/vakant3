@@ -3,10 +3,14 @@
 # ============================================
 import asyncio
 import aiosqlite
+import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.exceptions import TelegramBadRequest
 from config import BASE_DIR, bot
 from src.buttons.buttuns import MM_btn
+
+logger = logging.getLogger(__name__)
 from src.functions.functions import (
     functions, join_inline_btn, search_vakant, vacancie_btn,
     region_btn, district_btn, money_btn, special_btn, saves_info
@@ -127,10 +131,10 @@ async def region_handler(call: CallbackQuery):
         )
 
 
-@router.callback_query(F.data.regexp(r'^Barchasi\.$|tumani'))
+@router.callback_query(F.data.startswith("dist:"))
 async def district_handler(call: CallbackQuery):
     user_id = call.from_user.id
-    district = call.data
+    district = call.data[5:]   # "dist:" prefixini olib tashlaymiz
 
     async with aiosqlite.connect(BASE_DIR) as conn:
         if district == "Barchasi.":
@@ -237,19 +241,24 @@ async def navigation_handler(call: CallbackQuery):
             return
 
         texts, ids, current, from_num, last = await search_vakant(user_id, page)
+        if not ids:
+            await call.answer(texts or "⚠️ Xatolik yuz berdi", show_alert=True)
+            return
         try:
-            await call.message.edit_text(texts)
+            await call.message.edit_text(texts, parse_mode="HTML")
             await call.message.edit_reply_markup(
                 reply_markup=await vacancie_btn(ids, current, from_num)
             )
-        except:
-            pass
+        except TelegramBadRequest as e:
+            logger.debug("navigation_handler ⬅: edit failed: %s", e)
+        except Exception as e:
+            logger.error("navigation_handler ⬅: xato: %s", e, exc_info=True)
 
     elif data == "❌":
         await call.answer("Yopildi")
         try:
             await call.message.delete()
-        except:
+        except TelegramBadRequest:
             pass
 
     elif data.startswith("➡"):
@@ -260,24 +269,34 @@ async def navigation_handler(call: CallbackQuery):
             await call.answer("Oxirgi sahifa")
             return
 
+        if not ids:
+            await call.answer(texts or "⚠️ Xatolik yuz berdi", show_alert=True)
+            return
         try:
-            await call.message.edit_text(texts)
+            await call.message.edit_text(texts, parse_mode="HTML")
             await call.message.edit_reply_markup(
                 reply_markup=await vacancie_btn(ids, current, from_num)
             )
-        except:
-            pass
+        except TelegramBadRequest as e:
+            logger.debug("navigation_handler ➡: edit failed: %s", e)
+        except Exception as e:
+            logger.error("navigation_handler ➡: xato: %s", e, exc_info=True)
 
     elif data.startswith("🔙"):
         page = int(data[1:])
         texts, ids, current, from_num, last = await search_vakant(user_id, page)
+        if not ids:
+            await call.answer(texts or "⚠️ Xatolik yuz berdi", show_alert=True)
+            return
         try:
-            await call.message.edit_text(texts)
+            await call.message.edit_text(texts, parse_mode="HTML")
             await call.message.edit_reply_markup(
                 reply_markup=await vacancie_btn(ids, current, from_num)
             )
-        except:
-            pass
+        except TelegramBadRequest as e:
+            logger.debug("navigation_handler 🔙: edit failed: %s", e)
+        except Exception as e:
+            logger.error("navigation_handler 🔙: xato: %s", e, exc_info=True)
 
 
 @router.callback_query(F.data.startswith("🗂"))
@@ -306,10 +325,11 @@ async def save_vacancy_handler(call: CallbackQuery):
 @router.callback_query(F.data.regexp(r'^\d+:\d+'))
 async def vacancy_detail_handler(call: CallbackQuery):
     try:
-        vacancy_id, page = call.data.split(':')
-        vacancy_id = int(vacancy_id)
-        page = int(page)
-    except:
+        vacancy_id_str, page_str = call.data.split(':', 1)
+        vacancy_id = int(vacancy_id_str)
+        page = int(page_str)
+    except (ValueError, AttributeError) as e:
+        logger.error("vacancy_detail_handler: bad callback %r: %s", call.data, e)
         await call.answer("Xato format")
         return
 

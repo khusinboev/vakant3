@@ -5,14 +5,18 @@ import aiosqlite
 import pytz
 import datetime
 import asyncio
+import logging
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, ContentType
+from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError, TelegramBadRequest
 from config import BASE_DIR, bot, ADMIN_IDS
 from src.buttons.buttuns import main_btn, channel_btn, reklama_btn, back_btn
 from src.functions.functions import panel_func
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -264,7 +268,14 @@ async def forward_broadcast_send(message: Message, state: FSMContext):
         try:
             await bot.forward_message(user_id, message.chat.id, message.message_id)
             success_count += 1
-        except:
+        except TelegramRetryAfter as e:
+            logger.warning("Broadcast forward: flood wait %ss", e.retry_after)
+            await asyncio.sleep(e.retry_after)
+            failed_count += 1
+        except TelegramForbiddenError:
+            failed_count += 1
+        except Exception as e:
+            logger.error("Broadcast forward: user_id=%s xato: %s", user_id, e)
             failed_count += 1
 
         if idx % 50 == 0:
@@ -274,7 +285,7 @@ async def forward_broadcast_send(message: Message, state: FSMContext):
                     f"✅ Muvaffaqiyatli: {success_count}\n"
                     f"❌ Xato: {failed_count}"
                 )
-            except:
+            except TelegramBadRequest:
                 pass
 
         await asyncio.sleep(0.05)
@@ -324,7 +335,14 @@ async def copy_broadcast_send(message: Message, state: FSMContext):
         try:
             await bot.copy_message(user_id, message.chat.id, message.message_id)
             success_count += 1
-        except:
+        except TelegramRetryAfter as e:
+            logger.warning("Broadcast copy: flood wait %ss", e.retry_after)
+            await asyncio.sleep(e.retry_after)
+            failed_count += 1
+        except TelegramForbiddenError:
+            failed_count += 1
+        except Exception as e:
+            logger.error("Broadcast copy: user_id=%s xato: %s", user_id, e)
             failed_count += 1
 
         if idx % 50 == 0:
@@ -334,7 +352,7 @@ async def copy_broadcast_send(message: Message, state: FSMContext):
                     f"✅ Muvaffaqiyatli: {success_count}\n"
                     f"❌ Xato: {failed_count}"
                 )
-            except:
+            except TelegramBadRequest:
                 pass
 
         await asyncio.sleep(0.05)
