@@ -22,6 +22,36 @@ from src.functions.scraping import (
 
 logger = logging.getLogger(__name__)
 
+# Legacy ishapi spec codes -> osonish mmk_group_field_id mapping.
+LEGACY_SPEC_TO_OSONISH_FIELD: dict[str, int] = {
+    "22,322,323,324": 47,  # Sog'liqni saqlash
+    "71": 41,              # Qurilish
+    "91,522,523": 64,      # Savdo va marketing
+    "61": 7,               # Qishloq xo'jaligi
+    "214": 41,             # Arxitektura (Qurilish yo'nalishiga yaqin)
+    "213,312": 12,         # IT
+    "23,33": 42,           # Ta'lim
+    "83": 36,              # Haydovchilik (Transport)
+}
+
+
+def normalize_osonish_field_id(raw_spec: str) -> int | None:
+    """Convert stored user `specs` value (legacy/new) to osonish field id."""
+    val = (raw_spec or "").strip()
+    if not val:
+        return None
+
+    if val.startswith("spec:"):
+        val = val[5:]
+
+    if val in LEGACY_SPEC_TO_OSONISH_FIELD:
+        return LEGACY_SPEC_TO_OSONISH_FIELD[val]
+
+    if val.isdigit():
+        return int(val)
+
+    return None
+
 
 class functions:
     @staticmethod
@@ -194,7 +224,7 @@ async def search_vakant(page: int, money: int, yurt: str, specs: str) -> tuple[l
     """
     cache_key = make_cache_key(
         "search",
-        mode="osonish_only",
+        mode="osonish_filters_v2",
         page=page,
         money=money or 0,
         yurt=yurt or "",
@@ -217,10 +247,22 @@ async def search_vakant(page: int, money: int, yurt: str, specs: str) -> tuple[l
     # )
 
     try:
+        soato_region = ""
+        soato_district = ""
+        if yurt:
+            # Osonish uses separate params for region and district.
+            if len(yurt) > 4:
+                soato_district = yurt
+            else:
+                soato_region = yurt
+
+        field_id = normalize_osonish_field_id(specs)
         osonish_items, last_page = await fetch_osonish_list(
             page=page,
             salary=money or 0,
-            region_soato=yurt or "",
+            soato_region=soato_region,
+            soato_district=soato_district,
+            mmk_group_field_id=field_id,
         )
     except Exception as e:
         logger.error("search_vakant: osonish error: %s", e)
@@ -391,14 +433,17 @@ async def money_btn(user_id: int):
 async def special_btn(user_id: int):
     """Soha tugmalari"""
     specs = [
-        ("Sog'liqni saqlash", "22,322,323,324"),
-        ("Qurilish", "71"),
-        ("Savdo", "91,522,523"),
-        ("Qishloq xo'jaligi", "61"),
-        ("Arxitektura", "214"),
-        ("IT", "213,312"),
-        ("Ta'lim", "23,33"),
-        ("Haydovchilik", "83"),
+        ("Sog'liqni saqlash", "spec:47"),
+        ("Qurilish", "spec:41"),
+        ("Savdo", "spec:64"),
+        ("Qishloq xo'jaligi", "spec:7"),
+        ("Arxitektura", "spec:41"),
+        ("IT", "spec:12"),
+        ("Ta'lim", "spec:42"),
+        ("Haydovchilik", "spec:36"),
+        ("Moliya", "spec:1"),
+        ("Sanoat", "spec:21"),
+        ("Xizmatlar", "spec:48"),
     ]
 
     buttons = []

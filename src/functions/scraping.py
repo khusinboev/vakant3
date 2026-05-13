@@ -151,15 +151,25 @@ async def fetch_ishapi_list(page: int, salary: int, soato: str, nskz: str) -> tu
     return vacancies, int(data_block.get("last_page") or 1)
 
 
-async def fetch_osonish_list(page: int, salary: int, region_soato: str) -> tuple[list[Vacancy], int]:
+async def fetch_osonish_list(
+    page: int,
+    salary: int,
+    soato_region: str,
+    soato_district: str = "",
+    mmk_group_field_id: int | None = None,
+) -> tuple[list[Vacancy], int]:
     params: dict[str, Any] = {
         "page": page,
         "per_page": 5,
     }
     if salary:
         params["min_salary"] = salary
-    if region_soato:
-        params["region_soato"] = region_soato
+    if soato_region:
+        params["soato_region"] = soato_region
+    if soato_district:
+        params["soato_district"] = soato_district
+    if isinstance(mmk_group_field_id, int):
+        params["mmk_group_field_id"] = mmk_group_field_id
 
     payload = await fetch_json(f"{OSONISH_BASE}/vacancies", params=params, headers=_osonish_headers())
     if not payload:

@@ -80,7 +80,10 @@ async def filter_handler(message: Message):
     )
 
 
-@router.callback_query(F.data.in_(['22,322,323,324', '71', '91,522,523', '61', '214', '213,312', '23,33', '83']))
+@router.callback_query(
+    F.data.startswith("spec:")
+    | F.data.in_(['22,322,323,324', '71', '91,522,523', '61', '214', '213,312', '23,33', '83'])
+)
 async def specialty_handler(call: CallbackQuery):
     user_id = call.from_user.id
     spec_code = call.data

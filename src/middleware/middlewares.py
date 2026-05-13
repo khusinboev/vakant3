@@ -12,31 +12,80 @@ from aiogram.types import Message
 logger = logging.getLogger(__name__)
 
 
-async def _seed_from_api(conn: aiosqlite.Connection):
-    """regions bo'sh bo'lsa API dan viloyat va tumanlarni yuklab to'ldirish."""
-    from src.functions.scraping import fetch
-    logger.info("Viloyatlar API dan yuklanmoqda...")
-    data = await fetch("https://ishapi.mehnat.uz/api/v1/resources/regions")
-    if not data or not data.get("success"):
-        logger.error("Regions API dan yuklab bo'lmadi")
+def _extract_list(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [x for x in payload if isinstance(x, dict)]
+    if not isinstance(payload, dict):
+        return []
+
+    data = payload.get("data")
+    if isinstance(data, list):
+        return [x for x in data if isinstance(x, dict)]
+    if isinstance(data, dict):
+        for key in ("regions", "cities", "districts", "fields", "data"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return [x for x in value if isinstance(x, dict)]
+    return []
+
+
+async def _seed_from_osonish_api(conn: aiosqlite.Connection):
+    """regions bo'sh bo'lsa osonish API dan viloyat va tumanlarni yuklab to'ldirish."""
+    from src.functions.scraping import fetch_json
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+        "Accept": "application/json",
+        "Accept-Language": "uz-UZ,uz;q=0.9,en;q=0.8,ru;q=0.7",
+        "Referer": "https://osonish.uz/vacancies",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+
+    logger.info("Viloyatlar Osonish API dan yuklanmoqda...")
+    regions_payload = await fetch_json("https://osonish.uz/api/v1/regions", headers=headers)
+    regions = _extract_list(regions_payload)
+    if not regions:
+        logger.error("Osonish regions API dan yuklab bo'lmadi")
         return
-    for r in data.get("data", []):
-        soato = str(r["soato"])
+
+    region_count = 0
+    district_count = 0
+    for region in regions:
+        soato = str(region.get("soato") or "").strip()
+        name_uz = (region.get("name_uz") or region.get("title") or region.get("name") or "").strip()
+        if not soato or not name_uz:
+            continue
+
         await conn.execute(
             "INSERT OR IGNORE INTO regions (soato, name_uz) VALUES (?, ?)",
-            (soato, r["name_uz_ln"])
+            (soato, name_uz),
         )
-        dist = await fetch(
-            f"https://ishapi.mehnat.uz/api/v1/resources/districts?region_soato={soato}"
+        region_count += 1
+
+        cities_payload = await fetch_json(
+            "https://osonish.uz/api/v1/cities",
+            params={"region_soato": soato},
+            headers=headers,
         )
-        if dist and dist.get("success"):
-            for d in dist.get("data", []):
-                await conn.execute(
-                    "INSERT OR IGNORE INTO districts (soato, region_soato, name_uz) VALUES (?, ?, ?)",
-                    (str(d["soato"]), soato, d["name_uz_ln"])
-                )
+        cities = _extract_list(cities_payload)
+        for city in cities:
+            city_soato = str(city.get("soato") or "").strip()
+            city_name = (city.get("name_uz") or city.get("title") or city.get("name") or "").strip()
+            if not city_soato or not city_name:
+                continue
+
+            await conn.execute(
+                "INSERT OR IGNORE INTO districts (soato, region_soato, name_uz) VALUES (?, ?, ?)",
+                (city_soato, soato, city_name),
+            )
+            district_count += 1
+
     await conn.commit()
-    logger.info("Viloyatlar va tumanlar muvaffaqiyatli saqlandi")
+    logger.info(
+        "Osonishdan hududlar saqlandi: regions=%d districts=%d",
+        region_count,
+        district_count,
+    )
 
 
 class StatsMiddleware(BaseMiddleware):
@@ -148,9 +197,9 @@ class StatsMiddleware(BaseMiddleware):
                             migrated_count
                         )
                     else:
-                        await _seed_from_api(conn)
+                        await _seed_from_osonish_api(conn)
                 else:
-                    await _seed_from_api(conn)
+                    await _seed_from_osonish_api(conn)
 
     async def __call__(
         self,

@@ -22,7 +22,7 @@ import pytest
 async def test_osonish_returns_results():
     from src.functions.scraping import fetch_osonish_list
 
-    items, last_page = await fetch_osonish_list(page=1, salary=0, region_soato="")
+    items, last_page = await fetch_osonish_list(page=1, salary=0, soato_region="")
     assert len(items) > 0
     assert last_page > 0
     v = items[0]
@@ -60,3 +60,13 @@ def test_cache_mem_ttl_expiry():
 
         cache_module._mem_cache["test_key"] = ("test_value", time.monotonic() - 1)
         assert _mem_get("test_key") is None
+
+
+def test_spec_legacy_mapping_to_osonish_field():
+    from src.functions.functions import normalize_osonish_field_id
+
+    assert normalize_osonish_field_id("22,322,323,324") == 47
+    assert normalize_osonish_field_id("213,312") == 12
+    assert normalize_osonish_field_id("spec:42") == 42
+    assert normalize_osonish_field_id("64") == 64
+    assert normalize_osonish_field_id("") is None
