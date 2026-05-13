@@ -157,6 +157,8 @@ async def fetch_osonish_list(
     soato_region: str,
     soato_district: str = "",
     mmk_group_field_id: int | None = None,
+    sort_key: str = "",
+    sort_type: str = "",
 ) -> tuple[list[Vacancy], int]:
     params: dict[str, Any] = {
         "page": page,
@@ -170,6 +172,10 @@ async def fetch_osonish_list(
         params["soato_district"] = soato_district
     if isinstance(mmk_group_field_id, int):
         params["mmk_group_field_id"] = mmk_group_field_id
+    if sort_key:
+        params["sort_key"] = sort_key
+    if sort_type:
+        params["sort_type"] = sort_type
 
     payload = await fetch_json(f"{OSONISH_BASE}/vacancies", params=params, headers=_osonish_headers())
     if not payload:

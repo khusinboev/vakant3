@@ -1,0 +1,171 @@
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+
+from config import bot
+from src.functions.cache import cache_get, cache_set, make_cache_key
+from src.functions.functions import normalize_osonish_field_id
+from src.functions.scraping import fetch_osonish_detail, fetch_osonish_list
+from src.functions.vacancy_format import format_vacancy_message_html, normalize_vacancy_detail
+from webapp.core.database import get_db
+from webapp.core.limiter import limiter
+from webapp.core.session import decode_session_token, get_current_user
+from webapp.models.schemas import JobsSearchResponse, VacancyDetailResponse, VacancyItem
+
+router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+def _uid_to_raw_id(uid: str) -> int:
+    if not uid.startswith("osonish_"):
+        raise HTTPException(status_code=404, detail="Only osonish vacancies are supported")
+    try:
+        return int(uid.split("_", 1)[1])
+    except (IndexError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid vacancy uid") from exc
+
+
+async def _get_auth_user_id(authorization: str | None) -> int | None:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        payload = decode_session_token(token)
+        return int(payload.get("uid", 0)) or None
+    except Exception:
+        return None
+
+
+@router.get("/search", response_model=JobsSearchResponse)
+@limiter.limit("30/minute")
+async def search_jobs(
+    request: Request,
+    page: int = 1,
+    money: int = 0,
+    region_soato: str = "",
+    district_soato: str = "",
+    specs: str = "",
+    sort_key: str = "",
+    sort_type: str = "",
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+) -> JobsSearchResponse:
+    field_id = normalize_osonish_field_id(specs)
+    cache_key = make_cache_key(
+        "webapp_jobs_search",
+        page=page,
+        money=money or 0,
+        region_soato=region_soato or "",
+        district_soato=district_soato or "",
+        specs=specs or "",
+        sort_key=sort_key or "",
+        sort_type=sort_type or "",
+    )
+    cached = await cache_get(cache_key)
+
+    if isinstance(cached, dict) and isinstance(cached.get("items"), list):
+        vacancies_raw = cached["items"]
+        last_page = int(cached.get("last_page") or 1)
+    else:
+        vacancies, last_page = await fetch_osonish_list(
+            page=page,
+            salary=money or 0,
+            soato_region=region_soato or "",
+            soato_district=district_soato or "",
+            mmk_group_field_id=field_id,
+            sort_key=sort_key or "",
+            sort_type=sort_type or "",
+        )
+        vacancies_raw = [
+            {
+                "uid": item.uid,
+                "title": item.title,
+                "company": item.company,
+                "salary_text": item.salary_text,
+                "location": item.location,
+                "district": item.district,
+                "posted_at": item.posted_at,
+            }
+            for item in vacancies
+        ]
+        await cache_set(cache_key, {"items": vacancies_raw, "last_page": last_page}, ttl=30 * 60)
+
+    user_id = await _get_auth_user_id(authorization)
+    saved_ids: set[int] = set()
+    if user_id and vacancies_raw:
+        raw_ids = []
+        for vacancy in vacancies_raw:
+            uid = str(vacancy.get("uid", ""))
+            if uid.startswith("osonish_"):
+                try:
+                    raw_ids.append(int(uid.split("_", 1)[1]))
+                except (IndexError, ValueError):
+                    continue
+
+        if raw_ids:
+            placeholders = ",".join("?" for _ in raw_ids)
+            cursor = await db.execute(
+                f"SELECT save_id FROM saves WHERE user_id = ? AND save_id IN ({placeholders})",
+                tuple([user_id, *raw_ids]),
+            )
+            saved_ids = {int(row[0]) for row in await cursor.fetchall()}
+
+    items: list[VacancyItem] = []
+    for vacancy in vacancies_raw:
+        uid = str(vacancy.get("uid", ""))
+        raw_id = None
+        if uid.startswith("osonish_"):
+            try:
+                raw_id = int(uid.split("_", 1)[1])
+            except (IndexError, ValueError):
+                raw_id = None
+        items.append(
+            VacancyItem(
+                uid=uid,
+                title=str(vacancy.get("title") or "N/A"),
+                company=str(vacancy.get("company") or "N/A"),
+                salary_text=str(vacancy.get("salary_text") or "Kelishiladi"),
+                location=str(vacancy.get("location") or ""),
+                district=str(vacancy.get("district") or ""),
+                posted_at=str(vacancy.get("posted_at") or "N/A"),
+                is_saved=bool(raw_id in saved_ids),
+            )
+        )
+
+    return JobsSearchResponse(
+        vacancies=items,
+        page=page,
+        last_page=int(last_page or 1),
+        total_estimate=max(len(items), 1) * max(int(last_page or 1), page),
+    )
+
+
+@router.get("/{uid}", response_model=VacancyDetailResponse)
+async def vacancy_detail(uid: str) -> VacancyDetailResponse:
+    raw_id = _uid_to_raw_id(uid)
+
+    cache_key = make_cache_key("detail", uid=uid)
+    cached = await cache_get(cache_key)
+    if isinstance(cached, dict) and isinstance(cached.get("data"), dict):
+        return VacancyDetailResponse(uid=uid, data=cached["data"])
+
+    detail = await fetch_osonish_detail(raw_id)
+    if not isinstance(detail, dict):
+        raise HTTPException(status_code=404, detail="Vacancy not found")
+
+    detail_with_normalized = {**detail, "normalized": normalize_vacancy_detail(uid, detail)}
+    await cache_set(cache_key, {"source": "osonish", "data": detail_with_normalized}, ttl=60 * 60)
+    return VacancyDetailResponse(uid=uid, data=detail_with_normalized)
+
+
+@router.post("/{uid}/send-telegram")
+@limiter.limit("20/minute")
+async def send_vacancy_to_telegram(uid: str, request: Request, current=Depends(get_current_user)) -> dict[str, bool]:
+    raw_id = _uid_to_raw_id(uid)
+
+    detail = await fetch_osonish_detail(raw_id)
+    if not isinstance(detail, dict):
+        raise HTTPException(status_code=404, detail="Vacancy not found")
+
+    user_id = int(current["user"]["user_id"])
+    message_html = format_vacancy_message_html(uid, detail)
+    await bot.send_message(chat_id=user_id, text=message_html, disable_web_page_preview=True)
+
+    return {"ok": True}

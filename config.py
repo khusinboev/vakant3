@@ -20,5 +20,7 @@ TOKEN = os.getenv("TOKEN", "")
 if not TOKEN:
     raise RuntimeError("TOKEN topilmadi. .env faylga TOKEN= qo'shing.")
 
+WEBAPP_URL = os.getenv("WEBAPP_URL", "http://localhost:5174")
+
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())

@@ -2,6 +2,7 @@
 .env
 .env.local
 .claude
+
 # Python
 __pycache__/
 *.py[cod]
@@ -28,3 +29,11 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Frontend build output and deps
+webapp/frontend/node_modules/
+webapp/frontend/dist/
+webapp/frontend/.vite/
+
+# Bot log
+bot.log

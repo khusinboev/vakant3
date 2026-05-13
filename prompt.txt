@@ -1,0 +1,445 @@
+```markdown
+# GitHub Copilot Prompt: User-Facing WebApp for Telegram Job Search Bot
+
+## CONTEXT
+Production Telegram job-search bot (aiogram 3.x). Users search vacancies
+from osonish.uz API with filters. Now building a public webapp where the
+same users can search jobs and manage their profile via browser.
+
+### Existing DB schema (SQLite, shared file)
+```sql
+users(user_id PK, date INT, lang TEXT, region TEXT, district TEXT, specs TEXT, money INT)
+channels(id TEXT PK)
+saves(user_id INT, save_id INT, PK composite)
+regions(soato TEXT PK, name_uz TEXT)
+districts(soato TEXT PK, region_soato TEXT, name_uz TEXT)
+```
+
+### DB migrations to add (webapp init_db runs once)
+```sql
+-- Referral tracking
+ALTER TABLE users ADD COLUMN ref_by INTEGER;        -- invited by user_id
+ALTER TABLE users ADD COLUMN username TEXT;         -- telegram username
+ALTER TABLE users ADD COLUMN first_name TEXT;       -- telegram first_name
+ALTER TABLE users ADD COLUMN photo_url TEXT;        -- telegram avatar url
+
+-- Webapp sessions
+CREATE TABLE IF NOT EXISTS webapp_sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+```
+
+### Bot-side change (add to start.py /start handler)
+```python
+# Parse referral from deep link: /start ref_123456789
+args = message.text.split()
+if len(args) > 1 and args[1].startswith("ref_"):
+    inviter_id = int(args[1][4:])
+    # UPDATE users SET ref_by = inviter_id WHERE user_id = new_user_id AND ref_by IS NULL
+```
+
+---
+
+## TECH STACK
+
+### Backend — `webapp/`
+- **FastAPI** + `uvicorn`
+- **aiosqlite** (shared SQLite, webapp is read-heavy + profile writes)
+- **python-jose[cryptography]** — session tokens (not JWT, just signed tokens)
+- **httpx** — verify Telegram Login Widget hash + osonish.uz proxy
+- **slowapi** — rate limiting
+- **python-dotenv**
+
+### Frontend — `webapp/frontend/`
+- **React 18 + Vite + TypeScript**
+- **Tailwind CSS v3**
+- **React Router v6**
+- **TanStack Query v5** (React Query)
+- **Recharts** — profile stats charts
+- **Lucide React** — icons
+- **@telegram-auth/react** — Telegram Login Widget
+
+---
+
+## PROJECT STRUCTURE
+
+```
+webapp/
+├── main.py
+├── core/
+│   ├── config.py          # pydantic-settings: TOKEN, SECRET_KEY, DB path
+│   ├── database.py        # get_db(), init_db() with migrations
+│   └── telegram_auth.py   # verify Telegram Login Widget HMAC-SHA256
+├── routers/
+│   ├── auth.py            # Telegram Login → session token
+│   ├── jobs.py            # job search + vacancy detail
+│   ├── profile.py         # user profile read/update
+│   ├── saves.py           # saved jobs CRUD
+│   ├── referral.py        # referral link + stats
+│   └── filters.py         # regions, districts, specs (dropdown data)
+├── models/
+│   └── schemas.py
+└── frontend/
+    ├── package.json
+    ├── vite.config.ts      # proxy /api → localhost:8000
+    ├── tailwind.config.js
+    └── src/
+        ├── main.tsx
+        ├── App.tsx
+        ├── api/
+        │   └── client.ts   # axios + session token interceptor
+        ├── store/
+        │   └── auth.ts     # zustand: user session state
+        ├── hooks/
+        │   ├── useAuth.ts
+        │   ├── useJobs.ts
+        │   └── useSaves.ts
+        ├── pages/
+        │   ├── Home.tsx        # job search page
+        │   ├── Profile.tsx     # user profile + stats
+        │   ├── Saves.tsx       # saved jobs
+        │   ├── Referral.tsx    # referral page
+        │   └── Login.tsx       # Telegram Login Widget
+        └── components/
+            ├── Layout/
+            │   ├── Navbar.tsx
+            │   └── BottomNav.tsx   # mobile: Home/Saves/Profile
+            ├── Jobs/
+            │   ├── SearchFilters.tsx
+            │   ├── VacancyCard.tsx
+            │   ├── VacancyDetail.tsx   # modal/drawer
+            │   └── Pagination.tsx
+            ├── Profile/
+            │   ├── StatsGrid.tsx
+            │   ├── ActivityChart.tsx
+            │   └── FilterSummary.tsx
+            └── Referral/
+                └── ReferralCard.tsx
+```
+
+---
+
+## AUTH FLOW — Telegram Login Widget
+
+```
+1. User opens webapp → sees Login page
+2. Clicks "Telegram orqali kirish" → Telegram Login Widget popup
+3. Widget returns: { id, first_name, username, photo_url, auth_date, hash }
+4. Frontend POST /api/auth/telegram { tg_data: {...} }
+5. Backend verifies HMAC-SHA256 with bot TOKEN
+6. Backend upserts user into `users` table (saves first_name, username, photo_url)
+7. Creates row in webapp_sessions (token = secrets.token_urlsafe(32), expires 30d)
+8. Returns { session_token, user }
+9. Frontend saves token to localStorage, stores user in zustand
+```
+
+### telegram_auth.py
+```python
+import hashlib, hmac, time
+from typing import Any
+
+def verify_telegram_login(data: dict[str, Any], bot_token: str) -> bool:
+    """Telegram Login Widget HMAC-SHA256 verification."""
+    check_hash = data.pop("hash", "")
+    if not check_hash:
+        return False
+    
+    # auth_date freshness check (max 1 hour)
+    auth_date = int(data.get("auth_date", 0))
+    if time.time() - auth_date > 3600:
+        return False
+    
+    data_check_string = "\n".join(
+        f"{k}={v}" for k, v in sorted(data.items())
+    )
+    secret_key = hashlib.sha256(bot_token.encode()).digest()
+    computed = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(computed, check_hash)
+```
+
+---
+
+## BACKEND ENDPOINTS SPEC
+
+### Auth
+```
+POST /api/auth/telegram
+  body: { id, first_name, username?, photo_url?, auth_date, hash }
+  → verifies Telegram hash
+  → upserts user (UPDATE first_name, username, photo_url)
+  → creates session
+  returns: { session_token: str, user: UserProfile }
+
+POST /api/auth/logout
+  header: Authorization: Bearer <token>
+  → deletes session from webapp_sessions
+  returns: { ok: true }
+
+GET /api/auth/me
+  returns: UserProfile | 401
+```
+
+### Jobs
+```
+GET /api/jobs/search?page=1&money=0&region_soato=&district_soato=&specs=
+  → proxies to osonish.uz fetch_osonish_list()
+  → uses same cache layer (make_cache_key + cache_get/cache_set)
+  returns: {
+    vacancies: [VacancyItem],
+    page: int,
+    last_page: int,
+    total_estimate: int
+  }
+
+VacancyItem: {
+  uid: str,          # "osonish_12345"
+  title: str,
+  company: str,
+  salary_text: str,
+  location: str,
+  district: str,
+  posted_at: str,
+  is_saved: bool     # requires auth, false if not logged in
+}
+
+GET /api/jobs/{uid}
+  → fetches detail from osonish.uz (fetch_osonish_detail)
+  → cached 1h
+  returns: VacancyDetail (full fields: info, address, hr_phone, etc.)
+```
+
+### Saves
+```
+GET /api/saves?page=1&limit=10
+  auth required
+  → JOIN saves + osonish detail (from cache if available)
+  returns: { items: [VacancyDetail], total: int }
+
+POST /api/saves/{uid}
+  auth required
+  → INSERT OR IGNORE INTO saves
+  returns: { saved: true }
+
+DELETE /api/saves/{uid}
+  auth required
+  → DELETE FROM saves WHERE user_id=? AND save_id=?
+  returns: { removed: true }
+```
+
+### Profile
+```
+GET /api/profile
+  auth required
+  returns: {
+    user: UserProfile,
+    stats: {
+      saves_count: int,
+      referrals_count: int,
+      member_since: str,      # formatted date
+      days_active: int
+    },
+    current_filters: {
+      region: str | null,
+      district: str | null,
+      specs: str | null,
+      money: int | null
+    }
+  }
+
+UserProfile: {
+  user_id: int,
+  first_name: str,
+  username: str | null,
+  photo_url: str | null,
+  lang: str
+}
+
+PATCH /api/profile/filters
+  auth required
+  body: { region?: str, district?: str, specs?: str, money?: int }
+  → UPDATE users SET ... WHERE user_id = ?
+  → invalidates search cache for this user
+  returns: { updated: true }
+```
+
+### Referral
+```
+GET /api/referral
+  auth required
+  returns: {
+    ref_link: str,     # "https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
+    ref_count: int,
+    referrals: [
+      { first_name: str, date: int, username: str | null }
+    ]
+  }
+  # SELECT * FROM users WHERE ref_by = current_user_id ORDER BY date DESC
+```
+
+### Filters data (for dropdowns)
+```
+GET /api/filters/regions
+  returns: [{ soato: str, name_uz: str }]
+  cached 24h
+
+GET /api/filters/districts?region_soato=1726
+  returns: [{ soato: str, name_uz: str }]
+  cached 24h
+
+GET /api/filters/specs
+  returns: hardcoded list:
+  [
+    { id: "spec:47", label: "Sog'liqni saqlash" },
+    { id: "spec:41", label: "Qurilish" },
+    { id: "spec:64", label: "Savdo" },
+    { id: "spec:7",  label: "Qishloq xo'jaligi" },
+    { id: "spec:12", label: "IT" },
+    { id: "spec:42", label: "Ta'lim" },
+    { id: "spec:36", label: "Haydovchilik" },
+    { id: "spec:1",  label: "Moliya" },
+    { id: "spec:21", label: "Sanoat" },
+    { id: "spec:48", label: "Xizmatlar" }
+  ]
+```
+
+---
+
+## FRONTEND PAGES SPEC
+
+### Login (`/login`)
+- Full-screen centered layout
+- Bot logo + "IshBot" branding
+- `<TelegramLoginButton botName={BOT_USERNAME} onAuth={handleAuth} />`
+- After auth → redirect to `/`
+
+### Home (`/`) — Job Search
+Layout: sticky top filter bar + scrollable vacancy list
+
+**Filter bar** (collapsible on mobile):
+- Specs dropdown (soha)
+- Region dropdown → triggers district dropdown
+- Salary select (5 options from existing money_btn)
+- "Qidirish" button
+- Filters auto-saved to user profile if logged in
+
+**Vacancy list**:
+- `VacancyCard`: company, title, salary_text, location, posted_at, save button (heart icon)
+- Infinite scroll OR paginator (⬅ 1/24 ➡)
+- Click card → `VacancyDetail` bottom drawer/modal:
+  - Full info, HR phone, address
+  - "Saqlash / Saqlangan" toggle button
+  - "Telegram orqali ochish" → deep link to bot
+
+**Unauthenticated users**: can search, but save button → "Kirish kerak" toast
+
+### Saves (`/saves`)
+- Auth required (redirect to /login if not)
+- Grid of saved VacancyCards
+- "O'chirish" on each card
+- Empty state: "Saqlangan ishlar yo'q. Ishlarni saqlash uchun ❤ tugmasini bosing"
+
+### Profile (`/profile`)
+- Auth required
+- **Header**: Telegram avatar + first_name + @username
+- **Stats grid** (4 cards):
+  - 📅 A'zo bo'lgan sana
+  - 💾 Saqlangan ishlar soni
+  - 👥 Taklif qilinganlar soni
+  - 📍 Joriy hudud (region / district)
+- **Joriy filtrlar** section:
+  - Shows active: soha, hudud, maosh
+  - "Filtrlarni o'zgartirish" → opens filter drawer (same as home filters)
+  - Saves back to profile via PATCH /api/profile/filters
+- **Referral block** → link to `/referral`
+
+### Referral (`/referral`)
+- Auth required
+- Big copy-able referral link box
+- "Ulashish" → Web Share API (`navigator.share`) on mobile
+- Counter: "Siz taklif qilgan odamlar: N ta"
+- List of referred users: avatar initials + first_name + join date
+- Empty state with motivational text
+
+---
+
+## UX REQUIREMENTS
+
+### Mobile-first
+- Bottom navigation bar: 🏠 Bosh sahifa | ❤ Saqlangan | 👤 Profil
+- All modals → bottom drawers on mobile (not centered modals)
+- Touch-friendly tap targets (min 44px)
+- Pull-to-refresh on job list
+
+### Language
+- All UI text in **Uzbek** (same as bot)
+- Numbers: `1 000 000 so'm` format (space separator)
+- Dates: `DD.MM.YYYY` format (same as bot)
+
+### Performance
+- Search results: React Query with `keepPreviousData: true` (no flicker on page change)
+- Vacancy detail: prefetch on card hover (desktop)
+- Regions/districts/specs: cached in React Query for 24h (staleTime)
+- Images: Telegram photo_url with fallback to initials avatar
+
+### Error states
+- osonish.uz timeout → "Natijalar yuklanmadi. Qayta urinib ko'ring"
+- Network error → toast notification
+- 401 on any request → clear session + redirect /login
+
+---
+
+## INTEGRATION WITH EXISTING CODE
+```python
+# webapp/routers/jobs.py
+# Direct import — no duplication
+from src.functions.scraping import fetch_osonish_list, fetch_osonish_detail
+from src.functions.cache import cache_get, cache_set, make_cache_key
+from src.functions.functions import normalize_osonish_field_id
+```
+
+Bot's `BASE_DIR` path reused:
+```python
+# webapp/core/config.py
+from pathlib import Path
+DB_PATH = Path(__file__).resolve().parents[2] / "src" / "database" / "database.sqlite3"
+```
+
+---
+
+## SECURITY
+- Session token: `secrets.token_urlsafe(32)`, stored in DB, 30-day expiry
+- Telegram hash verification: mandatory on every login attempt
+- Rate limits (slowapi):
+  - POST /api/auth/telegram → 10/minute per IP
+  - GET /api/jobs/search → 30/minute per IP
+  - POST /api/saves/* → 60/minute per user
+- CORS: configurable `WEBAPP_ORIGIN` env var (default `http://localhost:5173`)
+- No sensitive data in responses (no other users' user_ids exposed)
+
+---
+
+## ENV additions to `.env.example`
+```
+BOT_USERNAME=your_bot_username
+WEBAPP_ORIGIN=http://localhost:5173
+WEBAPP_SECRET=your_random_secret_here
+```
+
+---
+
+## GENERATION ORDER
+1. `webapp/core/config.py`
+2. `webapp/core/database.py` (init_db with migrations)
+3. `webapp/core/telegram_auth.py`
+4. `webapp/models/schemas.py` (all Pydantic models)
+5. Routers: `auth` → `filters` → `jobs` → `saves` → `profile` → `referral`
+6. `webapp/main.py` (CORS, routers, static files mount)
+7. `webapp/frontend/` — Vite + Tailwind scaffold
+8. `api/client.ts` → `store/auth.ts` → hooks
+9. Components: Layout → Jobs → Profile → Referral
+10. Pages: Login → Home → Saves → Profile → Referral
+11. Update `.env.example`
+```

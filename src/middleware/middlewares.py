@@ -155,6 +155,22 @@ class StatsMiddleware(BaseMiddleware):
                     name_uz TEXT NOT NULL
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS webapp_sessions (
+                    token TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bot_handoff_tokens (
+                    token TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    used INTEGER NOT NULL DEFAULT 0,
+                    expires_at INTEGER NOT NULL
+                )
+            """)
             await conn.commit()
 
             # --- Eski jadvallardan migratsiya (bir martalik) ---

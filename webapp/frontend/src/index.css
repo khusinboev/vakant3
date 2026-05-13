@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --tg-safe-area-top: var(--tg-safe-area-inset-top, 0px);
+  --tg-safe-area-bottom: var(--tg-safe-area-inset-bottom, 0px);
+  --tg-safe-area-left: var(--tg-safe-area-inset-left, 0px);
+  --tg-safe-area-right: var(--tg-safe-area-inset-right, 0px);
+  --tg-content-safe-area-top: var(--tg-content-safe-area-inset-top, var(--tg-safe-area-top));
+  --tg-content-safe-area-bottom: var(--tg-content-safe-area-inset-bottom, var(--tg-safe-area-bottom));
+  --tg-content-safe-area-left: var(--tg-content-safe-area-inset-left, var(--tg-safe-area-left));
+  --tg-content-safe-area-right: var(--tg-content-safe-area-inset-right, var(--tg-safe-area-right));
+  --app-viewport-height: var(--tg-viewport-stable-height, 100dvh);
+}
+
+html,
+body,
+#root {
+  min-height: var(--app-viewport-height);
+}
+
+body {
+  margin: 0;
+  font-family: "Public Sans", sans-serif;
+  background:
+    radial-gradient(80rem 40rem at -10% -10%, rgba(15, 118, 110, 0.12), transparent),
+    radial-gradient(70rem 40rem at 120% 0%, rgba(245, 158, 11, 0.12), transparent),
+    #f4f7f9;
+  color: #0f172a;
+}
+
+.card {
+  @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+}
+
+.tap-target {
+  min-height: 44px;
+}

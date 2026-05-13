@@ -1,13 +1,18 @@
 # ============================================
 # src/handlers/start.py - Aiogram 3.x
 # ============================================
+import secrets
+import time
+
 import aiosqlite
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-from config import BASE_DIR, bot, ADMIN_IDS
+from config import BASE_DIR, bot, ADMIN_IDS, WEBAPP_URL
 from src.buttons.buttuns import MM_btn
 from src.functions.functions import functions
+from src.functions.vacancy_format import format_vacancy_message_html
+from src.functions.scraping import fetch_osonish_detail
 
 router = Router()
 
@@ -16,13 +21,70 @@ router = Router()
 async def welcome(message: Message):
     """Start handler"""
     user_id = message.from_user.id
+
+    args = (message.text or "").split()
+    start_param = args[1] if len(args) > 1 else ""
+
+    # ── Vacancy deeplink: /start vacancy_osonish_12345 ──────────────────
+    if start_param.startswith("vacancy_osonish_"):
+        uid = start_param[len("vacancy_"):]   # "osonish_12345"
+        try:
+            raw_id = int(uid.split("_", 1)[1])
+        except (IndexError, ValueError):
+            await message.answer("❌ Noto'g'ri vakansiya havolasi.")
+            return
+
+        await message.answer("⏳ Vakansiya ma'lumotlari yuklanmoqda...")
+        detail = await fetch_osonish_detail(raw_id)
+        if not isinstance(detail, dict):
+            await message.answer("❌ Vakansiya topilmadi yoki ma'lumot olishda xato.")
+            return
+
+        text = format_vacancy_message_html(uid, detail)
+        await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
+        return
+    # ────────────────────────────────────────────────────────────────────
+
+    if start_param.startswith("ref_"):
+        try:
+            inviter_id = int(start_param[4:])
+        except ValueError:
+            inviter_id = 0
+
+        if inviter_id and inviter_id != user_id:
+            async with aiosqlite.connect(BASE_DIR) as conn:
+                await conn.execute(
+                    "UPDATE users SET ref_by = ? WHERE user_id = ? AND ref_by IS NULL",
+                    (inviter_id, user_id),
+                )
+                await conn.commit()
+
     is_subscribed = await functions.check_on_start(user_id, bot)
 
     if is_subscribed:
+        # --- Webapp auto-login havola yaratish ---
+        handoff_token = secrets.token_urlsafe(32)
+        expires_at = int(time.time()) + 300  # 5 daqiqa
+        async with aiosqlite.connect(BASE_DIR) as conn:
+            await conn.execute(
+                "INSERT OR REPLACE INTO bot_handoff_tokens (token, user_id, used, expires_at) VALUES (?, ?, 0, ?)",
+                (handoff_token, user_id, expires_at),
+            )
+            await conn.commit()
+
+        webapp_base = WEBAPP_URL.rstrip("/")
+        webapp_link = f"{webapp_base}/handoff?token={handoff_token}"
+
         await message.answer(
             f"Assalomu alaykum, {message.from_user.first_name}!\n"
             f"Botimizga xush kelibsiz. Kerakli bo'limni tanlang!",
-            reply_markup=MM_btn
+            reply_markup=MM_btn,
+        )
+
+        await message.answer(
+            "🌐 Veb-saytda ham ish qidirish mumkin:\n"
+            f"{webapp_link}\n"
+            "(havola 5 daqiqa amal qiladi)"
         )
     else:
         join_keyboard = await build_channel_keyboard()
