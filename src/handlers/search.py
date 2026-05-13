@@ -12,11 +12,30 @@ from src.buttons.buttuns import MM_btn
 
 logger = logging.getLogger(__name__)
 from src.functions.functions import (
-    functions, join_inline_btn, search_vakant, vacancie_btn,
-    region_btn, district_btn, money_btn, special_btn, saves_info
+    functions,
+    join_inline_btn,
+    search_vakant_for_user,
+    vacancie_btn,
+    region_btn,
+    district_btn,
+    money_btn,
+    special_btn,
+    saves_info,
+    format_detail,
 )
 
 router = Router()
+
+
+def normalize_uid(save_id: str) -> str:
+    s = str(save_id)
+    if s.startswith("osonish_"):
+        return s
+
+    # ishapi disabled: treat as osonish (same numeric id)
+    # To revert: restore "ishapi_" prefix when re-enabling
+    raw = s.replace("ishapi_", "")
+    return f"osonish_{raw}"
 
 
 @router.message(F.text == "💼 Ish qidirish")
@@ -33,7 +52,7 @@ async def search_handler(message: Message):
     send = await message.answer("⏳ Iltimos kuting, 🔎 ish qidirilmoqda...")
 
     try:
-        texts, ids, current, from_num, last = await search_vakant(user_id, 1)
+        texts, ids, current, from_num, last = await search_vakant_for_user(user_id, 1)
 
         if ids:
             await message.answer(
@@ -197,7 +216,11 @@ async def saved_jobs_handler(message: Message):
 
     for save_id, in saves:
         if save_id:
-            text = await saves_info(save_id)
+            uid = normalize_uid(str(save_id))
+            detail = await saves_info(uid)
+            if not detail:
+                continue
+            text = format_detail(detail["source"], detail["data"])
             await message.answer(text, reply_markup=delete_btn)
 
 
@@ -231,7 +254,7 @@ async def navigation_handler(call: CallbackQuery):
             await call.answer("Birinchi sahifa")
             return
 
-        texts, ids, current, from_num, last = await search_vakant(user_id, page)
+        texts, ids, current, from_num, last = await search_vakant_for_user(user_id, page)
         if not ids:
             await call.answer(texts or "⚠️ Xatolik yuz berdi", show_alert=True)
             return
@@ -254,7 +277,7 @@ async def navigation_handler(call: CallbackQuery):
 
     elif data.startswith("➡"):
         page = int(data[1:]) + 1
-        texts, ids, current, from_num, last = await search_vakant(user_id, page)
+        texts, ids, current, from_num, last = await search_vakant_for_user(user_id, page)
 
         if current > last:
             await call.answer("Oxirgi sahifa")
@@ -275,7 +298,7 @@ async def navigation_handler(call: CallbackQuery):
 
     elif data.startswith("🔙"):
         page = int(data[1:])
-        texts, ids, current, from_num, last = await search_vakant(user_id, page)
+        texts, ids, current, from_num, last = await search_vakant_for_user(user_id, page)
         if not ids:
             await call.answer(texts or "⚠️ Xatolik yuz berdi", show_alert=True)
             return
@@ -293,12 +316,12 @@ async def navigation_handler(call: CallbackQuery):
 @router.callback_query(F.data.startswith("🗂"))
 async def save_vacancy_handler(call: CallbackQuery):
     user_id = call.from_user.id
-    vacancy_id = int(call.data[1:])
+    vacancy_uid = call.data[1:]
 
     async with aiosqlite.connect(BASE_DIR) as conn:
         cursor = await conn.execute(
             "SELECT save_id FROM saves WHERE user_id = ? AND save_id = ?",
-            (user_id, vacancy_id)
+            (user_id, vacancy_uid)
         )
         exists = await cursor.fetchone()
 
@@ -307,17 +330,16 @@ async def save_vacancy_handler(call: CallbackQuery):
         else:
             await conn.execute(
                 "INSERT INTO saves (user_id, save_id) VALUES (?, ?)",
-                (user_id, vacancy_id)
+                (user_id, vacancy_uid)
             )
             await conn.commit()
             await call.answer("✅ Saqlandi")
 
 
-@router.callback_query(F.data.regexp(r'^\d+:\d+'))
+@router.callback_query(F.data.regexp(r'^(ishapi|osonish)_\d+:\d+$'))
 async def vacancy_detail_handler(call: CallbackQuery):
     try:
-        vacancy_id_str, page_str = call.data.split(':', 1)
-        vacancy_id = int(vacancy_id_str)
+        vacancy_uid, page_str = call.data.split(':', 1)
         page = int(page_str)
     except (ValueError, AttributeError) as e:
         logger.error("vacancy_detail_handler: bad callback %r: %s", call.data, e)
@@ -329,11 +351,16 @@ async def vacancy_detail_handler(call: CallbackQuery):
     except:
         pass
 
-    text = await saves_info(vacancy_id)
+    detail = await saves_info(vacancy_uid)
+    if not detail:
+        await call.answer("Batafsil ma'lumot topilmadi", show_alert=True)
+        return
+
+    text = format_detail(detail["source"], detail["data"])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📌 Saqlash", callback_data=f"🗂{vacancy_id}"),
+            InlineKeyboardButton(text="📌 Saqlash", callback_data=f"🗂{vacancy_uid}"),
             InlineKeyboardButton(text="⬅ Orqaga", callback_data=f"🔙{page}")
         ]
     ])

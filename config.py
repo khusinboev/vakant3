@@ -20,8 +20,5 @@ TOKEN = os.getenv("TOKEN", "")
 if not TOKEN:
     raise RuntimeError("TOKEN topilmadi. .env faylga TOKEN= qo'shing.")
 
-TOR_PORT = int(os.getenv("TOR_PORT", "9050"))
-CONTROL_PORT = int(os.getenv("CONTROL_PORT", "9051"))
-
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
