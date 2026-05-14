@@ -4,20 +4,29 @@ function px(value: number | undefined): string {
   return `${Math.max(0, Number(value ?? 0))}px`;
 }
 
+/**
+ * Write the OFFICIAL Telegram SDK CSS variable names
+ * (--tg-safe-area-inset-*, --tg-content-safe-area-inset-*).
+ * The SDK auto-injects these too, but writing them in JS ensures they are
+ * available on the very first render frame and stay in sync on every event.
+ * index.css bridges them to our short alias names used in components.
+ */
 function setInsetVariables(webApp: TelegramWebApp) {
   const root = document.documentElement;
   const safe = webApp.safeAreaInset;
   const contentSafe = webApp.contentSafeAreaInset;
 
-  root.style.setProperty("--tg-safe-area-top", px(safe?.top));
-  root.style.setProperty("--tg-safe-area-bottom", px(safe?.bottom));
-  root.style.setProperty("--tg-safe-area-left", px(safe?.left));
-  root.style.setProperty("--tg-safe-area-right", px(safe?.right));
+  // System safe area (notch, home indicator, navigation bars)
+  root.style.setProperty("--tg-safe-area-inset-top",    px(safe?.top));
+  root.style.setProperty("--tg-safe-area-inset-bottom", px(safe?.bottom));
+  root.style.setProperty("--tg-safe-area-inset-left",   px(safe?.left));
+  root.style.setProperty("--tg-safe-area-inset-right",  px(safe?.right));
 
-  root.style.setProperty("--tg-content-safe-area-top", px(contentSafe?.top));
-  root.style.setProperty("--tg-content-safe-area-bottom", px(contentSafe?.bottom));
-  root.style.setProperty("--tg-content-safe-area-left", px(contentSafe?.left));
-  root.style.setProperty("--tg-content-safe-area-right", px(contentSafe?.right));
+  // Content safe area (avoids Telegram's own UI: header, bottom bar)
+  root.style.setProperty("--tg-content-safe-area-inset-top",    px(contentSafe?.top));
+  root.style.setProperty("--tg-content-safe-area-inset-bottom", px(contentSafe?.bottom));
+  root.style.setProperty("--tg-content-safe-area-inset-left",   px(contentSafe?.left));
+  root.style.setProperty("--tg-content-safe-area-inset-right",  px(contentSafe?.right));
 }
 
 function setViewportVariables(webApp: TelegramWebApp) {
@@ -28,50 +37,75 @@ function setViewportVariables(webApp: TelegramWebApp) {
   }
 }
 
+/**
+ * In fullscreen the Telegram header becomes transparent.
+ * Setting bg_color gives the OS status bar the correct contrast color.
+ */
+function applyColors(webApp: TelegramWebApp) {
+  webApp.setHeaderColor?.("bg_color");
+  webApp.setBackgroundColor?.("bg_color");
+  webApp.setBottomBarColor?.("bottom_bar_bg_color");
+}
+
 export default function useTelegramWebApp() {
   useEffect(() => {
     const webApp = window.Telegram?.WebApp;
-    if (!webApp) {
-      // Not inside Telegram Mini App — no action needed
-      return;
-    }
+    if (!webApp) return;
 
-    // Signal that app is ready ASAP to hide Telegram's loading screen
+    // Signal ready ASAP → hides Telegram's loading placeholder
     webApp.ready();
     webApp.expand();
 
-    // Apply theme colors if API supports it
-    webApp.setHeaderColor?.("bg_color");
-    webApp.setBackgroundColor?.("bg_color");
-    webApp.setBottomBarColor?.("bottom_bar_bg_color");
-
+    applyColors(webApp);
     setInsetVariables(webApp);
     setViewportVariables(webApp);
 
-    // Request fullscreen — errors are caught so they don't break the app
-    if (webApp.requestFullscreen && !webApp.isFullscreen) {
-      try {
-        webApp.requestFullscreen();
-      } catch {
-        // Not supported on this platform — ignore
-      }
+    // Bot API 7.7+ — disable vertical swipe-to-close while content is scrollable
+    webApp.disableVerticalSwipes?.();
+
+    // Bot API 8.0+ — request fullscreen
+    if (webApp.isVersionAtLeast?.("8.0") && !webApp.isFullscreen) {
+      webApp.requestFullscreen?.();
     }
 
-    const onViewportChanged = () => {
-      setViewportVariables(webApp);
-    };
-    const onSafeAreaChanged = () => {
-      setInsetVariables(webApp);
+    // ── Event handlers ──────────────────────────────────────────────────────
+
+    const onViewportChanged = () => setViewportVariables(webApp);
+
+    const onSafeAreaChanged = () => setInsetVariables(webApp);
+
+    // Fires when fullscreen is entered or exited (Bot API 8.0+).
+    // Re-apply header color so status bar text contrast stays correct.
+    const onFullscreenChanged = () => {
+      document.documentElement.dataset.fullscreen = webApp.isFullscreen ? "1" : "0";
+      applyColors(webApp);
     };
 
-    webApp.onEvent("viewportChanged", onViewportChanged);
-    webApp.onEvent("safeAreaChanged", onSafeAreaChanged);
+    // Fires when requestFullscreen() fails (unsupported platform, etc.) — ignore.
+    const onFullscreenFailed = () => { /* noop — platforms without fullscreen support */ };
+
+    // Fires when app is restored from minimised state (Bot API 8.0+).
+    // Re-sync layout vars in case they changed while the app was inactive.
+    const onActivated = () => {
+      setInsetVariables(webApp);
+      setViewportVariables(webApp);
+      applyColors(webApp);
+    };
+
+    webApp.onEvent("viewportChanged",        onViewportChanged);
+    webApp.onEvent("safeAreaChanged",        onSafeAreaChanged);
     webApp.onEvent("contentSafeAreaChanged", onSafeAreaChanged);
+    webApp.onEvent("fullscreenChanged",      onFullscreenChanged);
+    webApp.onEvent("fullscreenFailed",       onFullscreenFailed);
+    webApp.onEvent("activated",              onActivated);
 
     return () => {
-      webApp.offEvent("viewportChanged", onViewportChanged);
-      webApp.offEvent("safeAreaChanged", onSafeAreaChanged);
+      webApp.offEvent("viewportChanged",        onViewportChanged);
+      webApp.offEvent("safeAreaChanged",        onSafeAreaChanged);
       webApp.offEvent("contentSafeAreaChanged", onSafeAreaChanged);
+      webApp.offEvent("fullscreenChanged",      onFullscreenChanged);
+      webApp.offEvent("fullscreenFailed",       onFullscreenFailed);
+      webApp.offEvent("activated",              onActivated);
     };
   }, []);
 }

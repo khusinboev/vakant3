@@ -17,13 +17,19 @@ export default function Layout({ children }: PropsWithChildren) {
       // ignore
     }
     clearSession();
-    navigate("/login");
+    navigate("/app");
   };
 
   return (
     <div className="min-h-[var(--app-viewport-height)] pb-[calc(5rem+var(--tg-content-safe-area-bottom))] md:pb-8">
-      <header className="sticky top-[var(--tg-content-safe-area-top)] z-20 border-b border-slate-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-[calc(1rem+var(--tg-content-safe-area-left))] py-3 pr-[calc(1rem+var(--tg-content-safe-area-right))]">
+      {/* sticky top-0 so header covers the notch/status-bar area in fullscreen.
+          pt-[var(--tg-content-safe-area-top)] pushes content below the notch
+          while the bg fills the transparent status bar region. */}
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between
+          pt-[calc(0.75rem+var(--tg-content-safe-area-top))] pb-3
+          pl-[calc(1rem+var(--tg-content-safe-area-left))]
+          pr-[calc(1rem+var(--tg-content-safe-area-right))]">
           <Link to="/app" className="font-display text-xl font-extrabold text-brand-700">
             Bandlik.uz
           </Link>
