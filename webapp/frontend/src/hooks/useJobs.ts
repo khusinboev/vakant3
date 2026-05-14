@@ -1,10 +1,9 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import client from "../api/client";
 import type { VacancyDetail, VacancyItem } from "../types";
 
 export type JobsParams = {
-  page: number;
   q: string;
   money: number;
   region_soato: string;
@@ -14,17 +13,20 @@ export type JobsParams = {
   sort_type: string;
 };
 
+type JobsPage = { vacancies: VacancyItem[]; page: number; last_page: number; total_estimate: number };
+
 export function useJobs(params: JobsParams) {
-  return useQuery({
+  return useInfiniteQuery<JobsPage>({
     queryKey: ["jobs", params],
-    queryFn: async () => {
-      const { data } = await client.get<{ vacancies: VacancyItem[]; page: number; last_page: number; total_estimate: number }>(
-        "/jobs/search",
-        { params }
-      );
+    queryFn: async ({ pageParam = 1 }) => {
+      const { data } = await client.get<JobsPage>("/jobs/search", {
+        params: { ...params, page: pageParam },
+      });
       return data;
     },
-    placeholderData: keepPreviousData
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.page < lastPage.last_page ? lastPage.page + 1 : undefined,
   });
 }
 

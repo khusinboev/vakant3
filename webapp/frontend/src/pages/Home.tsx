@@ -1,9 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import client from "../api/client";
 import LoginPrompt from "../components/LoginPrompt";
-import Pagination from "../components/Jobs/Pagination";
 import SearchFilters from "../components/Jobs/SearchFilters";
 import VacancyCard from "../components/Jobs/VacancyCard";
 import VacancyDetail from "../components/Jobs/VacancyDetail";
@@ -32,25 +31,18 @@ export default function Home() {
     sort_key: "",
     sort_type: "",
   });
-  const [page, setPage] = useState(1);
   const [activeUid, setActiveUid] = useState("");
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
-  // Debounce the text search — only call API 400ms after user stops typing
+  // Debounce text search — call API 400ms after user stops typing
   const [debouncedQuery, setDebouncedQuery] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => {
-      const trimmed = filters.query.trim();
-      setDebouncedQuery((prev) => {
-        if (prev !== trimmed) setPage(1);
-        return trimmed;
-      });
-    }, 400);
+    const t = setTimeout(() => setDebouncedQuery(filters.query.trim()), 400);
     return () => clearTimeout(t);
   }, [filters.query]);
 
-  const jobs = useJobs({
+  const queryParams = {
     q: debouncedQuery,
     specs: filters.specs,
     region_soato: filters.region_soato,
@@ -58,11 +50,32 @@ export default function Home() {
     money: filters.money,
     sort_key: filters.sort_key,
     sort_type: filters.sort_type,
-    page,
-  });
+  };
+
+  const jobs = useJobs(queryParams);
   const { save, remove } = useSaves();
 
-  const vacancies = jobs.data?.vacancies ?? [];
+  // Flatten all pages into a single list
+  const vacancies = jobs.data?.pages.flatMap((p) => p.vacancies) ?? [];
+  const lastPage = jobs.data?.pages[jobs.data.pages.length - 1];
+  const hasMore = jobs.hasNextPage;
+
+  // IntersectionObserver sentinel — when it enters the viewport, load next page
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !jobs.isFetchingNextPage) {
+          jobs.fetchNextPage();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, jobs]);
 
   const detail = useQuery({
     queryKey: ["jobs", "detail", activeUid],
@@ -78,11 +91,8 @@ export default function Home() {
       setShowLoginPrompt(true);
       return;
     }
-    if (saved) {
-      remove.mutate(uid);
-    } else {
-      save.mutate(uid);
-    }
+    if (saved) remove.mutate(uid);
+    else save.mutate(uid);
   };
 
   return (
@@ -90,7 +100,6 @@ export default function Home() {
       <SearchFilters
         value={filters}
         onChange={(next) => {
-          setPage(1);
           setFilters(next);
         }}
       />
@@ -105,12 +114,12 @@ export default function Home() {
         <span>
           {jobs.isLoading
             ? "Yuklanmoqda..."
-            : jobs.isFetching
-              ? "Yangilanmoqda..."
-              : `${jobs.data?.total_estimate ?? 0} ta vakansiya`}
+            : jobs.isFetchingNextPage
+              ? "Yuklanmoqda..."
+              : `${lastPage?.total_estimate ?? vacancies.length} ta vakansiya`}
         </span>
         <span>
-          {jobs.data ? `Sahifa ${page} / ${jobs.data.last_page || 1}` : ""}
+          {lastPage ? `${lastPage.page} / ${lastPage.last_page || 1}` : ""}
         </span>
       </div>
 
@@ -121,28 +130,41 @@ export default function Home() {
           ))}
         </section>
       ) : (
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {vacancies.map((item) => (
-            <VacancyCard
-              key={item.uid}
-              item={item}
-              onOpen={setActiveUid}
-              onToggleSave={toggleSave}
-            />
-          ))}
-          {vacancies.length === 0 && !jobs.isError && (
-            <div className="card col-span-full p-6 text-center text-sm text-slate-500">
-              Natija topilmadi. Boshqa kalit so'z yoki filtr sinab ko'ring.
+        <>
+          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {vacancies.map((item) => (
+              <VacancyCard
+                key={item.uid}
+                item={item}
+                onOpen={setActiveUid}
+                onToggleSave={toggleSave}
+              />
+            ))}
+            {vacancies.length === 0 && !jobs.isError && (
+              <div className="card col-span-full p-6 text-center text-sm text-slate-500">
+                Natija topilmadi. Boshqa kalit so'z yoki filtr sinab ko'ring.
+              </div>
+            )}
+          </section>
+
+          {/* Sentinel: IntersectionObserver triggers next page load here */}
+          <div ref={sentinelRef} className="py-1" />
+
+          {jobs.isFetchingNextPage && (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonCard key={i} />
+              ))}
             </div>
           )}
-        </section>
-      )}
 
-      <Pagination
-        page={page}
-        lastPage={jobs.data?.last_page ?? 1}
-        onChange={setPage}
-      />
+          {!hasMore && vacancies.length > 0 && (
+            <p className="pb-2 text-center text-xs text-slate-400">
+              Barcha natijalar ko'rsatildi
+            </p>
+          )}
+        </>
+      )}
 
       <VacancyDetail
         open={Boolean(activeUid)}
