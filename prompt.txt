@@ -311,7 +311,7 @@ GET /api/filters/specs
 
 ### Login (`/login`)
 - Full-screen centered layout
-- Bot logo + "IshBot" branding
+- Bot logo + "Bandlik.uz" branding
 - `<TelegramLoginButton botName={BOT_USERNAME} onAuth={handleAuth} />`
 - After auth → redirect to `/`
 

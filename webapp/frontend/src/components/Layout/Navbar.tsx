@@ -25,7 +25,7 @@ export default function Layout({ children }: PropsWithChildren) {
       <header className="sticky top-[var(--tg-content-safe-area-top)] z-20 border-b border-slate-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-[calc(1rem+var(--tg-content-safe-area-left))] py-3 pr-[calc(1rem+var(--tg-content-safe-area-right))]">
           <Link to="/app" className="font-display text-xl font-extrabold text-brand-700">
-            IshBot
+            Bandlik.uz
           </Link>
           <button onClick={logout} className="tap-target inline-flex items-center gap-2 rounded-xl px-3 text-sm text-slate-600 hover:bg-slate-100">
             <LogOut size={16} /> Chiqish

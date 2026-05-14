@@ -44,7 +44,7 @@ export default function Login() {
   return (
     <div className="flex min-h-[var(--app-viewport-height)] items-center justify-center px-[calc(1rem+var(--tg-content-safe-area-left))] pb-[calc(1rem+var(--tg-content-safe-area-bottom))] pt-[calc(1rem+var(--tg-content-safe-area-top))] pr-[calc(1rem+var(--tg-content-safe-area-right))]">
       <div className="card w-full max-w-md p-6 text-center">
-        <p className="font-display text-3xl font-extrabold text-brand-700">IshBot</p>
+        <p className="font-display text-3xl font-extrabold text-brand-700">Bandlik.uz</p>
         <p className="mt-2 text-sm text-slate-600">Telegram orqali tizimga kiring</p>
         <div className="mt-6 flex justify-center">
           {showTelegramWidget ? (

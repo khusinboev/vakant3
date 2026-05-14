@@ -14,7 +14,7 @@ from webapp.core.limiter import limiter
 from webapp.routers import auth, filters, jobs, profile, referral, saves
 
 settings = get_settings()
-app = FastAPI(title="IshBot WebApp API", version="1.0.0")
+app = FastAPI(title="Bandlik.uz WebApp API", version="1.0.0")
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

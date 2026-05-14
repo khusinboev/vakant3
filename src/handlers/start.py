@@ -61,9 +61,18 @@ async def welcome(message: Message):
     is_subscribed = await functions.check_on_start(user_id, bot)
 
     if is_subscribed:
+        now_ts = int(time.time())
+        async with aiosqlite.connect(BASE_DIR) as conn:
+            # Ensure user row exists for handoff -> /auth/me profile hydration.
+            await conn.execute(
+                "INSERT OR IGNORE INTO users (user_id, date, lang) VALUES (?, ?, ?)",
+                (user_id, now_ts, "uz"),
+            )
+            await conn.commit()
+
         # /start uchun userga alohida bir martalik handoff token
         handoff_token = secrets.token_urlsafe(32)
-        expires_at = int(time.time()) + 300  # 5 daqiqa
+        expires_at = now_ts + 300  # 5 daqiqa
         async with aiosqlite.connect(BASE_DIR) as conn:
             await conn.execute(
                 "INSERT OR REPLACE INTO bot_handoff_tokens (token, user_id, used, expires_at) VALUES (?, ?, 0, ?)",
@@ -76,7 +85,7 @@ async def welcome(message: Message):
             webapp_base = f"https://{webapp_base[len('http://'):]}"
         if not webapp_base.startswith("https://"):
             webapp_base = f"https://{webapp_base}"
-        webapp_url = f"{webapp_base}/handoff?token={handoff_token}"
+        webapp_url = f"{webapp_base}/handoff?token={handoff_token}&uid={user_id}"
         open_webapp_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]

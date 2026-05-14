@@ -36,6 +36,8 @@ function HandoffHandler() {
 
   useEffect(() => {
     const token = params.get("token");
+    const uidRaw = params.get("uid");
+    const uid = uidRaw ? Number(uidRaw) : undefined;
     if (!token) return;
 
     const handoffKey = `handoff_used_${token}`;
@@ -49,7 +51,8 @@ function HandoffHandler() {
     window.history.replaceState({}, "", "/app");
     void (async () => {
       try {
-        const { data } = await client.post<AuthResponse>("/auth/handoff", { token });
+        const payload = Number.isFinite(uid) ? { token, uid } : { token };
+        const { data } = await client.post<AuthResponse>("/auth/handoff", payload);
         setSession(data.session_token, data.user);
         navigate("/app", { replace: true });
       } catch {

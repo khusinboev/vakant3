@@ -6,7 +6,7 @@ type Props = {
 export default function ReferralCard({ refLink, count }: Props) {
   const share = async () => {
     if (navigator.share) {
-      await navigator.share({ title: "IshBot", text: "Ish qidirish uchun bot", url: refLink });
+      await navigator.share({ title: "Bandlik.uz", text: "Ish qidirish uchun bot", url: refLink });
       return;
     }
     await navigator.clipboard.writeText(refLink);

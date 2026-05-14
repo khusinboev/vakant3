@@ -94,6 +94,7 @@ async def me(current=Depends(get_current_user)) -> UserProfile:
 
 class HandoffRequest(BaseModel):
     token: str
+    uid: int | None = None
 
 
 @router.post("/handoff", response_model=AuthResponse)
@@ -108,6 +109,9 @@ async def handoff_login(payload: HandoffRequest, db=Depends(get_db)) -> AuthResp
     row = await cursor.fetchone()
     if not row:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid handoff token")
+
+    if payload.uid is not None and int(payload.uid) != int(row["user_id"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Handoff uid mismatch")
 
     if int(row["used"]) or int(row["expires_at"]) <= now:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Handoff token expired or already used")
@@ -134,7 +138,18 @@ async def handoff_login(payload: HandoffRequest, db=Depends(get_db)) -> AuthResp
     )
     user_row = await cursor.fetchone()
     if not user_row:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        await db.execute(
+            "INSERT OR IGNORE INTO users (user_id, date, lang) VALUES (?, ?, ?)",
+            (user_id, now, "uz"),
+        )
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT user_id, first_name, username, photo_url, lang FROM users WHERE user_id = ?",
+            (user_id,),
+        )
+        user_row = await cursor.fetchone()
+        if not user_row:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     return AuthResponse(
         session_token=session_token,

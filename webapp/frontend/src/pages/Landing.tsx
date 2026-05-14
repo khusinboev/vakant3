@@ -11,7 +11,7 @@ export default function Landing() {
             Ish qidirish platformasi
           </p>
 
-          <h1 className="mt-5 text-4xl font-black leading-tight text-slate-900 md:text-6xl">IshBot</h1>
+          <h1 className="mt-5 text-4xl font-black leading-tight text-slate-900 md:text-6xl">Bandlik.uz</h1>
 
           <p className="mt-4 text-sm leading-7 text-slate-600 md:text-lg">
             Eng dolzarb bo‘sh ish o‘rinlarini Telegram bot orqali tez va qulay toping.
