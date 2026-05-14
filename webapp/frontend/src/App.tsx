@@ -3,7 +3,7 @@ import { Route, Routes, Navigate } from "react-router-dom";
 
 import Layout from "./components/Layout/Navbar";
 import useTelegramWebApp from "./hooks/useTelegramWebApp";
-import useTelegramAuth, { isTelegramWebApp } from "./hooks/useTelegramAuth";
+import { isTelegramWebApp } from "./hooks/useTelegramAuth";
 import useTelegramBackButton from "./hooks/useTelegramBackButton";
 import Home from "./pages/Home";
 
@@ -19,7 +19,6 @@ function PageFallback() {
 
 export default function App() {
   useTelegramWebApp();
-  useTelegramAuth();
   useTelegramBackButton();
 
   // External browser — always show landing page
