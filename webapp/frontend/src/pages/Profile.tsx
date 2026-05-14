@@ -13,7 +13,28 @@ const ActivityChart = lazy(() => import("../components/Profile/ActivityChart"));
 
 export default function Profile() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isInitializing = useAuthStore((s) => s.isInitializing);
   const [showPrompt, setShowPrompt] = useState(!isAuthenticated);
+
+  // Always call useQuery — hooks must not be called conditionally.
+  // enabled=false when auth is not ready so no request is fired prematurely.
+  const profile = useQuery({
+    queryKey: ["profile"],
+    queryFn: async () => {
+      const { data } = await client.get<{
+        user: { first_name: string; username: string | null; photo_url: string | null };
+        stats: { member_since: string; saves_count: number; referrals_count: number };
+        current_filters: { specs: string | null; region: string | null; district: string | null; money: number | null };
+      }>("/profile");
+      return data;
+    },
+    enabled: isAuthenticated && !isInitializing,
+    staleTime: 2 * 60 * 1000,
+  });
+
+  if (isInitializing) {
+    return <div className="card p-4 text-sm text-slate-500">Yuklanmoqda...</div>;
+  }
 
   if (!isAuthenticated) {
     return (
@@ -32,19 +53,6 @@ export default function Profile() {
       </>
     );
   }
-
-  const profile = useQuery({
-    queryKey: ["profile"],
-    queryFn: async () => {
-      const { data } = await client.get<{
-        user: { first_name: string; username: string | null; photo_url: string | null };
-        stats: { member_since: string; saves_count: number; referrals_count: number };
-        current_filters: { specs: string | null; region: string | null; district: string | null; money: number | null };
-      }>("/profile");
-      return data;
-    },
-    staleTime: 2 * 60 * 1000,
-  });
 
   if (profile.isLoading) {
     return <div className="card p-4 text-sm">Yuklanmoqda...</div>;

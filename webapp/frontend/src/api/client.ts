@@ -24,7 +24,14 @@ client.interceptors.response.use(
       requestUrl.includes("/auth/tg-webapp");
 
     if (status === 401 && !isAuthEndpoint) {
-      useAuthStore.getState().clearSession();
+      // Only trigger re-auth once. If isInitializing is already true, a re-auth
+      // cycle is already running — don't call clearSession() again or every
+      // parallel 401 would increment sessionVersion N times, causing N auth
+      // requests and hitting the rate limit (429).
+      const state = useAuthStore.getState();
+      if (!state.isInitializing) {
+        state.clearSession();
+      }
     }
     return Promise.reject(error);
   }

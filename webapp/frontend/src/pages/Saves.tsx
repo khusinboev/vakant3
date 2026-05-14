@@ -22,7 +22,9 @@ export default function Saves() {
     uid: string;
     data: Record<string, unknown>;
   } | null>(null);
-  const { list, remove } = useSaves(1, 20, isAuthenticated);
+  // Do not fire the query while auth is still initializing — the token may
+  // not be set yet and an immediate 401 would start the clearSession loop.
+  const { list, remove } = useSaves(1, 20, isAuthenticated && !isInitializing);
 
   if (isInitializing) {
     return <div className="card p-4 text-sm text-slate-500">Yuklanmoqda...</div>;
