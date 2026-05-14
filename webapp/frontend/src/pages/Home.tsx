@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import client from "../api/client";
+import LoginPrompt from "../components/LoginPrompt";
 import Pagination from "../components/Jobs/Pagination";
 import SearchFilters from "../components/Jobs/SearchFilters";
 import VacancyCard from "../components/Jobs/VacancyCard";
@@ -14,6 +15,7 @@ export default function Home() {
   const [filters, setFilters] = useState({ query: "", specs: "", region_soato: "", district_soato: "", money: 0, sort_key: "", sort_type: "" });
   const [page, setPage] = useState(1);
   const [activeUid, setActiveUid] = useState("");
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   const jobs = useJobs({ ...filters, page });
@@ -38,7 +40,7 @@ export default function Home() {
 
   const toggleSave = (uid: string, saved: boolean) => {
     if (!isAuthenticated) {
-      alert("Kirish kerak");
+      setShowLoginPrompt(true);
       return;
     }
     if (saved) {
@@ -74,6 +76,8 @@ export default function Home() {
       <Pagination page={page} lastPage={jobs.data?.last_page || 1} onChange={setPage} />
 
       <VacancyDetail open={Boolean(activeUid)} onClose={() => setActiveUid("")} data={detail.data || null} />
+
+      {showLoginPrompt && <LoginPrompt onClose={() => setShowLoginPrompt(false)} />}
     </div>
   );
 }

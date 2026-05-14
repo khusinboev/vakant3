@@ -8,7 +8,7 @@ from webapp.core.config import get_settings
 from webapp.core.database import get_db
 from webapp.core.limiter import limiter
 from webapp.core.session import get_current_user, sign_session_payload
-from webapp.core.telegram_auth import verify_telegram_login
+from webapp.core.telegram_auth import verify_telegram_login, verify_webapp_init_data
 from webapp.models.schemas import AuthResponse, LogoutResponse, TelegramAuthRequest, UserProfile
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -90,6 +90,65 @@ async def me(current=Depends(get_current_user)) -> UserProfile:
         photo_url=user.get("photo_url"),
         lang=str(user.get("lang") or "uz"),
     )
+
+
+class TgWebAppRequest(BaseModel):
+    init_data: str
+
+
+@router.post("/tg-webapp", response_model=AuthResponse)
+@limiter.limit("30/minute")
+async def tg_webapp_login(request: Request, payload: TgWebAppRequest, db=Depends(get_db)) -> AuthResponse:
+    """Authenticate via Telegram.WebApp.initData (HMAC-verified)."""
+    settings = get_settings()
+    if not settings.TOKEN:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="TOKEN not configured")
+
+    user_data = verify_webapp_init_data(payload.init_data, settings.TOKEN)
+    if not user_data:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid initData")
+
+    user_id = int(user_data["id"])
+    first_name = str(user_data.get("first_name") or "")
+    username = user_data.get("username")
+    photo_url = user_data.get("photo_url")
+    now = int(time.time())
+
+    await db.execute(
+        "INSERT OR IGNORE INTO users (user_id, date, lang) VALUES (?, ?, ?)",
+        (user_id, now, "uz"),
+    )
+    await db.execute(
+        "UPDATE users SET first_name = ?, username = ?, photo_url = ? WHERE user_id = ?",
+        (first_name, username, photo_url, user_id),
+    )
+
+    sid = secrets.token_urlsafe(32)
+    exp = now + settings.SESSION_TTL_SECONDS
+    await db.execute(
+        "INSERT INTO webapp_sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+        (sid, user_id, now, exp),
+    )
+    await db.commit()
+
+    session_token = sign_session_payload({"sid": sid, "uid": user_id, "exp": exp})
+
+    cursor = await db.execute(
+        "SELECT user_id, first_name, username, photo_url, lang FROM users WHERE user_id = ?",
+        (user_id,),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User was not persisted")
+
+    user = UserProfile(
+        user_id=int(row["user_id"]),
+        first_name=str(row["first_name"] or ""),
+        username=row["username"],
+        photo_url=row["photo_url"],
+        lang=str(row["lang"] or "uz"),
+    )
+    return AuthResponse(session_token=session_token, user=user)
 
 
 class HandoffRequest(BaseModel):

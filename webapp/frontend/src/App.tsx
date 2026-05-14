@@ -1,92 +1,30 @@
 import { useEffect } from "react";
-import { Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 
 import client from "./api/client";
 import Layout from "./components/Layout/Navbar";
 import useTelegramWebApp from "./hooks/useTelegramWebApp";
+import useTelegramAuth, { isTelegramWebApp } from "./hooks/useTelegramAuth";
 import Home from "./pages/Home";
 import Landing from "./pages/Landing";
-import Login from "./pages/Login";
 import Profile from "./pages/Profile";
 import Referral from "./pages/Referral";
 import Saves from "./pages/Saves";
 import { useAuthStore } from "./store/auth";
 import type { UserProfile } from "./types";
 
-type AuthResponse = { session_token: string; user: UserProfile };
-
-function HandoffExpired() {
-  return (
-    <div className="flex min-h-[var(--app-viewport-height)] items-center justify-center p-4 pb-[calc(1rem+var(--tg-content-safe-area-bottom))] pt-[calc(1rem+var(--tg-content-safe-area-top))]">
-      <div className="card w-full max-w-md p-6 text-center">
-        <p className="font-display text-2xl font-extrabold text-brand-700">Havola eskirgan</p>
-        <p className="mt-3 text-sm text-slate-600">
-          Bu havola bir martalik va qisqa muddatli. Botga qayting va /start ni qayta bosing.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function HandoffHandler() {
-  const [params] = useSearchParams();
-  const navigate = useNavigate();
-  const setSession = useAuthStore((s) => s.setSession);
-  const clearSession = useAuthStore((s) => s.clearSession);
-
-  useEffect(() => {
-    const token = params.get("token");
-    const uidRaw = params.get("uid");
-    const uid = uidRaw ? Number(uidRaw) : undefined;
-
-    // Token yo'q bo'lsa /app ga o'tamiz (balki allaqachon login bo'lgan)
-    if (!token) {
-      navigate("/app", { replace: true });
-      return;
-    }
-
-    // URL ni darhol tozalaymiz — token brauzer tarixida qolmasin
-    window.history.replaceState({}, "", "/app");
-
-    // Yangi token kelganda eski sessionni tozalaymiz — qorishmaslik uchun
-    clearSession();
-
-    void (async () => {
-      try {
-        const payload = Number.isFinite(uid) ? { token, uid } : { token };
-        const { data } = await client.post<AuthResponse>("/auth/handoff", payload);
-        setSession(data.session_token, data.user);
-        navigate("/app", { replace: true });
-      } catch {
-        navigate("/handoff-expired", { replace: true });
-      }
-    })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Hech qachon boshqa joyga yo'naltirmaymiz — yuqoridagi effect hal qiladi
-  return (
-    <div className="flex min-h-[var(--app-viewport-height)] items-center justify-center px-4 pb-[calc(1rem+var(--tg-content-safe-area-bottom))] pt-[calc(1rem+var(--tg-content-safe-area-top))] text-sm text-slate-500">
-      Kirish...
-    </div>
-  );
-}
-
-function PrivateRoute({ children }: { children: JSX.Element }) {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  return children;
-}
-
 export default function App() {
   useTelegramWebApp();
+  useTelegramAuth();
+
   const setUser = useAuthStore((s) => s.setUser);
   const clearSession = useAuthStore((s) => s.clearSession);
 
+  // If opened in external browser, skip /auth/me — no session possible
+  const inTelegram = isTelegramWebApp();
+
   useEffect(() => {
-    // /handoff route o'z sessiyasini o'zi boshqaradi — bu check unga tegmasin
-    if (window.location.pathname === "/handoff") return;
+    if (!inTelegram) return;
 
     const token = localStorage.getItem("session_token");
     if (!token) {
@@ -102,54 +40,22 @@ export default function App() {
         clearSession();
       }
     })();
-  }, [setUser, clearSession]);
+  }, [setUser, clearSession, inTelegram]);
+
+  // External browser — always show landing page
+  if (!inTelegram) {
+    return <Landing />;
+  }
 
   return (
     <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route path="/login" element={<Login />} />
-      {/* Bot /start havolasi: /handoff?token=xxx → auto login */}
-      <Route path="/handoff" element={<HandoffHandler />} />
-      <Route path="/handoff-expired" element={<HandoffExpired />} />
-      <Route
-        path="/app"
-        element={
-          <Layout>
-            <Home />
-          </Layout>
-        }
-      />
-      <Route
-        path="/saves"
-        element={
-          <PrivateRoute>
-            <Layout>
-              <Saves />
-            </Layout>
-          </PrivateRoute>
-        }
-      />
-      <Route
-        path="/profile"
-        element={
-          <PrivateRoute>
-            <Layout>
-              <Profile />
-            </Layout>
-          </PrivateRoute>
-        }
-      />
-      <Route
-        path="/referral"
-        element={
-          <PrivateRoute>
-            <Layout>
-              <Referral />
-            </Layout>
-          </PrivateRoute>
-        }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="/" element={<Navigate to="/app" replace />} />
+      <Route path="/app" element={<Layout><Home /></Layout>} />
+      <Route path="/saves" element={<Layout><Saves /></Layout>} />
+      <Route path="/profile" element={<Layout><Profile /></Layout>} />
+      <Route path="/referral" element={<Layout><Referral /></Layout>} />
+      <Route path="*" element={<Navigate to="/app" replace />} />
     </Routes>
   );
 }
+

@@ -1,9 +1,32 @@
+import { useState } from "react";
 import { Trash2 } from "lucide-react";
 
+import LoginPrompt from "../components/LoginPrompt";
 import { useSaves } from "../hooks/useSaves";
+import { useAuthStore } from "../store/auth";
 
 export default function Saves() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const [showPrompt, setShowPrompt] = useState(!isAuthenticated);
   const { list, remove } = useSaves(1, 20);
+
+  if (!isAuthenticated) {
+    return (
+      <>
+        <div className="card flex flex-col items-center gap-4 p-8 text-center">
+          <p className="text-base font-semibold text-slate-700">Saqlangan ishlar</p>
+          <p className="text-sm text-slate-500">Vakansiyalarni saqlash uchun botda hisobingiz bo'lishi kerak.</p>
+          <button
+            className="tap-target rounded-2xl bg-brand-500 px-5 py-3 text-sm font-semibold text-white"
+            onClick={() => setShowPrompt(true)}
+          >
+            Kirish
+          </button>
+        </div>
+        {showPrompt && <LoginPrompt onClose={() => setShowPrompt(false)} />}
+      </>
+    );
+  }
 
   if (list.isLoading) {
     return <div className="card p-4 text-sm">Yuklanmoqda...</div>;

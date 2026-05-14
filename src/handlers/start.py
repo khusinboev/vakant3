@@ -2,7 +2,6 @@
 # src/handlers/start.py - Aiogram 3.x
 # ============================================
 import aiosqlite
-import secrets
 import time
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
@@ -63,20 +62,9 @@ async def welcome(message: Message):
     if is_subscribed:
         now_ts = int(time.time())
         async with aiosqlite.connect(BASE_DIR) as conn:
-            # Ensure user row exists for handoff -> /auth/me profile hydration.
             await conn.execute(
                 "INSERT OR IGNORE INTO users (user_id, date, lang) VALUES (?, ?, ?)",
                 (user_id, now_ts, "uz"),
-            )
-            await conn.commit()
-
-        # /start uchun userga alohida bir martalik handoff token
-        handoff_token = secrets.token_urlsafe(32)
-        expires_at = now_ts + 300  # 5 daqiqa
-        async with aiosqlite.connect(BASE_DIR) as conn:
-            await conn.execute(
-                "INSERT OR REPLACE INTO bot_handoff_tokens (token, user_id, used, expires_at) VALUES (?, ?, 0, ?)",
-                (handoff_token, user_id, expires_at),
             )
             await conn.commit()
 
@@ -85,7 +73,7 @@ async def welcome(message: Message):
             webapp_base = f"https://{webapp_base[len('http://'):]}"
         if not webapp_base.startswith("https://"):
             webapp_base = f"https://{webapp_base}"
-        webapp_url = f"{webapp_base}/handoff?token={handoff_token}&uid={user_id}"
+        webapp_url = f"{webapp_base}/app"
         open_webapp_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]
