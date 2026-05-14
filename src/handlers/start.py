@@ -1,13 +1,10 @@
 # ============================================
 # src/handlers/start.py - Aiogram 3.x
 # ============================================
-import secrets
-import time
-
 import aiosqlite
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from config import BASE_DIR, bot, ADMIN_IDS, WEBAPP_URL
 from src.buttons.buttuns import MM_btn
 from src.functions.functions import functions
@@ -62,18 +59,14 @@ async def welcome(message: Message):
     is_subscribed = await functions.check_on_start(user_id, bot)
 
     if is_subscribed:
-        # --- Webapp auto-login havola yaratish ---
-        handoff_token = secrets.token_urlsafe(32)
-        expires_at = int(time.time()) + 300  # 5 daqiqa
-        async with aiosqlite.connect(BASE_DIR) as conn:
-            await conn.execute(
-                "INSERT OR REPLACE INTO bot_handoff_tokens (token, user_id, used, expires_at) VALUES (?, ?, 0, ?)",
-                (handoff_token, user_id, expires_at),
-            )
-            await conn.commit()
-
-        webapp_base = WEBAPP_URL.rstrip("/")
-        webapp_link = f"{webapp_base}/handoff?token={handoff_token}"
+        webapp_url = WEBAPP_URL.rstrip("/")
+        if webapp_url.startswith("http://"):
+            webapp_url = f"https://{webapp_url[len('http://'):]}"
+        open_webapp_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]
+            ]
+        )
 
         await message.answer(
             f"Assalomu alaykum, {message.from_user.first_name}!\n"
@@ -82,9 +75,8 @@ async def welcome(message: Message):
         )
 
         await message.answer(
-            "🌐 Veb-saytda ham ish qidirish mumkin:\n"
-            f"{webapp_link}\n"
-            "(havola 5 daqiqa amal qiladi)"
+            "🌐 Veb ilovaga kirish uchun tugmani bosing:",
+            reply_markup=open_webapp_kb,
         )
     else:
         join_keyboard = await build_channel_keyboard()

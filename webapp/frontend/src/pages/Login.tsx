@@ -24,7 +24,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const setSession = useAuthStore((state) => state.setSession);
-  const botUsername = "alingniurmabot";
+  const botUsername = "bandlikuzbot";
   const host = window.location.hostname;
   const showTelegramWidget = !isPrivateOrLocalHost(host);
 
