@@ -9,7 +9,7 @@ const links = [
 
 export default function BottomNav() {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 pb-[var(--tg-content-safe-area-bottom)] backdrop-blur md:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 pb-[var(--tg-content-safe-area-bottom)] backdrop-blur">
       <ul className="mx-auto grid max-w-2xl grid-cols-3 px-[var(--tg-content-safe-area-left)] pr-[var(--tg-content-safe-area-right)]">
         {links.map((item) => (
           <li key={item.to}>

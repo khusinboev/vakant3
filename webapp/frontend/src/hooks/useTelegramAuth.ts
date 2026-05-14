@@ -8,9 +8,8 @@ type AuthResponse = { session_token: string; user: UserProfile };
 
 /**
  * Returns true when the page is running inside Telegram WebApp.
- * We check for the WebApp object itself — NOT initData — because initData can
- * be an empty string on some platforms/versions at the moment React first renders,
- * even though the app is legitimately inside Telegram.
+ * Checks for the WebApp object — NOT initData — because initData can be an
+ * empty string on the very first render frame even inside Telegram.
  */
 export function isTelegramWebApp(): boolean {
   return Boolean(
@@ -20,12 +19,11 @@ export function isTelegramWebApp(): boolean {
 }
 
 /**
- * On mount, if the app is opened inside Telegram and the user is not yet
- * authenticated, automatically calls POST /auth/tg-webapp with the raw
- * initData string.  Telegram signs this with the bot token so the backend
- * can verify it via HMAC-SHA256.
- * Marks isInitializing=false after the attempt finishes (success or failure)
- * so the UI knows the auth window is over.
+ * Authenticates the user via Telegram.WebApp.initData.
+ *
+ * Some Telegram clients (especially desktop) inject initData a few
+ * milliseconds after the page first renders, so we retry up to 4 times
+ * with increasing delays before giving up and marking initialization done.
  */
 export default function useTelegramAuth() {
   const { setSession, setInitialized, isAuthenticated } = useAuthStore();
@@ -36,25 +34,50 @@ export default function useTelegramAuth() {
       return;
     }
 
-    const tg = (window as Window & { Telegram?: { WebApp?: { initData?: string } } }).Telegram?.WebApp;
-    const initData = tg?.initData;
+    let cancelled = false;
+    const MAX_ATTEMPTS = 4;
+    const RETRY_DELAY_MS = 300;
 
-    if (!initData) {
-      // Not inside Telegram, or SDK not available — no auto-auth possible
-      setInitialized();
-      return;
-    }
+    const tryAuth = async (attempt: number): Promise<void> => {
+      if (cancelled) return;
 
-    void (async () => {
+      const tg = (window as Window & { Telegram?: { WebApp?: { initData?: string } } }).Telegram?.WebApp;
+
+      if (!tg) {
+        // Not inside any Telegram client
+        setInitialized();
+        return;
+      }
+
+      const initData = tg.initData;
+
+      if (!initData) {
+        // SDK present but initData not injected yet — retry with back-off
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise<void>((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+          return tryAuth(attempt + 1);
+        }
+        // Still empty after all retries — not a proper Mini App launch
+        setInitialized();
+        return;
+      }
+
       try {
         const { data } = await client.post<AuthResponse>("/auth/tg-webapp", { init_data: initData });
-        setSession(data.session_token, data.user); // also sets isInitializing=false
-      } catch {
-        // initData invalid or expired — user continues as guest
-        setInitialized();
+        if (!cancelled) setSession(data.session_token, data.user);
+      } catch (err) {
+        // initData invalid, expired, or network error — continue as guest
+        console.error("[TelegramAuth] initData auth failed:", err);
+        if (!cancelled) setInitialized();
       }
-    })();
-  // isAuthenticated dependency: re-runs when session is cleared (stale token 401)
-  // so initData auth is retried automatically without a page reload.
+    };
+
+    void tryAuth(0);
+
+    return () => {
+      cancelled = true;
+    };
+  // Re-runs when session is cleared (stale 401) so initData auth is retried.
   }, [isAuthenticated, setSession, setInitialized]);
 }
+
