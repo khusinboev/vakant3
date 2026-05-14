@@ -114,7 +114,7 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
   const sendToTelegram = async () => {
     if (isSending) return;
 
-    // If not logged in, close the webapp so user lands in the bot chat to authenticate
+    // If not logged in, show auth prompt
     if (!isAuthenticated) {
       if (tg?.showAlert) {
         tg.showAlert("Vakansiyani botga yuborish uchun avval botda ro'yxatdan o'ting.");
@@ -128,8 +128,7 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
     setIsSending(true);
     try {
       await client.post(`/jobs/${data.uid}/send-telegram`);
-      // Use Telegram native popup instead of browser alert, then close the WebApp
-      // so the user lands in the bot chat where the vacancy message was just sent.
+      // Use Telegram native popup, then close WebApp so user lands in bot chat
       if (tg?.showAlert) {
         tg.showAlert("Vakansiya botga yuborildi! Bot chatini oching.", () => {
           tg.close?.();
@@ -140,12 +139,24 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
         window.open("https://t.me/bandlikuzbot", "_blank", "noopener,noreferrer");
         onClose();
       }
-    } catch {
-      const msg = "Yuborishda xatolik yuz berdi. Qayta urinib ko'ring.";
-      if (tg?.showAlert) {
-        tg.showAlert(msg);
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 401) {
+        // Token was stale — auth interceptor already cleared the session and
+        // triggered re-auth. Ask the user to press the button once more.
+        const msg = "Sessiya yangilandi. Iltimos, qayta bosing.";
+        if (tg?.showAlert) {
+          tg.showAlert(msg);
+        } else {
+          setSendError(msg);
+        }
       } else {
-        setSendError(msg);
+        const msg = "Yuborishda xatolik yuz berdi. Qayta urinib ko'ring.";
+        if (tg?.showAlert) {
+          tg.showAlert(msg);
+        } else {
+          setSendError(msg);
+        }
       }
     } finally {
       setIsSending(false);

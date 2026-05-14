@@ -16,8 +16,9 @@ type AuthState = {
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isAuthenticated: Boolean(localStorage.getItem("session_token")),
-  // If a token already exists we skip the initData round-trip so no spinner needed.
-  isInitializing: !localStorage.getItem("session_token"),
+  // Always show a spinner on first load — useTelegramAuth will always attempt
+  // a fresh token exchange so we get a valid token before the user acts.
+  isInitializing: true,
   setSession: (token, user) => {
     localStorage.setItem("session_token", token);
     set({ user, isAuthenticated: true, isInitializing: false });
