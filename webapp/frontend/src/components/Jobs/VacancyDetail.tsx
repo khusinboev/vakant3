@@ -1,8 +1,5 @@
 import { useState } from "react";
 
-import client from "../../api/client";
-import { useAuthStore } from "../../store/auth";
-
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -23,7 +20,6 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 export default function VacancyDetail({ open, onClose, data, isLoading }: Props) {
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState("");
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   if (!open) return null;
 
   // Show spinner while fetching detail
@@ -114,49 +110,27 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
   const sendToTelegram = async () => {
     if (isSending) return;
 
-    // If not logged in, show auth prompt
-    if (!isAuthenticated) {
-      if (tg?.showAlert) {
-        tg.showAlert("Vakansiyani botga yuborish uchun avval botda ro'yxatdan o'ting.");
-      } else {
-        setSendError("Iltimos, avval botda ro'yxatdan o'ting.");
-      }
-      return;
-    }
-
     setSendError("");
     setIsSending(true);
     try {
-      await client.post(`/jobs/${data.uid}/send-telegram`);
-      // Use Telegram native popup, then close WebApp so user lands in bot chat
-      if (tg?.showAlert) {
-        tg.showAlert("Vakansiya botga yuborildi! Bot chatini oching.", () => {
-          tg.close?.();
-        });
-      } else if (tg?.close) {
-        tg.close();
+      const startParam = `vacancy_${data.uid}`;
+      const botLink = `https://t.me/bandlikuzbot?start=${encodeURIComponent(startParam)}`;
+
+      // Mini App ichida eng to'g'ri usul — Telegram o'zida bot chatini ochish.
+      if (tg?.openTelegramLink) {
+        tg.openTelegramLink(botLink);
       } else {
-        window.open("https://t.me/bandlikuzbot", "_blank", "noopener,noreferrer");
-        onClose();
+        window.open(botLink, "_blank", "noopener,noreferrer");
       }
+
+      onClose();
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 401) {
-        // Token was stale — auth interceptor already cleared the session and
-        // triggered re-auth. Ask the user to press the button once more.
-        const msg = "Sessiya yangilandi. Iltimos, qayta bosing.";
-        if (tg?.showAlert) {
-          tg.showAlert(msg);
-        } else {
-          setSendError(msg);
-        }
+      const _err = err;
+      const msg = "Botni ochib bo'lmadi. Qayta urinib ko'ring.";
+      if (tg?.showAlert) {
+        tg.showAlert(msg);
       } else {
-        const msg = "Yuborishda xatolik yuz berdi. Qayta urinib ko'ring.";
-        if (tg?.showAlert) {
-          tg.showAlert(msg);
-        } else {
-          setSendError(msg);
-        }
+        setSendError(msg);
       }
     } finally {
       setIsSending(false);

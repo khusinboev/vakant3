@@ -63,6 +63,8 @@ declare global {
     sendData: (data: string) => void;
     showAlert: (message: string, callback?: () => void) => void;
     showConfirm: (message: string, callback?: (ok: boolean) => void) => void;
+    openTelegramLink?: (url: string) => void;
+    openLink?: (url: string, options?: { try_instant_view?: boolean }) => void;
   }
 
   interface Window {
