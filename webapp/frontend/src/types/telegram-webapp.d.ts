@@ -7,6 +7,9 @@ declare global {
     language_code?: string;
     photo_url?: string;
     is_premium?: boolean;
+    allows_write_to_pm?: boolean;
+    added_to_attachment_menu?: boolean;
+    is_bot?: boolean;
   }
 
   interface TelegramWebAppInitDataUnsafe {
@@ -15,6 +18,9 @@ declare global {
     auth_date?: string;
     hash?: string;
     start_param?: string;
+    chat_type?: string;
+    chat_instance?: string;
+    signature?: string;
   }
 
   interface TelegramBackButton {
