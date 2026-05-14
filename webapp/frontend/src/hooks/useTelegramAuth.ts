@@ -30,7 +30,7 @@ export function isTelegramWebApp(): boolean {
  * so we retry up to 4 times with increasing back-off before giving up.
  */
 export default function useTelegramAuth() {
-  const { setSession, setInitialized, isAuthenticated } = useAuthStore();
+  const { setSession, setInitialized, sessionVersion } = useAuthStore();
 
   useEffect(() => {
     let cancelled = false;
@@ -76,8 +76,9 @@ export default function useTelegramAuth() {
     return () => {
       cancelled = true;
     };
-  // Re-runs only when session is explicitly cleared (e.g. after a 401)
-  // so a fresh token is obtained without a full page reload.
-  }, [isAuthenticated, setSession, setInitialized]);
+  // Re-runs on mount (sessionVersion=0) and each time clearSession() is called
+  // (sessionVersion increments). Does NOT re-run when setSession() succeeds,
+  // preventing the double-auth that occurred when isAuthenticated changed false→true.
+  }, [sessionVersion, setSession, setInitialized]);
 }
 

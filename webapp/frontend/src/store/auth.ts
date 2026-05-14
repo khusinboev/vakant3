@@ -7,6 +7,12 @@ type AuthState = {
   isAuthenticated: boolean;
   /** true while the initial Telegram initData auth is still in flight */
   isInitializing: boolean;
+  /**
+   * Increments each time clearSession() is called.
+   * useTelegramAuth depends on this — not on isAuthenticated — so a successful
+   * auth never causes a second unwanted re-auth cycle.
+   */
+  sessionVersion: number;
   setSession: (token: string, user: UserProfile) => void;
   clearSession: () => void;
   setUser: (user: UserProfile | null) => void;
@@ -19,14 +25,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   // Always show a spinner on first load — useTelegramAuth will always attempt
   // a fresh token exchange so we get a valid token before the user acts.
   isInitializing: true,
+  sessionVersion: 0,
   setSession: (token, user) => {
     localStorage.setItem("session_token", token);
     set({ user, isAuthenticated: true, isInitializing: false });
   },
   clearSession: () => {
     localStorage.removeItem("session_token");
-    // isInitializing = true so pages show a spinner while re-auth runs
-    set({ user: null, isAuthenticated: false, isInitializing: true });
+    // Increment sessionVersion — this is the signal useTelegramAuth watches.
+    // isInitializing = true so pages show a spinner while re-auth runs.
+    set((s) => ({ user: null, isAuthenticated: false, isInitializing: true, sessionVersion: s.sessionVersion + 1 }));
   },
   setUser: (user) => set({ user, isAuthenticated: Boolean(user || localStorage.getItem("session_token")) }),
   setInitialized: () => set({ isInitializing: false }),

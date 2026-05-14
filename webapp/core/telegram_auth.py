@@ -43,20 +43,23 @@ def verify_webapp_init_data(init_data: str, bot_token: str) -> dict[str, Any] | 
     if not hash_value:
         return None
 
-    try:
-        auth_date = int(parsed.get("auth_date", 0))
-    except (TypeError, ValueError):
-        return None
-
-    # Reject data older than 24 hours.
-    if time.time() - auth_date > 86400:
-        return None
-
+    # 1. Verify signature FIRST — don't reveal anything until the signature is confirmed.
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
     computed = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(computed, hash_value):
+        return None
+
+    # 2. Only after signature passes — check auth_date to prevent replay attacks.
+    try:
+        auth_date = int(parsed.get("auth_date", 0))
+    except (TypeError, ValueError):
+        return None
+
+    # initData is generated fresh on each Mini App launch. 1 hour is generous
+    # enough for any session re-auth while still blocking replayed credentials.
+    if time.time() - auth_date > 3600:
         return None
 
     user_str = parsed.get("user", "{}")
