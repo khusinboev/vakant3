@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "../api/client";
 import type { VacancyItem } from "../types";
 
-export function useSaves(page = 1, limit = 10) {
+export function useSaves(page = 1, limit = 10, enabled = true) {
   const queryClient = useQueryClient();
 
   const list = useQuery({
@@ -14,7 +14,10 @@ export function useSaves(page = 1, limit = 10) {
         { params: { page, limit } }
       );
       return data;
-    }
+    },
+    enabled,
+    staleTime: 30_000,
+    retry: false,
   });
 
   const save = useMutation({

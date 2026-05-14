@@ -7,8 +7,8 @@ import { useAuthStore } from "../store/auth";
 
 export default function Saves() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const [showPrompt, setShowPrompt] = useState(!isAuthenticated);
-  const { list, remove } = useSaves(1, 20);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const { list, remove } = useSaves(1, 20, isAuthenticated);
 
   if (!isAuthenticated) {
     return (
