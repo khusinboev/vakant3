@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import client from "../../api/client";
+import { useAuthStore } from "../../store/auth";
 
 type Props = {
   open: boolean;
@@ -21,6 +22,8 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 export default function VacancyDetail({ open, onClose, data, isLoading }: Props) {
   const [isSending, setIsSending] = useState(false);
+  const [sendError, setSendError] = useState("");
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   if (!open) return null;
 
   // Show spinner while fetching detail
@@ -106,21 +109,44 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
   const workingHours = String(normalized.working_hours || [d.working_time_from, d.working_time_to].filter(Boolean).join(" - "));
   const count = String(normalized.count || d.count || "");
 
+  const tg = window.Telegram?.WebApp;
+
   const sendToTelegram = async () => {
     if (isSending) return;
+
+    // If not logged in, close the webapp so user lands in the bot chat to authenticate
+    if (!isAuthenticated) {
+      if (tg?.showAlert) {
+        tg.showAlert("Vakansiyani botga yuborish uchun avval botda ro'yxatdan o'ting.");
+      } else {
+        setSendError("Iltimos, avval botda ro'yxatdan o'ting.");
+      }
+      return;
+    }
+
+    setSendError("");
     setIsSending(true);
     try {
       await client.post(`/jobs/${data.uid}/send-telegram`);
-      alert("Vakansiya botga yuborildi.");
-      const chatLink = "https://t.me/bandlikuzbot";
-      const webApp = (window.Telegram?.WebApp as { openTelegramLink?: (url: string) => void } | undefined);
-      if (webApp?.openTelegramLink) {
-        webApp.openTelegramLink(chatLink);
+      // Use Telegram native popup instead of browser alert, then close the WebApp
+      // so the user lands in the bot chat where the vacancy message was just sent.
+      if (tg?.showAlert) {
+        tg.showAlert("Vakansiya botga yuborildi! Bot chatini oching.", () => {
+          tg.close?.();
+        });
+      } else if (tg?.close) {
+        tg.close();
       } else {
-        window.open(chatLink, "_blank", "noopener,noreferrer");
+        window.open("https://t.me/bandlikuzbot", "_blank", "noopener,noreferrer");
+        onClose();
       }
     } catch {
-      alert("Yuborishda xatolik. Qayta urinib ko'ring.");
+      const msg = "Yuborishda xatolik yuz berdi. Qayta urinib ko'ring.";
+      if (tg?.showAlert) {
+        tg.showAlert(msg);
+      } else {
+        setSendError(msg);
+      }
     } finally {
       setIsSending(false);
     }
@@ -199,15 +225,18 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
           )}
 
           {/* Telegram button */}
+          {sendError && (
+            <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{sendError}</p>
+          )}
           <button
             onClick={sendToTelegram}
             disabled={isSending}
-            className="tap-target mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2AABEE] px-4 py-3 text-sm font-semibold text-white"
+            className="tap-target mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2AABEE] px-4 py-3 text-sm font-semibold text-white disabled:opacity-70"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
               <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.012 9.47c-.148.658-.537.818-1.088.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.56-4.456c.537-.194 1.006.12.889.746z" />
             </svg>
-            {isSending ? "Yuborilmoqda..." : "Telegramda ko'rish"}
+            {isSending ? "Yuborilmoqda..." : "Botda ko'rish"}
           </button>
         </div>
       </div>
