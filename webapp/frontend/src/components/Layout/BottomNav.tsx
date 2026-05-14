@@ -1,5 +1,9 @@
 import { Heart, Home, UserCircle2 } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
+
+import client from "../../api/client";
 
 const links = [
   { to: "/app", label: "Bosh sahifa", icon: Home },
@@ -8,10 +12,27 @@ const links = [
 ];
 
 export default function BottomNav() {
+  const adminState = useQuery({
+    queryKey: ["admin", "state", "nav"],
+    queryFn: async () => {
+      const { data } = await client.get<{ is_admin: boolean }>("/admin/state");
+      return data;
+    },
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  const navLinks = adminState.data?.is_admin
+    ? [...links, { to: "/admin", label: "Admin", icon: ShieldCheck }]
+    : links;
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 pb-[var(--tg-content-safe-area-bottom)] backdrop-blur">
-      <ul className="mx-auto grid max-w-2xl grid-cols-3 px-[var(--tg-content-safe-area-left)] pr-[var(--tg-content-safe-area-right)]">
-        {links.map((item) => (
+      <ul
+        className="mx-auto grid max-w-2xl px-[var(--tg-content-safe-area-left)] pr-[var(--tg-content-safe-area-right)]"
+        style={{ gridTemplateColumns: `repeat(${navLinks.length}, minmax(0, 1fr))` }}
+      >
+        {navLinks.map((item) => (
           <li key={item.to}>
             <NavLink
               to={item.to}

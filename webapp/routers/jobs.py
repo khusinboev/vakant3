@@ -6,7 +6,10 @@ from src.functions.functions import normalize_osonish_field_id
 from src.functions.scraping import fetch_osonish_detail, fetch_osonish_list
 from src.functions.vacancy_format import format_vacancy_message_html, normalize_vacancy_detail
 from webapp.core.database import get_db
+from webapp.core.config import get_settings
+from webapp.core.identity import resolve_user_id_from_init_data
 from webapp.core.limiter import limiter
+from webapp.core.referral_gate import get_referral_gate_state, raise_if_referral_locked
 from webapp.core.session import decode_session_token, get_current_user
 from webapp.models.schemas import JobsSearchResponse, VacancyDetailResponse, VacancyItem
 
@@ -25,6 +28,14 @@ def _uid_to_raw_id(uid: str) -> int:
 async def _get_auth_user_id(authorization: str | None) -> int | None:
     if not authorization or not authorization.startswith("Bearer "):
         return None
+
+
+def _get_init_data_user_id(request: Request) -> int | None:
+    init_data = (request.headers.get("X-Telegram-Init-Data") or "").strip()
+    if not init_data:
+        return None
+    settings = get_settings()
+    return resolve_user_id_from_init_data(init_data, settings.TOKEN)
     token = authorization.split(" ", 1)[1].strip()
     try:
         payload = decode_session_token(token)
@@ -48,6 +59,11 @@ async def search_jobs(
     authorization: str | None = Header(default=None),
     db=Depends(get_db),
 ) -> JobsSearchResponse:
+    request_user_id = await _get_auth_user_id(authorization) or _get_init_data_user_id(request)
+    if request_user_id:
+        gate_state = await get_referral_gate_state(db, request_user_id)
+        raise_if_referral_locked(gate_state)
+
     field_id = normalize_osonish_field_id(specs)
     cache_key = make_cache_key(
         "webapp_jobs_search",
@@ -90,7 +106,7 @@ async def search_jobs(
         ]
         await cache_set(cache_key, {"items": vacancies_raw, "last_page": last_page}, ttl=30 * 60)
 
-    user_id = await _get_auth_user_id(authorization)
+    user_id = request_user_id
     saved_ids: set[int] = set()
     if user_id and vacancies_raw:
         raw_ids = []
@@ -141,7 +157,17 @@ async def search_jobs(
 
 
 @router.get("/{uid}", response_model=VacancyDetailResponse)
-async def vacancy_detail(uid: str) -> VacancyDetailResponse:
+async def vacancy_detail(
+    uid: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+) -> VacancyDetailResponse:
+    request_user_id = await _get_auth_user_id(authorization) or _get_init_data_user_id(request)
+    if request_user_id:
+        gate_state = await get_referral_gate_state(db, request_user_id)
+        raise_if_referral_locked(gate_state)
+
     raw_id = _uid_to_raw_id(uid)
 
     cache_key = make_cache_key("detail", uid=uid)

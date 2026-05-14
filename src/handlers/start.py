@@ -9,6 +9,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 from config import BASE_DIR, bot, ADMIN_IDS, WEBAPP_URL
 from src.buttons.buttuns import MM_btn
 from src.functions.functions import functions
+from src.functions.referral_gate import get_referral_gate_state, referral_gate_message
 from src.functions.vacancy_format import format_vacancy_message_html
 from src.functions.scraping import fetch_osonish_detail
 
@@ -68,6 +69,11 @@ async def welcome(message: Message):
                 await conn.commit()
 
     is_subscribed = await functions.check_on_start(user_id, bot)
+
+    gate_state = await get_referral_gate_state(user_id)
+    if not bool(gate_state.get("unlocked")):
+        await message.answer(referral_gate_message(gate_state))
+        return
 
     if is_subscribed:
         now_ts = int(time.time())

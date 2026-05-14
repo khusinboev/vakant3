@@ -8,6 +8,7 @@ from src.functions.scraping import fetch_osonish_detail
 from webapp.core.config import get_settings
 from webapp.core.database import get_db
 from webapp.core.limiter import limiter
+from webapp.core.referral_gate import get_referral_gate_state, raise_if_referral_locked
 from webapp.core.session import get_optional_current_user
 from webapp.core.telegram_auth import verify_webapp_init_data
 from webapp.models.schemas import SaveActionResponse, SavesResponse
@@ -53,6 +54,9 @@ async def list_saves(
     db=Depends(get_db),
 ) -> SavesResponse:
     user_id = _resolve_user_id(request, current)
+    gate_state = await get_referral_gate_state(db, user_id)
+    raise_if_referral_locked(gate_state)
+
     offset = (page - 1) * limit
 
     cursor = await db.execute("SELECT COUNT(*) FROM saves WHERE user_id = ?", (user_id,))
@@ -99,6 +103,9 @@ async def add_save(
     db=Depends(get_db),
 ) -> SaveActionResponse:
     user_id = _resolve_user_id(request, current)
+    gate_state = await get_referral_gate_state(db, user_id)
+    raise_if_referral_locked(gate_state)
+
     raw_id = _uid_to_raw_id(uid)
 
     # Ensure user exists even when the request is identified by Telegram initData.
@@ -135,6 +142,9 @@ async def remove_save(
     db=Depends(get_db),
 ) -> SaveActionResponse:
     user_id = _resolve_user_id(request, current)
+    gate_state = await get_referral_gate_state(db, user_id)
+    raise_if_referral_locked(gate_state)
+
     raw_id = _uid_to_raw_id(uid)
 
     await db.execute(

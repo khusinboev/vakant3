@@ -51,6 +51,33 @@ async def init_db() -> None:
             )
             """
         )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webapp_admin_settings (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                auto_post_enabled INTEGER NOT NULL DEFAULT 0,
+                auto_post_channel TEXT NOT NULL DEFAULT '',
+                auto_post_min_salary INTEGER NOT NULL DEFAULT 8000000,
+                referral_enabled INTEGER NOT NULL DEFAULT 0,
+                referral_required_count INTEGER NOT NULL DEFAULT 0,
+                next_auto_post_ts INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        await conn.execute(
+            """
+            INSERT OR IGNORE INTO webapp_admin_settings (
+                singleton,
+                auto_post_enabled,
+                auto_post_channel,
+                auto_post_min_salary,
+                referral_enabled,
+                referral_required_count,
+                next_auto_post_ts
+            )
+            VALUES (1, 0, '', 8000000, 0, 0, 0)
+            """
+        )
         await conn.commit()
 
 

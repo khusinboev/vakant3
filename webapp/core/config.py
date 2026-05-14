@@ -12,8 +12,18 @@ class Settings(BaseSettings):
     TOKEN: str = ""
     WEBAPP_SECRET: str = "change-me"
     BOT_USERNAME: str = ""
+    ADMIN_IDS: str = ""
     WEBAPP_ORIGIN: str = "http://localhost:5173"
     SESSION_TTL_SECONDS: int = 30 * 24 * 60 * 60
+
+    @property
+    def admin_ids_set(self) -> set[int]:
+        ids: set[int] = set()
+        for item in self.ADMIN_IDS.split(","):
+            item = item.strip()
+            if item.isdigit():
+                ids.add(int(item))
+        return ids
 
     @field_validator("WEBAPP_SECRET")
     @classmethod

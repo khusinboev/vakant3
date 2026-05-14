@@ -23,6 +23,7 @@ from src.functions.functions import (
     saves_info,
     format_detail,
 )
+from src.functions.referral_gate import get_referral_gate_state, referral_gate_message
 
 router = Router()
 
@@ -41,6 +42,11 @@ def normalize_uid(save_id: str) -> str:
 @router.message(F.text == "💼 Ish qidirish")
 async def search_handler(message: Message):
     user_id = message.from_user.id
+
+    gate_state = await get_referral_gate_state(user_id)
+    if not bool(gate_state.get("unlocked")):
+        await message.answer(referral_gate_message(gate_state))
+        return
 
     if not await functions.check_on_start(user_id, bot):
         await message.answer(
@@ -74,6 +80,11 @@ async def search_handler(message: Message):
 
 @router.message(F.text == "🛠 Filtrni boshqarish")
 async def filter_handler(message: Message):
+    gate_state = await get_referral_gate_state(message.from_user.id)
+    if not bool(gate_state.get("unlocked")):
+        await message.answer(referral_gate_message(gate_state))
+        return
+
     await message.answer(
         "Kerakli sohani tanlang",
         reply_markup=await special_btn(message.from_user.id)
@@ -201,6 +212,11 @@ async def money_handler(call: CallbackQuery):
 @router.message(F.text == "🗂 Saqlangan ishlar")
 async def saved_jobs_handler(message: Message):
     user_id = message.from_user.id
+
+    gate_state = await get_referral_gate_state(user_id)
+    if not bool(gate_state.get("unlocked")):
+        await message.answer(referral_gate_message(gate_state))
+        return
 
     async with aiosqlite.connect(BASE_DIR) as conn:
         cursor = await conn.execute(

@@ -2,6 +2,8 @@ import html
 import re
 from typing import Any
 
+from config import BOT_USERNAME
+
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _MULTI_NL_RE = re.compile(r"\n{3,}")
@@ -134,38 +136,38 @@ def format_vacancy_message_html(uid: str, detail: dict[str, Any]) -> str:
     def esc(key: str) -> str:
         return html.escape(normalized.get(key, ""), quote=False)
 
-    lines: list[str] = [f"<b>{esc('title')}</b>"]
+    lines: list[str] = [f"<b>💼 {esc('title')}</b>"]
     if normalized.get("company"):
-        lines.append(f"Tashkilot: {esc('company')}")
-    lines.append(f"Maosh: {esc('salary')}")
+        lines.append(f"🏢 <b>Tashkilot:</b> {esc('company')}")
+    lines.append(f"💰 <b>Maosh:</b> {esc('salary')}")
     if normalized.get("address"):
-        lines.append(f"Manzil: {esc('address')}")
+        lines.append(f"📍 <b>Manzil:</b> {esc('address')}")
     if normalized.get("work_type"):
-        lines.append(f"Ish turi: {esc('work_type')}")
+        lines.append(f"🧩 <b>Ish turi:</b> {esc('work_type')}")
     if normalized.get("busyness_type"):
-        lines.append(f"Bandlik: {esc('busyness_type')}")
+        lines.append(f"⏱ <b>Bandlik:</b> {esc('busyness_type')}")
     if normalized.get("payment_type"):
-        lines.append(f"To'lov turi: {esc('payment_type')}")
+        lines.append(f"💳 <b>To'lov turi:</b> {esc('payment_type')}")
     if normalized.get("education"):
-        lines.append(f"Ta'lim: {esc('education')}")
+        lines.append(f"🎓 <b>Ta'lim:</b> {esc('education')}")
     if normalized.get("experience"):
-        lines.append(f"Tajriba: {esc('experience')}")
+        lines.append(f"🛠 <b>Tajriba:</b> {esc('experience')}")
     if normalized.get("gender"):
-        lines.append(f"Jins: {esc('gender')}")
+        lines.append(f"👤 <b>Jins:</b> {esc('gender')}")
     if normalized.get("count"):
-        lines.append(f"O'rinlar soni: {esc('count')}")
+        lines.append(f"🔢 <b>O'rinlar soni:</b> {esc('count')}")
     if normalized.get("working_hours"):
-        lines.append(f"Ish vaqti: {esc('working_hours')}")
+        lines.append(f"🕘 <b>Ish vaqti:</b> {esc('working_hours')}")
     if normalized.get("posted_at"):
-        lines.append(f"E'lon sanasi: {esc('posted_at')}")
+        lines.append(f"📅 <b>E'lon sanasi:</b> {esc('posted_at')}")
     if normalized.get("deadline"):
-        lines.append(f"Muddati: {esc('deadline')}")
+        lines.append(f"⏳ <b>Muddati:</b> {esc('deadline')}")
 
     if normalized.get("description"):
         desc = normalized["description"]
         if len(desc) > 3500:
             desc = desc[:3500].rstrip() + "..."
-        lines.append(f"\n<b>Tavsif:</b>\n{html.escape(desc, quote=False)}")
+        lines.append(f"\n<b>📝 Tavsif:</b>\n{html.escape(desc, quote=False)}")
 
     contacts: list[str] = []
     if normalized.get("hr_name"):
@@ -175,7 +177,8 @@ def format_vacancy_message_html(uid: str, detail: dict[str, Any]) -> str:
     if normalized.get("hr_email"):
         contacts.append(f"Email: {esc('hr_email')}")
     if contacts:
-        lines.append("\n<b>Aloqa:</b>\n" + "\n".join(contacts))
+        lines.append("\n<b>📞 Aloqa:</b>\n" + "\n".join(contacts))
 
-    lines.append(f"\n<a href='{html.escape(normalized['source_url'], quote=True)}'>Osonish sahifasi</a>")
+    lines.append("\n────────────────────")
+    lines.append(f"<b>🤖 Manba:</b> @{html.escape(BOT_USERNAME, quote=False)}")
     return "\n".join(lines)

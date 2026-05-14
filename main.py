@@ -4,6 +4,7 @@
 import asyncio
 import logging
 from config import dp, bot, BASE_DIR
+from src.functions.auto_post_scheduler import auto_post_loop
 from src.middleware.middlewares import StatsMiddleware
 from src.handlers import start, admin, search
 
@@ -32,8 +33,14 @@ async def main():
     print("✅ Bot started successfully")
     print("🤖 Polling started...")
 
+    # Background scheduler: sends high-salary jobs to configured channel at random daily times.
+    scheduler_task = asyncio.create_task(auto_post_loop())
+
     # Polling
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        scheduler_task.cancel()
 
 
 if __name__ == "__main__":

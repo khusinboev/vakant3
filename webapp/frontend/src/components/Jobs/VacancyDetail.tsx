@@ -123,6 +123,9 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
         window.open(botLink, "_blank", "noopener,noreferrer");
       }
 
+      // Collapse/close mini app after handoff to bot chat.
+      tg?.close?.();
+
       onClose();
     } catch (err: unknown) {
       const _err = err;

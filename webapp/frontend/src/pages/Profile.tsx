@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
+import client from "../api/client";
 import { useSaves } from "../hooks/useSaves";
 
 export default function Profile() {
@@ -32,6 +34,19 @@ export default function Profile() {
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ");
   const saves = useSaves(1, 1, true);
   const savesCount = saves.list.data?.total ?? 0;
+  const referralStats = useQuery({
+    queryKey: ["referral", "stats"],
+    queryFn: async () => {
+      const { data } = await client.get<{
+        current: number;
+        required: number;
+        enabled: boolean;
+        unlocked: boolean;
+      }>("/referral/stats");
+      return data;
+    },
+    retry: false,
+  });
 
   return (
     <div className="space-y-4">
@@ -62,17 +77,28 @@ export default function Profile() {
               {saves.list.isLoading ? "Yuklanmoqda..." : `${savesCount} ta`}
             </span>
           </div>
+          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+            <span className="text-slate-500">Taklif qilganlar</span>
+            <span className="font-medium text-slate-800">
+              {referralStats.isLoading ? "Yuklanmoqda..." : `${referralStats.data?.current ?? 0} ta`}
+            </span>
+          </div>
+          {referralStats.data?.enabled ? (
+            <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+              <span className="text-slate-500">Referral sharti</span>
+              <span className={`font-medium ${referralStats.data.unlocked ? "text-emerald-600" : "text-amber-600"}`}>
+                {referralStats.data.current}/{referralStats.data.required}
+              </span>
+            </div>
+          ) : null}
         </div>
       </section>
 
       <section className="card p-4">
         <h3 className="text-sm font-semibold text-slate-800">Tezkor amallar</h3>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="mt-3 grid gap-2 sm:grid-cols-1">
           <Link to="/saves" className="tap-target rounded-2xl bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-white">
             Saqlangan ishlar
-          </Link>
-          <Link to="/referral" className="tap-target rounded-2xl border border-slate-200 px-4 py-3 text-center text-sm font-semibold text-slate-700">
-            Referral sahifasi
           </Link>
         </div>
       </section>
