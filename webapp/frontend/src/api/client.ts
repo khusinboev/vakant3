@@ -9,6 +9,13 @@ client.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // Saves endpoints can identify user by Telegram initData even without webapp session auth.
+  const initData = window.Telegram?.WebApp?.initData;
+  if (initData) {
+    config.headers["X-Telegram-Init-Data"] = initData;
+  }
+
   return config;
 });
 

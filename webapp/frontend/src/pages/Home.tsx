@@ -34,6 +34,8 @@ export default function Home() {
   const [activeUid, setActiveUid] = useState("");
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const telegramUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  const canUseSaves = isAuthenticated || Boolean(telegramUserId);
 
   // Debounce text search — call API 400ms after user stops typing
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -53,7 +55,7 @@ export default function Home() {
   };
 
   const jobs = useJobs(queryParams);
-  const { save, remove } = useSaves();
+  const { save, remove } = useSaves(1, 10, canUseSaves);
 
   // Flatten all pages into a single list
   const vacancies = jobs.data?.pages.flatMap((p) => p.vacancies) ?? [];
@@ -87,7 +89,7 @@ export default function Home() {
   });
 
   const toggleSave = (uid: string, saved: boolean) => {
-    if (!isAuthenticated) {
+    if (!canUseSaves) {
       setShowLoginPrompt(true);
       return;
     }

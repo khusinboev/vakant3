@@ -37,16 +37,29 @@ async def get_current_user(
     authorization: str | None = Header(default=None),
     db=Depends(get_db),
 ) -> dict[str, Any]:
-    if not authorization or not authorization.startswith("Bearer "):
+    current = await get_optional_current_user(authorization=authorization, db=db)
+    if not current:
         raise AUTH_ERROR
+    return current
+
+
+async def get_optional_current_user(
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+) -> dict[str, Any] | None:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
 
     token = authorization.split(" ", 1)[1].strip()
-    payload = decode_session_token(token)
+    try:
+        payload = decode_session_token(token)
+    except HTTPException:
+        return None
 
     sid = str(payload.get("sid", "")).strip()
     user_id = int(payload.get("uid", 0))
     if not sid or not user_id:
-        raise AUTH_ERROR
+        return None
 
     now = int(time.time())
     cursor = await db.execute(
@@ -55,12 +68,12 @@ async def get_current_user(
     )
     session_row = await cursor.fetchone()
     if not session_row:
-        raise AUTH_ERROR
+        return None
 
     if int(session_row["expires_at"]) <= now:
         await db.execute("DELETE FROM webapp_sessions WHERE token = ?", (sid,))
         await db.commit()
-        raise AUTH_ERROR
+        return None
 
     cursor = await db.execute(
         "SELECT user_id, lang, first_name, username, photo_url, date, region, district, specs, money FROM users WHERE user_id = ?",
@@ -68,7 +81,7 @@ async def get_current_user(
     )
     user_row = await cursor.fetchone()
     if not user_row:
-        raise AUTH_ERROR
+        return None
 
     return {
         "session_sid": sid,
