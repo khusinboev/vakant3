@@ -105,7 +105,6 @@ export default function SearchFilters({ value, onChange }: Props) {
       <div className="mt-3">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Sohalar</p>
-          <span className="text-xs text-slate-400">gorizontal</span>
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {SECTOR_CHIPS.map((spec) => {

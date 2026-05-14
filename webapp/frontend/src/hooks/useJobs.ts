@@ -5,6 +5,7 @@ import type { VacancyDetail, VacancyItem } from "../types";
 
 export type JobsParams = {
   page: number;
+  q: string;
   money: number;
   region_soato: string;
   district_soato: string;

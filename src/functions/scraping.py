@@ -159,10 +159,11 @@ async def fetch_osonish_list(
     mmk_group_field_id: int | None = None,
     sort_key: str = "",
     sort_type: str = "",
+    search: str = "",
 ) -> tuple[list[Vacancy], int]:
     params: dict[str, Any] = {
         "page": page,
-        "per_page": 5,
+        "per_page": 10,
     }
     if salary:
         params["min_salary"] = salary
@@ -176,6 +177,8 @@ async def fetch_osonish_list(
         params["sort_key"] = sort_key
     if sort_type:
         params["sort_type"] = sort_type
+    if search:
+        params["search"] = search
 
     payload = await fetch_json(f"{OSONISH_BASE}/vacancies", params=params, headers=_osonish_headers())
     if not payload:
@@ -200,10 +203,12 @@ async def fetch_osonish_list(
 
         company_obj = item.get("company") if isinstance(item.get("company"), dict) else {}
         district_obj = item.get("soato_district") if isinstance(item.get("soato_district"), dict) else {}
+        region_obj = item.get("soato_region") if isinstance(item.get("soato_region"), dict) else {}
 
         salary_text = _fmt_osonish_salary(item.get("min_salary"), item.get("max_salary"))
         district = district_obj.get("name_uz") or ""
-        location = district or (item.get("address") or "")
+        region = region_obj.get("name_uz") or ""
+        location = ", ".join(filter(None, [district, region])) or (item.get("address") or "")
 
         vacancies.append(
             Vacancy(

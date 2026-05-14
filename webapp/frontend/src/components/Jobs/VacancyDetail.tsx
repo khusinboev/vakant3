@@ -6,6 +6,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   data: { uid: string; data: Record<string, unknown> } | null;
+  isLoading?: boolean;
 };
 
 function Row({ label, value }: { label: string; value?: string | null }) {
@@ -18,9 +19,25 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-export default function VacancyDetail({ open, onClose, data }: Props) {
+export default function VacancyDetail({ open, onClose, data, isLoading }: Props) {
   const [isSending, setIsSending] = useState(false);
-  if (!open || !data) return null;
+  if (!open) return null;
+
+  // Show spinner while fetching detail
+  if (isLoading || !data) {
+    return (
+      <div className="fixed inset-0 z-30 bg-slate-950/50" onClick={onClose}>
+        <div
+          className="absolute bottom-0 left-0 right-0 flex max-h-[90vh] flex-col rounded-t-3xl bg-white shadow-2xl md:left-1/2 md:top-1/2 md:max-h-[85vh] md:w-[42rem] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-3xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex h-48 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const d = data.data;
   const normalized = (d.normalized as Record<string, unknown> | undefined) || {};

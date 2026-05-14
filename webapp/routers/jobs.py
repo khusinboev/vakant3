@@ -38,6 +38,7 @@ async def _get_auth_user_id(authorization: str | None) -> int | None:
 async def search_jobs(
     request: Request,
     page: int = 1,
+    q: str = "",
     money: int = 0,
     region_soato: str = "",
     district_soato: str = "",
@@ -51,6 +52,7 @@ async def search_jobs(
     cache_key = make_cache_key(
         "webapp_jobs_search",
         page=page,
+        q=q or "",
         money=money or 0,
         region_soato=region_soato or "",
         district_soato=district_soato or "",
@@ -72,6 +74,7 @@ async def search_jobs(
             mmk_group_field_id=field_id,
             sort_key=sort_key or "",
             sort_type=sort_type or "",
+            search=q or "",
         )
         vacancies_raw = [
             {
@@ -133,7 +136,7 @@ async def search_jobs(
         vacancies=items,
         page=page,
         last_page=int(last_page or 1),
-        total_estimate=max(len(items), 1) * max(int(last_page or 1), page),
+        total_estimate=10 * max(int(last_page or 1), page),
     )
 
 
