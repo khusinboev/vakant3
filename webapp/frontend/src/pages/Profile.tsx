@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import client from "../api/client";
 import LoginPrompt from "../components/LoginPrompt";
-import ActivityChart from "../components/Profile/ActivityChart";
 import FilterSummary from "../components/Profile/FilterSummary";
 import StatsGrid from "../components/Profile/StatsGrid";
 import { useAuthStore } from "../store/auth";
+
+// recharts is ~280KB — load it only when the Profile page is actually rendered
+const ActivityChart = lazy(() => import("../components/Profile/ActivityChart"));
 
 export default function Profile() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -40,7 +42,8 @@ export default function Profile() {
         current_filters: { specs: string | null; region: string | null; district: string | null; money: number | null };
       }>("/profile");
       return data;
-    }
+    },
+    staleTime: 2 * 60 * 1000,
   });
 
   if (profile.isLoading) {
@@ -73,7 +76,9 @@ export default function Profile() {
       />
 
       <FilterSummary {...profile.data.current_filters} />
-      <ActivityChart savesCount={profile.data.stats.saves_count} referralsCount={profile.data.stats.referrals_count} />
+      <Suspense fallback={<div className="card h-[13rem] animate-pulse bg-slate-100" />}>
+        <ActivityChart savesCount={profile.data.stats.saves_count} referralsCount={profile.data.stats.referrals_count} />
+      </Suspense>
 
       <Link to="/referral" className="tap-target inline-flex rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white">
         Referral sahifasi

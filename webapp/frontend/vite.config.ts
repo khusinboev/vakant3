@@ -12,5 +12,23 @@ export default defineConfig({
         changeOrigin: true
       }
     }
-  }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // React core — changes rarely, long-term cacheable
+          "vendor-react": ["react", "react-dom", "react-router-dom"],
+          // State / data fetching
+          "vendor-query": ["@tanstack/react-query", "axios", "zustand"],
+          // Charts — only used in Profile, kept separate so Home loads without it
+          "vendor-charts": ["recharts"],
+          // Icons
+          "vendor-icons": ["lucide-react"],
+        },
+      },
+    },
+    // Raise the warning threshold so the smaller chunks don't trigger warnings
+    chunkSizeWarningLimit: 600,
+  },
 });

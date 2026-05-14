@@ -27,6 +27,8 @@ export function useJobs(params: JobsParams) {
     initialPageParam: 1,
     getNextPageParam: (lastPage) =>
       lastPage.page < lastPage.last_page ? lastPage.page + 1 : undefined,
+    staleTime: 2 * 60 * 1000,   // 2 min — don't refetch on tab focus
+    gcTime: 5 * 60 * 1000,      // keep pages in memory 5 min for back-navigation
   });
 }
 
