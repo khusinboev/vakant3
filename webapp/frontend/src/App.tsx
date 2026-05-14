@@ -32,23 +32,25 @@ function HandoffHandler() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const setSession = useAuthStore((s) => s.setSession);
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const clearSession = useAuthStore((s) => s.clearSession);
 
   useEffect(() => {
     const token = params.get("token");
     const uidRaw = params.get("uid");
     const uid = uidRaw ? Number(uidRaw) : undefined;
-    if (!token) return;
 
-    const handoffKey = `handoff_used_${token}`;
-    if (sessionStorage.getItem(handoffKey) === "1") {
+    // Token yo'q bo'lsa /app ga o'tamiz (balki allaqachon login bo'lgan)
+    if (!token) {
       navigate("/app", { replace: true });
       return;
     }
 
-    sessionStorage.setItem(handoffKey, "1");
-    // Remove param from URL immediately to avoid re-use on refresh
+    // URL ni darhol tozalaymiz — token brauzer tarixida qolmasin
     window.history.replaceState({}, "", "/app");
+
+    // Yangi token kelganda eski sessionni tozalaymiz — qorishmaslik uchun
+    clearSession();
+
     void (async () => {
       try {
         const payload = Number.isFinite(uid) ? { token, uid } : { token };
@@ -56,17 +58,12 @@ function HandoffHandler() {
         setSession(data.session_token, data.user);
         navigate("/app", { replace: true });
       } catch {
-        const existingSession = localStorage.getItem("session_token");
-        if (existingSession) {
-          navigate("/app", { replace: true });
-          return;
-        }
         navigate("/handoff-expired", { replace: true });
       }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (isAuthenticated) return <Navigate to="/" replace />;
+  // Hech qachon boshqa joyga yo'naltirmaymiz — yuqoridagi effect hal qiladi
   return (
     <div className="flex min-h-[var(--app-viewport-height)] items-center justify-center px-4 pb-[calc(1rem+var(--tg-content-safe-area-bottom))] pt-[calc(1rem+var(--tg-content-safe-area-top))] text-sm text-slate-500">
       Kirish...
@@ -88,6 +85,9 @@ export default function App() {
   const clearSession = useAuthStore((s) => s.clearSession);
 
   useEffect(() => {
+    // /handoff route o'z sessiyasini o'zi boshqaradi — bu check unga tegmasin
+    if (window.location.pathname === "/handoff") return;
+
     const token = localStorage.getItem("session_token");
     if (!token) {
       setUser(null);
