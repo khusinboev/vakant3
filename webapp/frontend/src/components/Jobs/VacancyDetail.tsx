@@ -95,7 +95,7 @@ export default function VacancyDetail({ open, onClose, data }: Props) {
     try {
       await client.post(`/jobs/${data.uid}/send-telegram`);
       alert("Vakansiya botga yuborildi.");
-      const chatLink = "https://t.me/alingniurmabot";
+      const chatLink = "https://t.me/bandlikuzbot";
       const webApp = (window.Telegram?.WebApp as { openTelegramLink?: (url: string) => void } | undefined);
       if (webApp?.openTelegramLink) {
         webApp.openTelegramLink(chatLink);

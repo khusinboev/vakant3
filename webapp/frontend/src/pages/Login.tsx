@@ -34,7 +34,7 @@ export default function Login() {
       try {
         const { data } = await client.post<AuthResponse>("/auth/telegram", tgData);
         setSession(data.session_token, data.user);
-        navigate("/");
+        navigate("/app");
       } finally {
         setLoading(false);
       }

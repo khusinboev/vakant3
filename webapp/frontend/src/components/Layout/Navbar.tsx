@@ -24,7 +24,7 @@ export default function Layout({ children }: PropsWithChildren) {
     <div className="min-h-[var(--app-viewport-height)] pb-[calc(5rem+var(--tg-content-safe-area-bottom))] md:pb-8">
       <header className="sticky top-[var(--tg-content-safe-area-top)] z-20 border-b border-slate-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-[calc(1rem+var(--tg-content-safe-area-left))] py-3 pr-[calc(1rem+var(--tg-content-safe-area-right))]">
-          <Link to="/" className="font-display text-xl font-extrabold text-brand-700">
+          <Link to="/app" className="font-display text-xl font-extrabold text-brand-700">
             IshBot
           </Link>
           <button onClick={logout} className="tap-target inline-flex items-center gap-2 rounded-xl px-3 text-sm text-slate-600 hover:bg-slate-100">

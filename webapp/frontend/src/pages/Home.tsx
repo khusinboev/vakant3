@@ -22,7 +22,9 @@ export default function Home() {
   const queryText = filters.query.trim().toLowerCase();
   const filteredVacancies = (jobs.data?.vacancies || []).filter((item) => {
     if (!queryText) return true;
-    return [item.title, item.company, item.location, item.district].some((part) => part.toLowerCase().includes(queryText));
+    return [item.title, item.company, item.location, item.district]
+      .map((part) => String(part || "").toLowerCase())
+      .some((part) => part.includes(queryText));
   });
 
   const detail = useQuery({

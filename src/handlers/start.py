@@ -62,6 +62,10 @@ async def welcome(message: Message):
         webapp_url = WEBAPP_URL.rstrip("/")
         if webapp_url.startswith("http://"):
             webapp_url = f"https://{webapp_url[len('http://'):]}"
+        if not webapp_url.startswith("https://"):
+            webapp_url = f"https://{webapp_url}"
+        if not webapp_url.endswith("/app"):
+            webapp_url = f"{webapp_url}/app"
         open_webapp_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]

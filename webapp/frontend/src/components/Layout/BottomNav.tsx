@@ -2,7 +2,7 @@ import { Heart, Home, UserCircle2 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 const links = [
-  { to: "/", label: "Bosh sahifa", icon: Home },
+  { to: "/app", label: "Bosh sahifa", icon: Home },
   { to: "/saves", label: "Saqlangan", icon: Heart },
   { to: "/profile", label: "Profil", icon: UserCircle2 }
 ];

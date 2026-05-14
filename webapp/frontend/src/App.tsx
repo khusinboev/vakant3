@@ -5,6 +5,7 @@ import client from "./api/client";
 import Layout from "./components/Layout/Navbar";
 import useTelegramWebApp from "./hooks/useTelegramWebApp";
 import Home from "./pages/Home";
+import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Profile from "./pages/Profile";
 import Referral from "./pages/Referral";
@@ -39,22 +40,22 @@ function HandoffHandler() {
 
     const handoffKey = `handoff_used_${token}`;
     if (sessionStorage.getItem(handoffKey) === "1") {
-      navigate("/", { replace: true });
+      navigate("/app", { replace: true });
       return;
     }
 
     sessionStorage.setItem(handoffKey, "1");
     // Remove param from URL immediately to avoid re-use on refresh
-    window.history.replaceState({}, "", "/");
+    window.history.replaceState({}, "", "/app");
     void (async () => {
       try {
         const { data } = await client.post<AuthResponse>("/auth/handoff", { token });
         setSession(data.session_token, data.user);
-        navigate("/", { replace: true });
+        navigate("/app", { replace: true });
       } catch {
         const existingSession = localStorage.getItem("session_token");
         if (existingSession) {
-          navigate("/", { replace: true });
+          navigate("/app", { replace: true });
           return;
         }
         navigate("/handoff-expired", { replace: true });
@@ -102,12 +103,13 @@ export default function App() {
 
   return (
     <Routes>
+      <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       {/* Bot /start havolasi: /handoff?token=xxx → auto login */}
       <Route path="/handoff" element={<HandoffHandler />} />
       <Route path="/handoff-expired" element={<HandoffExpired />} />
       <Route
-        path="/"
+        path="/app"
         element={
           <Layout>
             <Home />
