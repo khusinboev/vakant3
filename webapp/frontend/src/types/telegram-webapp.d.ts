@@ -1,4 +1,22 @@
 declare global {
+  interface TelegramWebAppUser {
+    id: number;
+    first_name: string;
+    last_name?: string;
+    username?: string;
+    language_code?: string;
+    photo_url?: string;
+    is_premium?: boolean;
+  }
+
+  interface TelegramWebAppInitDataUnsafe {
+    query_id?: string;
+    user?: TelegramWebAppUser;
+    auth_date?: string;
+    hash?: string;
+    start_param?: string;
+  }
+
   interface TelegramBackButton {
     isVisible: boolean;
     show: () => void;
@@ -9,6 +27,7 @@ declare global {
 
   interface TelegramWebApp {
     initData: string;
+    initDataUnsafe?: TelegramWebAppInitDataUnsafe;
     version: string;
     platform: string;
     colorScheme: "light" | "dark";
