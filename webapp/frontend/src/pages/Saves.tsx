@@ -7,8 +7,15 @@ import { useAuthStore } from "../store/auth";
 
 export default function Saves() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isInitializing = useAuthStore((s) => s.isInitializing);
   const [showPrompt, setShowPrompt] = useState(false);
   const { list, remove } = useSaves(1, 20, isAuthenticated);
+
+  // While initData auth is still in flight, show a neutral spinner.
+  // This prevents the "Kirish" card from flashing before auth completes.
+  if (isInitializing) {
+    return <div className="card p-4 text-sm text-slate-500">Yuklanmoqda...</div>;
+  }
 
   if (!isAuthenticated) {
     return (
