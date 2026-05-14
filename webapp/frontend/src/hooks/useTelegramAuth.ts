@@ -38,5 +38,7 @@ export default function useTelegramAuth() {
         // initData invalid or expired — user continues as guest
       }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // isAuthenticated dependency: re-runs when session is cleared (e.g. stale token)
+  // so initData auth is retried automatically without a page reload.
+  }, [isAuthenticated, setSession]);
 }

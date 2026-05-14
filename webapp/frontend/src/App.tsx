@@ -18,29 +18,28 @@ export default function App() {
   useTelegramAuth();
 
   const setUser = useAuthStore((s) => s.setUser);
-  const clearSession = useAuthStore((s) => s.clearSession);
 
   // If opened in external browser, skip /auth/me — no session possible
   const inTelegram = isTelegramWebApp();
 
+  // Restore user profile from an existing session on app boot.
+  // If the token is stale, the 401 interceptor clears the session and
+  // useTelegramAuth will re-authenticate via initData automatically.
   useEffect(() => {
     if (!inTelegram) return;
 
     const token = localStorage.getItem("session_token");
-    if (!token) {
-      setUser(null);
-      return;
-    }
+    if (!token) return;
 
     void (async () => {
       try {
         const { data } = await client.get<UserProfile>("/auth/me");
         setUser(data);
       } catch {
-        clearSession();
+        // 401 handled by axios interceptor: clears session, triggers re-auth via initData
       }
     })();
-  }, [setUser, clearSession, inTelegram]);
+  }, [setUser, inTelegram]);
 
   // External browser — always show landing page
   if (!inTelegram) {

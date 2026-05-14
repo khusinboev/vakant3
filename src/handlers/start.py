@@ -5,7 +5,7 @@ import aiosqlite
 import time
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonWebApp, WebAppInfo
 from config import BASE_DIR, bot, ADMIN_IDS, WEBAPP_URL
 from src.buttons.buttuns import MM_btn
 from src.functions.functions import functions
@@ -13,6 +13,16 @@ from src.functions.vacancy_format import format_vacancy_message_html
 from src.functions.scraping import fetch_osonish_detail
 
 router = Router()
+
+
+def get_webapp_url() -> str:
+    """WEBAPP_URL ni majburiy HTTPS ga o'girib /app path bilan qaytaradi."""
+    base = WEBAPP_URL.rstrip("/")
+    if base.startswith("http://"):
+        base = f"https://{base[len('http://'):]}"
+    if not base.startswith("https://"):
+        base = f"https://{base}"
+    return f"{base}/app"
 
 
 @router.message(CommandStart())
@@ -68,12 +78,7 @@ async def welcome(message: Message):
             )
             await conn.commit()
 
-        webapp_base = WEBAPP_URL.rstrip("/")
-        if webapp_base.startswith("http://"):
-            webapp_base = f"https://{webapp_base[len('http://'):]}"
-        if not webapp_base.startswith("https://"):
-            webapp_base = f"https://{webapp_base}"
-        webapp_url = f"{webapp_base}/app"
+        webapp_url = get_webapp_url()
         open_webapp_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]
@@ -90,6 +95,18 @@ async def welcome(message: Message):
             "🌐 Veb ilovaga kirish uchun tugmani bosing:",
             reply_markup=open_webapp_kb,
         )
+
+        # Chat input pastida doimiy WebApp tugmasi (persistent menu button)
+        try:
+            await bot.set_chat_menu_button(
+                chat_id=user_id,
+                menu_button=MenuButtonWebApp(
+                    text="🔍 Ish qidirish",
+                    web_app=WebAppInfo(url=webapp_url),
+                ),
+            )
+        except Exception:
+            pass
     else:
         join_keyboard = await build_channel_keyboard()
 
@@ -167,6 +184,18 @@ async def check_subscription(call: CallbackQuery):
             f"Endi botdan to'liq foydalanishingiz mumkin.",
             reply_markup=MM_btn
         )
+
+        # Chat input pastida doimiy WebApp tugmasi (persistent menu button)
+        try:
+            await bot.set_chat_menu_button(
+                chat_id=call.from_user.id,
+                menu_button=MenuButtonWebApp(
+                    text="🔍 Ish qidirish",
+                    web_app=WebAppInfo(url=get_webapp_url()),
+                ),
+            )
+        except Exception:
+            pass
     else:
         await call.answer(
             "❌ Siz hali barcha kanallarga obuna bo'lmadingiz!\n"

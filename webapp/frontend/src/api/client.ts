@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAuthStore } from "../store/auth";
 
 const client = axios.create({
   baseURL: "/api"
@@ -17,13 +18,13 @@ client.interceptors.response.use(
   (error) => {
     const status = error?.response?.status;
     const requestUrl = String(error?.config?.url || "");
-    const skipAutoLogout = requestUrl.includes("/auth/telegram") || requestUrl.includes("/auth/handoff");
+    const isAuthEndpoint =
+      requestUrl.includes("/auth/telegram") ||
+      requestUrl.includes("/auth/handoff") ||
+      requestUrl.includes("/auth/tg-webapp");
 
-    if (status === 401 && !skipAutoLogout) {
-      localStorage.removeItem("session_token");
-      if (window.location.pathname !== "/login") {
-        window.location.href = "/login";
-      }
+    if (status === 401 && !isAuthEndpoint) {
+      useAuthStore.getState().clearSession();
     }
     return Promise.reject(error);
   }
