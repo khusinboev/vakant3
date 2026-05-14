@@ -40,7 +40,8 @@ export function useSaves(page = 1, limit = 10, enabled = true) {
       return data;
     },
     enabled,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: "always",
     retry: false,
   });
 

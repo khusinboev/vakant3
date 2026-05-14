@@ -1,20 +1,6 @@
-function labelize(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (s) => s.toUpperCase());
-}
+import { Link } from "react-router-dom";
 
-function valueToText(value: unknown): string {
-  if (typeof value === "boolean") return value ? "Ha" : "Yo'q";
-  if (value === null || value === undefined || value === "") return "-";
-  return String(value);
-}
-
-function maskHash(hash: string | undefined): string {
-  if (!hash) return "-";
-  if (hash.length <= 16) return hash;
-  return `${hash.slice(0, 8)}...${hash.slice(-8)}`;
-}
+import { useSaves } from "../hooks/useSaves";
 
 export default function Profile() {
   const webApp = window.Telegram?.WebApp;
@@ -44,19 +30,8 @@ export default function Profile() {
   }
 
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ");
-  const knownKeys = new Set([
-    "id",
-    "first_name",
-    "last_name",
-    "username",
-    "language_code",
-    "photo_url",
-    "is_premium",
-    "allows_write_to_pm",
-    "added_to_attachment_menu",
-    "is_bot",
-  ]);
-  const extraUserFields = Object.entries(user).filter(([k]) => !knownKeys.has(k));
+  const saves = useSaves(1, 1, true);
+  const savesCount = saves.list.data?.total ?? 0;
 
   return (
     <div className="space-y-4">
@@ -75,98 +50,32 @@ export default function Profile() {
       </section>
 
       <section className="card p-4">
-        <h3 className="text-sm font-semibold text-slate-800">Asosiy ma'lumotlar</h3>
-        <div className="mt-3 grid gap-2 text-sm">
+        <h3 className="text-sm font-semibold text-slate-800">Qisqa ma'lumot</h3>
+        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
           <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
             <span className="text-slate-500">Telegram ID</span>
             <span className="font-medium text-slate-800">{user.id}</span>
           </div>
           <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">First Name</span>
-            <span className="font-medium text-slate-800">{valueToText(user.first_name)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Last Name</span>
-            <span className="font-medium text-slate-800">{valueToText(user.last_name)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Username</span>
-            <span className="font-medium text-slate-800">{valueToText(user.username ? `@${user.username}` : "")}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Til</span>
-            <span className="font-medium text-slate-800">{valueToText(user.language_code)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Premium</span>
-            <span className="font-medium text-slate-800">{valueToText(user.is_premium)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">PM ruxsat</span>
-            <span className="font-medium text-slate-800">{valueToText(user.allows_write_to_pm)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Attachment Menu</span>
-            <span className="font-medium text-slate-800">{valueToText(user.added_to_attachment_menu)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Bot user</span>
-            <span className="font-medium text-slate-800">{valueToText(user.is_bot)}</span>
+            <span className="text-slate-500">Saqlanganlar</span>
+            <span className="font-medium text-slate-800">
+              {saves.list.isLoading ? "Yuklanmoqda..." : `${savesCount} ta`}
+            </span>
           </div>
         </div>
       </section>
 
       <section className="card p-4">
-        <h3 className="text-sm font-semibold text-slate-800">WebApp sessiya</h3>
-        <div className="mt-3 grid gap-2 text-sm">
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Platform</span>
-            <span className="font-medium text-slate-800">{valueToText(webApp.platform)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Telegram versiya</span>
-            <span className="font-medium text-slate-800">{valueToText(webApp.version)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Auth date</span>
-            <span className="font-medium text-slate-800">{valueToText(initData?.auth_date)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Start param</span>
-            <span className="font-medium text-slate-800">{valueToText(initData?.start_param)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Query ID</span>
-            <span className="font-medium text-slate-800">{valueToText(initData?.query_id)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Chat type</span>
-            <span className="font-medium text-slate-800">{valueToText(initData?.chat_type)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Chat instance</span>
-            <span className="font-medium text-slate-800">{valueToText(initData?.chat_instance)}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-            <span className="text-slate-500">Hash</span>
-            <span className="font-medium text-slate-800">{maskHash(initData?.hash)}</span>
-          </div>
+        <h3 className="text-sm font-semibold text-slate-800">Tezkor amallar</h3>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <Link to="/saves" className="tap-target rounded-2xl bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-white">
+            Saqlangan ishlar
+          </Link>
+          <Link to="/referral" className="tap-target rounded-2xl border border-slate-200 px-4 py-3 text-center text-sm font-semibold text-slate-700">
+            Referral sahifasi
+          </Link>
         </div>
       </section>
-
-      {extraUserFields.length ? (
-        <section className="card p-4">
-          <h3 className="text-sm font-semibold text-slate-800">Qo'shimcha user maydonlari</h3>
-          <div className="mt-3 grid gap-2 text-sm">
-            {extraUserFields.map(([key, value]) => (
-              <div key={key} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-                <span className="text-slate-500">{labelize(key)}</span>
-                <span className="font-medium text-slate-800">{valueToText(value)}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -12,6 +13,7 @@ from webapp.core.telegram_auth import verify_webapp_init_data
 from webapp.models.schemas import SaveActionResponse, SavesResponse
 
 router = APIRouter(prefix="/saves", tags=["saves"])
+DETAIL_CACHE_TTL = 60 * 60
 
 
 def _uid_to_raw_id(uid: str) -> int:
@@ -62,22 +64,28 @@ async def list_saves(
     )
     rows = await cursor.fetchall()
 
-    items: list[dict] = []
-    for row in rows:
-        save_id = int(row[0])
+    async def _load_item(save_id: int) -> dict | None:
         uid = f"osonish_{save_id}"
         cache_key = make_cache_key("detail", uid=uid)
         cached = await cache_get(cache_key)
 
         if isinstance(cached, dict) and isinstance(cached.get("data"), dict):
-            detail = cached["data"]
-        else:
-            detail = await fetch_osonish_detail(save_id)
-            if not isinstance(detail, dict):
-                continue
-            await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=60 * 60)
+            return {"uid": uid, "data": cached["data"]}
 
-        items.append({"uid": uid, "data": detail})
+        detail = await fetch_osonish_detail(save_id)
+        if not isinstance(detail, dict):
+            return None
+
+        await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
+        return {"uid": uid, "data": detail}
+
+    save_ids = [int(row[0]) for row in rows]
+    loaded = await asyncio.gather(*[_load_item(save_id) for save_id in save_ids], return_exceptions=True)
+
+    items: list[dict] = []
+    for item in loaded:
+        if isinstance(item, dict):
+            items.append(item)
 
     return SavesResponse(items=items, total=total)
 
@@ -104,6 +112,16 @@ async def add_save(
         "INSERT OR IGNORE INTO saves (user_id, save_id) VALUES (?, ?)",
         (user_id, raw_id),
     )
+
+    # Warm the detail cache on save so /saves opens immediately.
+    uid = f"osonish_{raw_id}"
+    cache_key = make_cache_key("detail", uid=uid)
+    cached = await cache_get(cache_key)
+    if not (isinstance(cached, dict) and isinstance(cached.get("data"), dict)):
+        detail = await fetch_osonish_detail(raw_id)
+        if isinstance(detail, dict):
+            await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
+
     await db.commit()
 
     return SaveActionResponse(saved=True)
