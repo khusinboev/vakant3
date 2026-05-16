@@ -3,7 +3,6 @@ import { CheckCircle2, Crown, Link, Wallet } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import client from "../api/client";
-import { shareRefLink } from "../components/Referral/ReferralCard";
 
 type WalletData = {
   balance: number;
@@ -14,6 +13,17 @@ type WalletData = {
 
 function fmt(n: number) {
   return n.toLocaleString("uz-UZ");
+}
+
+function shareRefLink(refLink: string) {
+  const tg = window.Telegram?.WebApp;
+  const shareText = "Bandlik.uz — Telegram orqali ish topishning eng qulay yo'li! Qo'shiling:";
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(shareText)}`;
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(shareUrl);
+  } else {
+    window.open(shareUrl, "_blank", "noopener,noreferrer");
+  }
 }
 
 export default function WalletPage() {
