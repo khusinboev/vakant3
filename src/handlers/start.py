@@ -5,7 +5,7 @@ import aiosqlite
 import time
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from config import BASE_DIR, bot, ADMIN_IDS
 from src.buttons.buttuns import MM_btn
 from src.functions.functions import functions
@@ -14,10 +14,6 @@ from src.functions.vacancy_format import format_vacancy_message_html
 from src.functions.scraping import fetch_osonish_detail
 
 router = Router()
-
-
-def get_webapp_url() -> str:
-    return "https://abitur24.uz/app"
 
 
 @router.message(CommandStart())
@@ -121,22 +117,10 @@ async def welcome(message: Message):
             )
             await conn.commit()
 
-        webapp_url = get_webapp_url()
-        open_webapp_kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]
-            ]
-        )
-
         await message.answer(
             f"Assalomu alaykum, {message.from_user.first_name}!\n"
             f"Botimizga xush kelibsiz. Kerakli bo'limni tanlang!",
             reply_markup=MM_btn,
-        )
-
-        await message.answer(
-            "🌐 Veb ilovaga kirish uchun tugmani bosing:",
-            reply_markup=open_webapp_kb,
         )
     else:
         join_keyboard = await build_channel_keyboard()
@@ -214,16 +198,6 @@ async def check_subscription(call: CallbackQuery):
             f"Xush kelibsiz, {call.from_user.first_name}!\n"
             f"Endi botdan to'liq foydalanishingiz mumkin.",
             reply_markup=MM_btn
-        )
-        webapp_url = get_webapp_url()
-        open_webapp_kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]
-            ]
-        )
-        await call.message.answer(
-            "🌐 Veb ilovaga kirish uchun tugmani bosing:",
-            reply_markup=open_webapp_kb,
         )
     else:
         await call.answer(

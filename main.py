@@ -6,7 +6,7 @@ import logging
 from config import dp, bot, BASE_DIR
 from src.functions.auto_post_scheduler import auto_post_loop
 from src.middleware.middlewares import StatsMiddleware
-from src.handlers import start, admin, search
+from src.handlers import start, admin
 
 # Logging
 logging.basicConfig(
@@ -28,7 +28,6 @@ async def main():
     # Routerlarni ulash
     dp.include_router(start.router)
     dp.include_router(admin.router)
-    dp.include_router(search.router)
 
     print("✅ Bot started successfully")
     print("🤖 Polling started...")

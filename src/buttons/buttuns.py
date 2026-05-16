@@ -1,7 +1,7 @@
 # ============================================
 # src/buttons/buttuns.py - Aiogram 3.x
 # ============================================
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 
 # Admin panel
 main_btn = ReplyKeyboardMarkup(
@@ -28,13 +28,18 @@ reklama_btn = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# User menu
+# User menu — WebApp buttons
 MM_btn = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="💼 Ish qidirish"), KeyboardButton(text="🛠 Filtrni boshqarish")],
-        [KeyboardButton(text="🗂 Saqlangan ishlar")]
+        [
+            KeyboardButton(text="💼 Ish qidirish", web_app=WebAppInfo(url="https://abitur24.uz/app")),
+            KeyboardButton(text="👤 Profil", web_app=WebAppInfo(url="https://abitur24.uz/profile")),
+        ],
+        [
+            KeyboardButton(text="🗂 Saqlanganlar", web_app=WebAppInfo(url="https://abitur24.uz/saves")),
+        ],
     ],
-    resize_keyboard=True
+    resize_keyboard=True,
 )
 
 # Orqaga qaytish
