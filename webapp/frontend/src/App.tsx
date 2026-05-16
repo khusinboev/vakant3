@@ -5,7 +5,7 @@ import { Route, Routes, Navigate } from "react-router-dom";
 import client from "./api/client";
 import Layout from "./components/Layout/Navbar";
 import useTelegramWebApp from "./hooks/useTelegramWebApp";
-import { isTelegramWebApp } from "./hooks/useTelegramAuth";
+import useTelegramAuth, { isTelegramWebApp } from "./hooks/useTelegramAuth";
 import useTelegramBackButton from "./hooks/useTelegramBackButton";
 import Home from "./pages/Home";
 
@@ -41,6 +41,7 @@ function ReferralLockScreen({ current, required, refLink }: { current: number; r
 export default function App() {
   useTelegramWebApp();
   useTelegramBackButton();
+  useTelegramAuth();
 
   const gate = useQuery({
     queryKey: ["referral", "stats", "gate"],
