@@ -213,17 +213,17 @@ async def check_subscription(call: CallbackQuery):
         await call.message.answer(
             f"Xush kelibsiz, {call.from_user.first_name}!\n"
             f"Endi botdan to'liq foydalanishingiz mumkin.",
-                    webapp_url = get_webapp_url()
-                    open_webapp_kb = InlineKeyboardMarkup(
-                        inline_keyboard=[
-                            [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]
-                        ]
-                    )
-                    await call.message.answer(
-                        "🌐 Veb ilovaga kirish uchun tugmani bosing:",
-                        reply_markup=open_webapp_kb,
-                    )
             reply_markup=MM_btn
+        )
+        webapp_url = get_webapp_url()
+        open_webapp_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]
+            ]
+        )
+        await call.message.answer(
+            "🌐 Veb ilovaga kirish uchun tugmani bosing:",
+            reply_markup=open_webapp_kb,
         )
     else:
         await call.answer(
