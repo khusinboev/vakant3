@@ -55,7 +55,7 @@ function Section({
   icon: Icon,
   title,
   children,
-  defaultOpen = true,
+  defaultOpen = false,
 }: {
   icon: React.ElementType;
   title: string;
@@ -199,7 +199,7 @@ export default function Admin() {
       </Section>
 
       {/* Referral gate */}
-      <Section icon={Settings} title="Referral gate" defaultOpen={false}>
+      <Section icon={Settings} title="Referral gate">
         <ToggleRow
           label="Referral gate faol"
           checked={s.referral_enabled}
