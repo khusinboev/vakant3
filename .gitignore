@@ -34,6 +34,7 @@ Thumbs.db
 webapp/frontend/node_modules/
 webapp/frontend/dist/
 webapp/frontend/.vite/
+webapp/frontend/tsconfig.tsbuildinfo
 
 # Bot log
 bot.log
