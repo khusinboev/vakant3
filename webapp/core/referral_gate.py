@@ -12,12 +12,14 @@ async def get_referral_gate_state(db, user_id: int) -> dict[str, int | bool]:
 
     cursor = await db.execute("SELECT COUNT(*) FROM users WHERE ref_by = ?", (user_id,))
     current = int((await cursor.fetchone())[0] or 0)
+    remaining = max(0, required - current)
 
-    unlocked = (not enabled) or required <= 0 or current >= required
+    unlocked = (not enabled) or remaining == 0
     return {
         "enabled": enabled,
         "required": required,
         "current": current,
+        "remaining": remaining,
         "unlocked": unlocked,
     }
 
@@ -27,7 +29,8 @@ def raise_if_referral_locked(state: dict[str, int | bool]) -> None:
         return
     required = int(state.get("required") or 0)
     current = int(state.get("current") or 0)
+    remaining = int(state.get("remaining") or max(0, required - current))
     raise HTTPException(
         status_code=403,
-        detail=f"Referral sharti bajarilmagan: {current}/{required}",
+        detail=f"Referral sharti bajarilmagan: {current}/{required}. Yana kerak: {remaining}",
     )

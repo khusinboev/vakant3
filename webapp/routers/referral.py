@@ -48,6 +48,7 @@ async def referral_stats(request: Request, db=Depends(get_db)) -> dict[str, int 
         "enabled": bool(gate_state["enabled"]),
         "required": int(gate_state["required"]),
         "current": int(gate_state["current"]),
+        "remaining": int(gate_state["remaining"]),
         "unlocked": bool(gate_state["unlocked"]),
         "ref_link": f"https://t.me/{settings.BOT_USERNAME}?start=ref_{user_id}",
     }

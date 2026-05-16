@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+import time
 
 from webapp.core.database import get_db
 from webapp.core.identity import (
@@ -45,6 +46,13 @@ class ResetUserRequest(BaseModel):
 async def get_wallet(request: Request, db=Depends(get_db)) -> WalletResponse:
     user_id = _get_user_id(request)
 
+    now = int(time.time())
+    await db.execute(
+        "INSERT OR IGNORE INTO users (user_id, date, lang, user_balance, user_pro) VALUES (?, ?, ?, ?, ?)",
+        (user_id, now, "uz", 0, 0),
+    )
+    await db.commit()
+
     cursor = await db.execute(
         "SELECT user_balance, user_pro FROM users WHERE user_id = ?",
         (user_id,),
@@ -67,40 +75,58 @@ async def get_wallet(request: Request, db=Depends(get_db)) -> WalletResponse:
 async def activate_pro(request: Request, db=Depends(get_db)) -> ActivateProResponse:
     user_id = _get_user_id(request)
 
+    now = int(time.time())
+    await db.execute(
+        "INSERT OR IGNORE INTO users (user_id, date, lang, user_balance, user_pro) VALUES (?, ?, ?, ?, ?)",
+        (user_id, now, "uz", 0, 0),
+    )
+
+    cursor = await db.execute(
+        "SELECT pro_price FROM webapp_admin_settings WHERE singleton = 1"
+    )
+    settings_row = await cursor.fetchone()
+    pro_price = int(settings_row["pro_price"] or 10000) if settings_row else 10000
+
+    update_cursor = await db.execute(
+        "UPDATE users "
+        "SET user_balance = user_balance - ?, user_pro = 1 "
+        "WHERE user_id = ? AND user_pro = 0 AND user_balance >= ?",
+        (pro_price, user_id, pro_price),
+    )
+
+    if int(update_cursor.rowcount or 0) > 0:
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT user_balance, user_pro FROM users WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        return ActivateProResponse(
+            ok=True,
+            balance=int(row["user_balance"] or 0),
+            is_pro=bool(int(row["user_pro"] or 0)),
+        )
+
     cursor = await db.execute(
         "SELECT user_balance, user_pro FROM users WHERE user_id = ?",
         (user_id,),
     )
     row = await cursor.fetchone()
     if not row:
+        await db.rollback()
         raise HTTPException(status_code=404, detail="User not found")
 
     balance = int(row["user_balance"] or 0)
     is_pro = bool(int(row["user_pro"] or 0))
-
     if is_pro:
+        await db.commit()
         return ActivateProResponse(ok=True, balance=balance, is_pro=True)
 
-    cursor2 = await db.execute(
-        "SELECT pro_price FROM webapp_admin_settings WHERE singleton = 1"
+    await db.rollback()
+    raise HTTPException(
+        status_code=400,
+        detail=f"Hisobingizda yetarli mablag' yo'q. Kerak: {pro_price} so'm, mavjud: {balance} so'm",
     )
-    settings_row = await cursor2.fetchone()
-    pro_price = int(settings_row["pro_price"] or 10000) if settings_row else 10000
-
-    if balance < pro_price:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Hisobingizda yetarli mablag' yo'q. Kerak: {pro_price} so'm, mavjud: {balance} so'm",
-        )
-
-    new_balance = balance - pro_price
-    await db.execute(
-        "UPDATE users SET user_balance = ?, user_pro = 1 WHERE user_id = ?",
-        (new_balance, user_id),
-    )
-    await db.commit()
-
-    return ActivateProResponse(ok=True, balance=new_balance, is_pro=True)
 
 
 @router.post("/admin/add-balance", response_model=AddBalanceResponse)
