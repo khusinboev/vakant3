@@ -5,8 +5,8 @@ import aiosqlite
 import time
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-from config import BASE_DIR, bot, ADMIN_IDS, WEBAPP_URL
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from config import BASE_DIR, bot, ADMIN_IDS
 from src.buttons.buttuns import MM_btn
 from src.functions.functions import functions
 from src.functions.referral_gate import get_referral_gate_state, referral_gate_message
@@ -17,13 +17,7 @@ router = Router()
 
 
 def get_webapp_url() -> str:
-    """WEBAPP_URL ni majburiy HTTPS ga o'girib /app path bilan qaytaradi."""
-    base = WEBAPP_URL.rstrip("/")
-    if base.startswith("http://"):
-        base = f"https://{base[len('http://'):]}"
-    if not base.startswith("https://"):
-        base = f"https://{base}"
-    return f"{base}/app"
+    return "https://abitur24.uz/app"
 
 
 @router.message(CommandStart())
@@ -130,7 +124,7 @@ async def welcome(message: Message):
         webapp_url = get_webapp_url()
         open_webapp_kb = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="🌐 WebAppni ochish", url=webapp_url)]
+                [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]
             ]
         )
 
