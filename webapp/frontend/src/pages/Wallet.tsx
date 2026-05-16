@@ -3,6 +3,7 @@ import { CheckCircle2, Crown, Link, Wallet } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import client from "../api/client";
+import { shareRefLink } from "../components/Referral/ReferralCard";
 
 type WalletData = {
   balance: number;
@@ -13,17 +14,6 @@ type WalletData = {
 
 function fmt(n: number) {
   return n.toLocaleString("uz-UZ");
-}
-
-function shareRefLink(refLink: string) {
-  const tg = window.Telegram?.WebApp;
-  const shareText = "Bandlik.uz — Telegram orqali ish topishning eng qulay yo'li! Qo'shiling:";
-  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(shareText)}`;
-  if (tg?.openTelegramLink) {
-    tg.openTelegramLink(shareUrl);
-  } else {
-    window.open(shareUrl, "_blank", "noopener,noreferrer");
-  }
 }
 
 export default function WalletPage() {
@@ -47,8 +37,6 @@ export default function WalletPage() {
       queryClient.setQueryData<WalletData>(["wallet"], (prev) =>
         prev ? { ...prev, balance: data.balance, is_pro: data.is_pro } : prev,
       );
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["profile"] });
     },
   });
 
@@ -61,14 +49,8 @@ export default function WalletPage() {
     ? `https://t.me/${botUsername}?start=ref_${tgUser.id}`
     : null;
 
-  async function copyRef() {
-    if (!refLink) return;
-    try {
-      await navigator.clipboard.writeText(refLink);
-      window.Telegram?.WebApp?.showAlert?.("Referral havola nusxalandi");
-    } catch {
-      // Clipboard may be blocked on some clients.
-    }
+  function copyRef() {
+    if (refLink) navigator.clipboard.writeText(refLink);
   }
 
   if (wallet.isLoading) {

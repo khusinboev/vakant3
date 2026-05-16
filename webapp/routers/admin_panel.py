@@ -1,14 +1,27 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from webapp.core.config import get_settings
 from webapp.core.database import get_db
-from webapp.core.identity import require_admin_user_id_from_request_init_data
+from webapp.core.identity import resolve_user_id_from_init_data
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 def _require_admin(request: Request) -> int:
-    return require_admin_user_id_from_request_init_data(request)
+    settings = get_settings()
+    init_data = (request.headers.get("X-Telegram-Init-Data") or "").strip()
+    if not init_data:
+        raise HTTPException(status_code=401, detail="Telegram initData required")
+
+    user_id = resolve_user_id_from_init_data(init_data, settings.TOKEN)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid initData")
+
+    if user_id not in settings.admin_ids_set:
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    return user_id
 
 
 class AdminStateResponse(BaseModel):

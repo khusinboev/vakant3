@@ -21,17 +21,7 @@ function PageFallback() {
   return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Yuklanmoqda...</div>;
 }
 
-function ReferralLockScreen({
-  current,
-  required,
-  remaining,
-  refLink,
-}: {
-  current: number;
-  required: number;
-  remaining: number;
-  refLink: string;
-}) {
+function ReferralLockScreen({ current, required, refLink }: { current: number; required: number; refLink: string }) {
   return (
     <div className="mx-auto mt-6 max-w-xl space-y-3 px-4">
       <div className="card p-5 text-center">
@@ -40,7 +30,6 @@ function ReferralLockScreen({
           Webappdan foydalanish uchun avval referral shartini bajaring.
         </p>
         <p className="mt-3 text-sm font-semibold text-amber-600">Holat: {current}/{required}</p>
-        <p className="mt-1 text-xs text-slate-500">Yana kerak: {remaining}</p>
         <a href={refLink} className="mt-4 inline-block rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
           Referral havolani ulashish
         </a>
@@ -56,7 +45,7 @@ export default function App() {
   const gate = useQuery({
     queryKey: ["referral", "stats", "gate"],
     queryFn: async () => {
-      const { data } = await client.get<{ enabled: boolean; unlocked: boolean; current: number; required: number; remaining: number; ref_link: string }>(
+      const { data } = await client.get<{ enabled: boolean; unlocked: boolean; current: number; required: number; ref_link: string }>(
         "/referral/stats"
       );
       return data;
@@ -75,14 +64,7 @@ export default function App() {
   }
 
   if (gate.data?.enabled && !gate.data.unlocked) {
-    return (
-      <ReferralLockScreen
-        current={gate.data.current}
-        required={gate.data.required}
-        remaining={gate.data.remaining}
-        refLink={gate.data.ref_link}
-      />
-    );
+    return <ReferralLockScreen current={gate.data.current} required={gate.data.required} refLink={gate.data.ref_link} />;
   }
 
   return (

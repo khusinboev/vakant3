@@ -1,4 +1,4 @@
-import { Heart, MapPin } from "lucide-react";
+import { Heart, Lock, MapPin } from "lucide-react";
 
 import type { VacancyItem } from "../../types";
 
@@ -10,13 +10,22 @@ type Props = {
 
 export default function VacancyCard({ item, onOpen, onToggleSave }: Props) {
   return (
-    <article className="card overflow-hidden p-4 transition hover:-translate-y-0.5 hover:shadow-md">
+    <article className={`card overflow-hidden p-4 transition hover:-translate-y-0.5 hover:shadow-md ${item.is_pro_locked ? "opacity-80" : ""}`}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1 overflow-hidden">
-              <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">{item.company}</p>
-              <h3 className="mt-1 break-words text-base font-semibold leading-snug text-slate-900 line-clamp-2">{item.title}</h3>
+              <div className="flex items-center gap-2">
+                <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">{item.company}</p>
+                {item.is_pro_locked && (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                    <Lock size={10} /> PRO
+                  </span>
+                )}
+              </div>
+              <h3 className="mt-1 break-words text-base font-semibold leading-snug text-slate-900 line-clamp-2">
+                {item.is_pro_locked ? "🔒 Yashirilgan" : item.title}
+              </h3>
             </div>
             <button
               aria-label={item.is_saved ? "Saqlangan" : "Saqlash"}
@@ -28,7 +37,9 @@ export default function VacancyCard({ item, onOpen, onToggleSave }: Props) {
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span className="rounded-full bg-brand-50 px-2 py-1 font-semibold text-brand-700">{item.salary_text}</span>
+            <span className={`rounded-full px-2 py-1 font-semibold ${item.is_pro_locked ? "bg-amber-50 text-amber-700" : "bg-brand-50 text-brand-700"}`}>
+              {item.salary_text}
+            </span>
             <span className="inline-flex items-center gap-1">
               <MapPin size={14} /> {item.location || item.district || "Hudud ko'rsatilmagan"}
             </span>
@@ -38,8 +49,13 @@ export default function VacancyCard({ item, onOpen, onToggleSave }: Props) {
         </div>
       </div>
 
-      <button onClick={() => onOpen(item.uid)} className="tap-target mt-4 w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">
-        Batafsil ko'rish
+      <button
+        onClick={() => onOpen(item.uid)}
+        className={`tap-target mt-4 w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white ${
+          item.is_pro_locked ? "bg-amber-500" : "bg-slate-900"
+        }`}
+      >
+        {item.is_pro_locked ? "🔒 Batafsil ko'rish (Pro)" : "Batafsil ko'rish"}
       </button>
     </article>
   );

@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 import warnings
 from pathlib import Path
@@ -38,7 +39,8 @@ class Settings(BaseSettings):
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-DB_PATH = BASE_DIR / "src" / "database" / "database.sqlite3"
+DEFAULT_DB_PATH = BASE_DIR / "src" / "database" / "database.sqlite3"
+DB_PATH = Path(os.getenv("DB_PATH", str(DEFAULT_DB_PATH)))
 
 
 @lru_cache(maxsize=1)

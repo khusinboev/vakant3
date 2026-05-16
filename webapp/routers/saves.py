@@ -1,15 +1,16 @@
 import asyncio
 import time
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.functions.cache import cache_get, cache_set, make_cache_key
 from src.functions.scraping import fetch_osonish_detail
-from src.functions.vacancy_format import normalize_vacancy_detail
+from webapp.core.config import get_settings
 from webapp.core.database import get_db
-from webapp.core.identity import require_request_user_id
 from webapp.core.limiter import limiter
 from webapp.core.referral_gate import get_referral_gate_state, raise_if_referral_locked
+from webapp.core.session import get_optional_current_user
+from webapp.core.telegram_auth import verify_webapp_init_data
 from webapp.models.schemas import SaveActionResponse, SavesResponse
 
 router = APIRouter(prefix="/saves", tags=["saves"])
@@ -25,15 +26,34 @@ def _uid_to_raw_id(uid: str) -> int:
         raise HTTPException(status_code=400, detail="Invalid vacancy uid") from exc
 
 
+def _resolve_user_id(request: Request, current: dict | None) -> int:
+    if current and current.get("user"):
+        return int(current["user"]["user_id"])
+
+    init_data = request.headers.get("X-Telegram-Init-Data", "").strip()
+    if not init_data:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    settings = get_settings()
+    if not settings.TOKEN:
+        raise HTTPException(status_code=500, detail="TOKEN not configured")
+
+    user_data = verify_webapp_init_data(init_data, settings.TOKEN)
+    if not user_data or not user_data.get("id"):
+        raise HTTPException(status_code=401, detail="Invalid initData")
+
+    return int(user_data["id"])
+
+
 @router.get("", response_model=SavesResponse)
 async def list_saves(
     request: Request,
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=10, ge=1, le=50),
-    authorization: str | None = Header(default=None),
+    current=Depends(get_optional_current_user),
     db=Depends(get_db),
 ) -> SavesResponse:
-    user_id = await require_request_user_id(request=request, db=db, authorization=authorization)
+    user_id = _resolve_user_id(request, current)
     gate_state = await get_referral_gate_state(db, user_id)
     raise_if_referral_locked(gate_state)
 
@@ -54,22 +74,14 @@ async def list_saves(
         cached = await cache_get(cache_key)
 
         if isinstance(cached, dict) and isinstance(cached.get("data"), dict):
-            cached_data = dict(cached["data"])
-            if "normalized" not in cached_data:
-                cached_data["normalized"] = normalize_vacancy_detail(uid, cached_data)
-            return {"uid": uid, "data": cached_data}
+            return {"uid": uid, "data": cached["data"]}
 
         detail = await fetch_osonish_detail(save_id)
         if not isinstance(detail, dict):
             return None
 
-        detail_with_normalized = {**detail, "normalized": normalize_vacancy_detail(uid, detail)}
-        await cache_set(
-            cache_key,
-            {"source": "osonish", "data": detail_with_normalized},
-            ttl=DETAIL_CACHE_TTL,
-        )
-        return {"uid": uid, "data": detail_with_normalized}
+        await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
+        return {"uid": uid, "data": detail}
 
     save_ids = [int(row[0]) for row in rows]
     loaded = await asyncio.gather(*[_load_item(save_id) for save_id in save_ids], return_exceptions=True)
@@ -87,10 +99,10 @@ async def list_saves(
 async def add_save(
     request: Request,
     uid: str,
-    authorization: str | None = Header(default=None),
+    current=Depends(get_optional_current_user),
     db=Depends(get_db),
 ) -> SaveActionResponse:
-    user_id = await require_request_user_id(request=request, db=db, authorization=authorization)
+    user_id = _resolve_user_id(request, current)
     gate_state = await get_referral_gate_state(db, user_id)
     raise_if_referral_locked(gate_state)
 
@@ -115,12 +127,7 @@ async def add_save(
     if not (isinstance(cached, dict) and isinstance(cached.get("data"), dict)):
         detail = await fetch_osonish_detail(raw_id)
         if isinstance(detail, dict):
-            detail_with_normalized = {**detail, "normalized": normalize_vacancy_detail(uid, detail)}
-            await cache_set(
-                cache_key,
-                {"source": "osonish", "data": detail_with_normalized},
-                ttl=DETAIL_CACHE_TTL,
-            )
+            await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
 
     await db.commit()
 
@@ -131,10 +138,10 @@ async def add_save(
 async def remove_save(
     request: Request,
     uid: str,
-    authorization: str | None = Header(default=None),
+    current=Depends(get_optional_current_user),
     db=Depends(get_db),
 ) -> SaveActionResponse:
-    user_id = await require_request_user_id(request=request, db=db, authorization=authorization)
+    user_id = _resolve_user_id(request, current)
     gate_state = await get_referral_gate_state(db, user_id)
     raise_if_referral_locked(gate_state)
 

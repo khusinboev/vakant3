@@ -6,10 +6,11 @@ from src.functions.functions import normalize_osonish_field_id
 from src.functions.scraping import fetch_osonish_detail, fetch_osonish_list
 from src.functions.vacancy_format import format_vacancy_message_html, normalize_vacancy_detail
 from webapp.core.database import get_db
-from webapp.core.identity import resolve_request_user_id
+from webapp.core.config import get_settings
+from webapp.core.identity import resolve_user_id_from_init_data
 from webapp.core.limiter import limiter
 from webapp.core.referral_gate import get_referral_gate_state, raise_if_referral_locked
-from webapp.core.session import get_current_user
+from webapp.core.session import decode_session_token, get_current_user
 from webapp.models.schemas import JobsSearchResponse, VacancyDetailResponse, VacancyItem
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -22,6 +23,25 @@ def _uid_to_raw_id(uid: str) -> int:
         return int(uid.split("_", 1)[1])
     except (IndexError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="Invalid vacancy uid") from exc
+
+
+async def _get_auth_user_id(authorization: str | None) -> int | None:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        payload = decode_session_token(token)
+        return int(payload.get("uid", 0)) or None
+    except Exception:
+        return None
+
+
+def _get_init_data_user_id(request: Request) -> int | None:
+    init_data = (request.headers.get("X-Telegram-Init-Data") or "").strip()
+    if not init_data:
+        return None
+    settings = get_settings()
+    return resolve_user_id_from_init_data(init_data, settings.TOKEN)
 
 
 @router.get("/search", response_model=JobsSearchResponse)
@@ -39,7 +59,7 @@ async def search_jobs(
     authorization: str | None = Header(default=None),
     db=Depends(get_db),
 ) -> JobsSearchResponse:
-    request_user_id = await resolve_request_user_id(request=request, db=db, authorization=authorization)
+    request_user_id = await _get_auth_user_id(authorization) or _get_init_data_user_id(request)
     if request_user_id:
         gate_state = await get_referral_gate_state(db, request_user_id)
         raise_if_referral_locked(gate_state)
@@ -92,37 +112,37 @@ async def search_jobs(
     is_user_pro = False
     pro_min_salary = 8_000_000
 
-    cursor_settings = await db.execute(
-        "SELECT pro_min_salary FROM webapp_admin_settings WHERE singleton = 1"
-    )
-    settings_row = await cursor_settings.fetchone()
-    if settings_row:
-        pro_min_salary = int(settings_row["pro_min_salary"] or 8_000_000)
-
-    # Fetch user status if user is identified
+    # Fetch pro settings and user status in parallel if user is identified
     if user_id:
+        cursor_settings = await db.execute(
+            "SELECT pro_min_salary FROM webapp_admin_settings WHERE singleton = 1"
+        )
+        settings_row = await cursor_settings.fetchone()
+        if settings_row:
+            pro_min_salary = int(settings_row["pro_min_salary"] or 8_000_000)
+
         cursor_user = await db.execute(
             "SELECT user_pro FROM users WHERE user_id = ?", (user_id,)
         )
         user_row = await cursor_user.fetchone()
         if user_row:
             is_user_pro = bool(int(user_row["user_pro"] or 0))
-
+    else:
+        cursor_settings = await db.execute(
+            "SELECT pro_min_salary FROM webapp_admin_settings WHERE singleton = 1"
+        )
+        settings_row = await cursor_settings.fetchone()
+        if settings_row:
+            pro_min_salary = int(settings_row["pro_min_salary"] or 8_000_000)
     if user_id and vacancies_raw:
-        raw_ids: list[int] = []
-        seen_raw_ids: set[int] = set()
+        raw_ids = []
         for vacancy in vacancies_raw:
             uid = str(vacancy.get("uid", ""))
-            if not uid.startswith("osonish_"):
-                continue
-            try:
-                raw_id = int(uid.split("_", 1)[1])
-            except (IndexError, ValueError):
-                continue
-            if raw_id in seen_raw_ids:
-                continue
-            seen_raw_ids.add(raw_id)
-            raw_ids.append(raw_id)
+            if uid.startswith("osonish_"):
+                try:
+                    raw_ids.append(int(uid.split("_", 1)[1]))
+                except (IndexError, ValueError):
+                    continue
 
         if raw_ids:
             placeholders = ",".join("?" for _ in raw_ids)
@@ -173,7 +193,7 @@ async def vacancy_detail(
     authorization: str | None = Header(default=None),
     db=Depends(get_db),
 ) -> VacancyDetailResponse:
-    request_user_id = await resolve_request_user_id(request=request, db=db, authorization=authorization)
+    request_user_id = await _get_auth_user_id(authorization) or _get_init_data_user_id(request)
     if request_user_id:
         gate_state = await get_referral_gate_state(db, request_user_id)
         raise_if_referral_locked(gate_state)

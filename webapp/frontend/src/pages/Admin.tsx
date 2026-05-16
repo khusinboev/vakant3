@@ -27,7 +27,7 @@ function SettingInput({
   label: string;
   type?: "text" | "number";
   currentValue: string | number;
-  onSave: (val: string) => Promise<void> | void;
+  onSave: (val: string) => void;
   saving?: boolean;
 }) {
   const [draft, setDraft] = useState("");
@@ -55,7 +55,7 @@ function Section({
   icon: Icon,
   title,
   children,
-  defaultOpen = false,
+  defaultOpen = true,
 }: {
   icon: React.ElementType;
   title: string;
@@ -126,14 +126,6 @@ export default function Admin() {
     },
   });
 
-  const saveNumberField = (field: keyof AdminState, raw: string) => {
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      return;
-    }
-    patch.mutate({ [field]: parsed } as Partial<AdminState>);
-  };
-
   const addBalance = useMutation({
     mutationFn: async () => {
       const amount = Number(addAmount);
@@ -201,7 +193,7 @@ export default function Admin() {
           label="Minimal maosh chegarasi (so'm)"
           type="number"
           currentValue={s.auto_post_min_salary}
-          onSave={(v) => saveNumberField("auto_post_min_salary", v)}
+          onSave={(v) => patch.mutate({ auto_post_min_salary: Number(v) })}
           saving={saving}
         />
       </Section>
@@ -217,7 +209,7 @@ export default function Admin() {
           label="Talab qilinadigan referral soni"
           type="number"
           currentValue={s.referral_required_count}
-          onSave={(v) => saveNumberField("referral_required_count", v)}
+          onSave={(v) => patch.mutate({ referral_required_count: Number(v) })}
           saving={saving}
         />
       </Section>
@@ -228,28 +220,24 @@ export default function Admin() {
           label="Pro tarif narxi (so'm)"
           type="number"
           currentValue={s.pro_price}
-          onSave={(v) => saveNumberField("pro_price", v)}
+          onSave={(v) => patch.mutate({ pro_price: Number(v) })}
           saving={saving}
         />
         <SettingInput
           label="Referral mukofoti (so'm)"
           type="number"
           currentValue={s.referral_reward}
-          onSave={(v) => saveNumberField("referral_reward", v)}
+          onSave={(v) => patch.mutate({ referral_reward: Number(v) })}
           saving={saving}
         />
         <SettingInput
           label="Pro minimal maosh chegarasi (so'm)"
           type="number"
           currentValue={s.pro_min_salary}
-          onSave={(v) => saveNumberField("pro_min_salary", v)}
+          onSave={(v) => patch.mutate({ pro_min_salary: Number(v) })}
           saving={saving}
         />
       </Section>
-
-      {patch.isPending && (
-        <div className="card p-3 text-xs text-slate-500">Sozlama saqlanmoqda...</div>
-      )}
 
       {/* User management */}
       <Section icon={Users} title="Foydalanuvchi boshqaruvi">

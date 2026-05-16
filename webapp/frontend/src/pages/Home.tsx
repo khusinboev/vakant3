@@ -77,7 +77,7 @@ export default function Home() {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, jobs]);
+  }, [hasMore, jobs.isFetchingNextPage, jobs.fetchNextPage]);
 
   const detail = useQuery({
     queryKey: ["jobs", "detail", activeUid],
@@ -96,6 +96,10 @@ export default function Home() {
     if (saved) remove.mutate(uid);
     else save.mutate(uid);
   };
+
+  // Find current vacancy and pass lock status into detail modal
+  const currentVacancy = vacancies.find((v) => v.uid === activeUid);
+  const isLocked = currentVacancy?.is_pro_locked || false;
 
   return (
     <div className="space-y-3">
@@ -173,6 +177,7 @@ export default function Home() {
         onClose={() => setActiveUid("")}
         data={detail.data ?? null}
         isLoading={detail.isLoading && Boolean(activeUid)}
+        isLocked={isLocked}
       />
 
       {showLoginPrompt && (

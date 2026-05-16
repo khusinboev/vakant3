@@ -38,6 +38,7 @@ class VacancyItem(BaseModel):
     district: str
     posted_at: str
     is_saved: bool = False
+    is_pro_locked: bool = False
 
 
 class JobsSearchResponse(BaseModel):

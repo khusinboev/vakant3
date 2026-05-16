@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { Lock } from "lucide-react";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   data: { uid: string; data: Record<string, unknown> } | null;
   isLoading?: boolean;
+  isLocked?: boolean;
 };
 
 function Row({ label, value }: { label: string; value?: string | null }) {
@@ -17,7 +19,7 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-export default function VacancyDetail({ open, onClose, data, isLoading }: Props) {
+export default function VacancyDetail({ open, onClose, data, isLoading, isLocked = false }: Props) {
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState("");
   if (!open) return null;
@@ -113,23 +115,23 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
     setSendError("");
     setIsSending(true);
     try {
-      const startParam = `vacancy_${data.uid}`;
-      const botLink = `https://t.me/bandlikuzbot?start=${encodeURIComponent(startParam)}`;
-
-      // Mini App ichida eng to'g'ri usul — Telegram o'zida bot chatini ochish.
-      if (tg?.openTelegramLink) {
-        tg.openTelegramLink(botLink);
+      // Unlocked vacancy: open bot to see contact. Locked vacancy: go to wallet.
+      if (!isLocked) {
+        const startParam = `vacancy_${data.uid}`;
+        const botLink = `https://t.me/bandlikuzbot?start=${encodeURIComponent(startParam)}`;
+        if (tg?.openTelegramLink) {
+          tg.openTelegramLink(botLink);
+        } else {
+          window.open(botLink, "_blank", "noopener,noreferrer");
+        }
+        tg?.close?.();
       } else {
-        window.open(botLink, "_blank", "noopener,noreferrer");
+        // Navigate to wallet
+        onClose();
+        window.location.hash = "/wallet";
       }
-
-      // Collapse/close mini app after handoff to bot chat.
-      tg?.close?.();
-
-      onClose();
     } catch (err: unknown) {
-      const _err = err;
-      const msg = "Botni ochib bo'lmadi. Qayta urinib ko'ring.";
+      const msg = "Xatolik yuz berdi.";
       if (tg?.showAlert) {
         tg.showAlert(msg);
       } else {
@@ -148,8 +150,17 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 pb-3 pt-4">
-          <div className="min-w-0">
-            <h3 className="text-lg font-bold leading-snug text-slate-900">{title}</h3>
+          <div className="min-w-0 flex-1">
+            {isLocked ? (
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold leading-snug text-slate-900 flex-1 truncate">🔒 Nomer yashirilgan</h3>
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
+                  <Lock size={12} /> PRO
+                </span>
+              </div>
+            ) : (
+              <h3 className="text-lg font-bold leading-snug text-slate-900">{title}</h3>
+            )}
             {company && <p className="mt-0.5 text-sm font-medium text-brand-600">{company}</p>}
           </div>
           <button
@@ -184,6 +195,14 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
             <Row label="E'lon sanasi" value={postedAt ? postedAt.slice(0, 10) : null} />
           </div>
 
+          {/* Pro Lock Banner */}
+          {isLocked && (
+            <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-4 text-center">
+              <p className="text-sm font-semibold text-amber-900">🔒 Ish nomerini ko'rish uchun Pro tarif kerak</p>
+              <p className="text-xs text-amber-700 mt-1">Referral orqali balans to'ldirish yoki pro tarifga o'tish</p>
+            </div>
+          )}
+
           {/* Description */}
           {info && (
             <div className="mt-4">
@@ -192,8 +211,8 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
             </div>
           )}
 
-          {/* HR contacts */}
-          {(hrName || hrPhone || hrEmail) && (
+          {/* HR contacts - hidden for non-pro users */}
+          {(hrName || hrPhone || hrEmail) && !isLocked && (
             <div className="mt-4 rounded-2xl bg-slate-50 p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Aloqa</p>
               <div className="mt-2 space-y-1">
@@ -216,16 +235,26 @@ export default function VacancyDetail({ open, onClose, data, isLoading }: Props)
           {sendError && (
             <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{sendError}</p>
           )}
-          <button
-            onClick={sendToTelegram}
-            disabled={isSending}
-            className="tap-target mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2AABEE] px-4 py-3 text-sm font-semibold text-white disabled:opacity-70"
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
-              <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.012 9.47c-.148.658-.537.818-1.088.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.56-4.456c.537-.194 1.006.12.889.746z" />
-            </svg>
-            {isSending ? "Yuborilmoqda..." : "Botda ko'rish"}
-          </button>
+          {isLocked ? (
+            <button
+              onClick={sendToTelegram}
+              disabled={isSending}
+              className="tap-target mt-4 w-full rounded-2xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-70"
+            >
+              {isSending ? "Yo'nalmoqda..." : "💳 Pro tarifga o'tish"}
+            </button>
+          ) : (
+            <button
+              onClick={sendToTelegram}
+              disabled={isSending}
+              className="tap-target mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2AABEE] px-4 py-3 text-sm font-semibold text-white disabled:opacity-70"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.012 9.47c-.148.658-.537.818-1.088.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.56-4.456c.537-.194 1.006.12.889.746z" />
+              </svg>
+              {isSending ? "Yuborilmoqda..." : "🤖 Botda ko'rish"}
+            </button>
+          )}
         </div>
       </div>
     </div>

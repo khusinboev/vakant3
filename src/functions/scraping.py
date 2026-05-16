@@ -23,6 +23,7 @@ class Vacancy:
     posted_at: str
     detail_url: str
     raw_id: int
+    max_salary: int = 0
 
 
 def _ishapi_headers() -> dict[str, str]:
@@ -222,6 +223,7 @@ async def fetch_osonish_list(
                 posted_at=_fmt_date_ddmmyyyy(item.get("created_at")),
                 detail_url=f"https://osonish.uz/vacancies/{raw_id}",
                 raw_id=raw_id,
+                max_salary=int(item.get("max_salary") or 0),
             )
         )
 

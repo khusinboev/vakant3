@@ -14,7 +14,8 @@ load_dotenv()
 _raw_admins = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = [int(x.strip()) for x in _raw_admins.split(",") if x.strip().isdigit()]
 
-BASE_DIR = str(Path(__file__).resolve().parent / "src" / "database" / "database.sqlite3")
+DEFAULT_DB_PATH = Path(__file__).resolve().parent / "src" / "database" / "database.sqlite3"
+BASE_DIR = os.getenv("DB_PATH", str(DEFAULT_DB_PATH))
 
 TOKEN = os.getenv("TOKEN", "")
 if not TOKEN:

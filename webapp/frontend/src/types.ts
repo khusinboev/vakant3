@@ -15,6 +15,7 @@ export type VacancyItem = {
   district: string;
   posted_at: string;
   is_saved: boolean;
+  is_pro_locked: boolean;
 };
 
 export type VacancyDetail = {
