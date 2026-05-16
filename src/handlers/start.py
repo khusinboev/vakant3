@@ -5,7 +5,7 @@ import aiosqlite
 import time
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonWebApp, WebAppInfo
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from config import BASE_DIR, bot, ADMIN_IDS, WEBAPP_URL
 from src.buttons.buttuns import MM_btn
 from src.functions.functions import functions
@@ -62,11 +62,54 @@ async def welcome(message: Message):
 
         if inviter_id and inviter_id != user_id:
             async with aiosqlite.connect(BASE_DIR) as conn:
-                await conn.execute(
-                    "UPDATE users SET ref_by = ? WHERE user_id = ? AND ref_by IS NULL",
-                    (inviter_id, user_id),
+                # Only reward if this user is TRULY NEW (not in DB before)
+                cursor = await conn.execute(
+                    "SELECT user_id FROM users WHERE user_id = ?", (user_id,)
                 )
-                await conn.commit()
+                existing = await cursor.fetchone()
+                
+                # If user doesn't exist yet, they're new - give referral reward
+                if existing is None:
+                    # Set ref_by for new user
+                    now_ts = int(time.time())
+                    await conn.execute(
+                        "INSERT INTO users (user_id, date, lang, ref_by) VALUES (?, ?, ?, ?)",
+                        (user_id, now_ts, "uz", inviter_id),
+                    )
+                    
+                    # Fetch referral_reward from webapp_admin_settings
+                    try:
+                        from webapp.core.config import get_settings as _get_settings
+                        import aiosqlite as _aiosqlite
+                        _settings = _get_settings()
+                        cur2 = await conn.execute(
+                            "SELECT referral_reward FROM webapp_admin_settings WHERE singleton = 1"
+                        )
+                        reward_row = await cur2.fetchone()
+                        reward = int(reward_row[0] or 2000) if reward_row else 2000
+                    except Exception:
+                        reward = 2000
+
+                    # Add reward to inviter
+                    await conn.execute(
+                        "UPDATE users SET user_balance = COALESCE(user_balance, 0) + ? WHERE user_id = ?",
+                        (reward, inviter_id),
+                    )
+                    await conn.commit()
+
+                    # Notify inviter
+                    try:
+                        await bot.send_message(
+                            chat_id=inviter_id,
+                            text=f"🎉 Yangi foydalanuvchi sizning havolangiz orqali qo'shildi!\n"
+                                 f"Hisobingizga <b>{reward:,} so'm</b> qo'shildi.".replace(",", " "),
+                            parse_mode="HTML",
+                        )
+                    except Exception:
+                        pass
+                else:
+                    # Pre-existing user - don't give reward
+                    await conn.commit()
 
     is_subscribed = await functions.check_on_start(user_id, bot)
 
@@ -87,7 +130,7 @@ async def welcome(message: Message):
         webapp_url = get_webapp_url()
         open_webapp_kb = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="🌐 WebAppni ochish", web_app=WebAppInfo(url=webapp_url))]
+                [InlineKeyboardButton(text="🌐 WebAppni ochish", url=webapp_url)]
             ]
         )
 
@@ -101,18 +144,6 @@ async def welcome(message: Message):
             "🌐 Veb ilovaga kirish uchun tugmani bosing:",
             reply_markup=open_webapp_kb,
         )
-
-        # Chat input pastida doimiy WebApp tugmasi (persistent menu button)
-        try:
-            await bot.set_chat_menu_button(
-                chat_id=user_id,
-                menu_button=MenuButtonWebApp(
-                    text="🔍 Ish qidirish",
-                    web_app=WebAppInfo(url=webapp_url),
-                ),
-            )
-        except Exception:
-            pass
     else:
         join_keyboard = await build_channel_keyboard()
 
@@ -190,18 +221,6 @@ async def check_subscription(call: CallbackQuery):
             f"Endi botdan to'liq foydalanishingiz mumkin.",
             reply_markup=MM_btn
         )
-
-        # Chat input pastida doimiy WebApp tugmasi (persistent menu button)
-        try:
-            await bot.set_chat_menu_button(
-                chat_id=call.from_user.id,
-                menu_button=MenuButtonWebApp(
-                    text="🔍 Ish qidirish",
-                    web_app=WebAppInfo(url=get_webapp_url()),
-                ),
-            )
-        except Exception:
-            pass
     else:
         await call.answer(
             "❌ Siz hali barcha kanallarga obuna bo'lmadingiz!\n"
