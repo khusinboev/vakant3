@@ -33,20 +33,10 @@ def decode_session_token(session_token: str) -> dict[str, Any]:
     return payload
 
 
-async def get_current_user(
-    authorization: str | None = Header(default=None),
-    db=Depends(get_db),
-) -> dict[str, Any]:
-    current = await get_optional_current_user(authorization=authorization, db=db)
-    if not current:
-        raise AUTH_ERROR
-    return current
-
-
-async def get_optional_current_user(
-    authorization: str | None = Header(default=None),
-    db=Depends(get_db),
-) -> dict[str, Any] | None:
+async def resolve_session_user_id(
+    authorization: str | None,
+    db,
+) -> int | None:
     if not authorization or not authorization.startswith("Bearer "):
         return None
 
@@ -57,8 +47,8 @@ async def get_optional_current_user(
         return None
 
     sid = str(payload.get("sid", "")).strip()
-    user_id = int(payload.get("uid", 0))
-    if not sid or not user_id:
+    token_uid = int(payload.get("uid", 0))
+    if not sid or not token_uid:
         return None
 
     now = int(time.time())
@@ -74,6 +64,35 @@ async def get_optional_current_user(
         await db.execute("DELETE FROM webapp_sessions WHERE token = ?", (sid,))
         await db.commit()
         return None
+
+    session_uid = int(session_row["user_id"])
+    if session_uid != token_uid:
+        return None
+
+    return session_uid
+
+
+async def get_current_user(
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+) -> dict[str, Any]:
+    current = await get_optional_current_user(authorization=authorization, db=db)
+    if not current:
+        raise AUTH_ERROR
+    return current
+
+
+async def get_optional_current_user(
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+) -> dict[str, Any] | None:
+    user_id = await resolve_session_user_id(authorization=authorization, db=db)
+    if not user_id:
+        return None
+
+    token = authorization.split(" ", 1)[1].strip()
+    payload = decode_session_token(token)
+    sid = str(payload.get("sid", "")).strip()
 
     cursor = await db.execute(
         "SELECT user_id, lang, first_name, username, photo_url, date, region, district, specs, money FROM users WHERE user_id = ?",

@@ -6,11 +6,10 @@ from src.functions.functions import normalize_osonish_field_id
 from src.functions.scraping import fetch_osonish_detail, fetch_osonish_list
 from src.functions.vacancy_format import format_vacancy_message_html, normalize_vacancy_detail
 from webapp.core.database import get_db
-from webapp.core.config import get_settings
-from webapp.core.identity import resolve_user_id_from_init_data
+from webapp.core.identity import resolve_request_user_id
 from webapp.core.limiter import limiter
 from webapp.core.referral_gate import get_referral_gate_state, raise_if_referral_locked
-from webapp.core.session import decode_session_token, get_current_user
+from webapp.core.session import get_current_user
 from webapp.models.schemas import JobsSearchResponse, VacancyDetailResponse, VacancyItem
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -23,25 +22,6 @@ def _uid_to_raw_id(uid: str) -> int:
         return int(uid.split("_", 1)[1])
     except (IndexError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="Invalid vacancy uid") from exc
-
-
-async def _get_auth_user_id(authorization: str | None) -> int | None:
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
-
-
-def _get_init_data_user_id(request: Request) -> int | None:
-    init_data = (request.headers.get("X-Telegram-Init-Data") or "").strip()
-    if not init_data:
-        return None
-    settings = get_settings()
-    return resolve_user_id_from_init_data(init_data, settings.TOKEN)
-    token = authorization.split(" ", 1)[1].strip()
-    try:
-        payload = decode_session_token(token)
-        return int(payload.get("uid", 0)) or None
-    except Exception:
-        return None
 
 
 @router.get("/search", response_model=JobsSearchResponse)
@@ -59,7 +39,7 @@ async def search_jobs(
     authorization: str | None = Header(default=None),
     db=Depends(get_db),
 ) -> JobsSearchResponse:
-    request_user_id = await _get_auth_user_id(authorization) or _get_init_data_user_id(request)
+    request_user_id = await resolve_request_user_id(request=request, db=db, authorization=authorization)
     if request_user_id:
         gate_state = await get_referral_gate_state(db, request_user_id)
         raise_if_referral_locked(gate_state)
@@ -101,6 +81,7 @@ async def search_jobs(
                 "location": item.location,
                 "district": item.district,
                 "posted_at": item.posted_at,
+                "max_salary": item.max_salary,
             }
             for item in vacancies
         ]
@@ -108,6 +89,31 @@ async def search_jobs(
 
     user_id = request_user_id
     saved_ids: set[int] = set()
+    is_user_pro = False
+    pro_min_salary = 8_000_000
+
+    # Fetch pro settings and user status in parallel if user is identified
+    if user_id:
+        cursor_settings = await db.execute(
+            "SELECT pro_min_salary FROM webapp_admin_settings WHERE singleton = 1"
+        )
+        settings_row = await cursor_settings.fetchone()
+        if settings_row:
+            pro_min_salary = int(settings_row["pro_min_salary"] or 8_000_000)
+
+        cursor_user = await db.execute(
+            "SELECT user_pro FROM users WHERE user_id = ?", (user_id,)
+        )
+        user_row = await cursor_user.fetchone()
+        if user_row:
+            is_user_pro = bool(int(user_row["user_pro"] or 0))
+    else:
+        cursor_settings = await db.execute(
+            "SELECT pro_min_salary FROM webapp_admin_settings WHERE singleton = 1"
+        )
+        settings_row = await cursor_settings.fetchone()
+        if settings_row:
+            pro_min_salary = int(settings_row["pro_min_salary"] or 8_000_000)
     if user_id and vacancies_raw:
         raw_ids = []
         for vacancy in vacancies_raw:
@@ -135,16 +141,19 @@ async def search_jobs(
                 raw_id = int(uid.split("_", 1)[1])
             except (IndexError, ValueError):
                 raw_id = None
+        max_sal = int(vacancy.get("max_salary") or 0)
+        pro_locked = (max_sal >= pro_min_salary) and not is_user_pro
         items.append(
             VacancyItem(
                 uid=uid,
                 title=str(vacancy.get("title") or "N/A"),
                 company=str(vacancy.get("company") or "N/A"),
-                salary_text=str(vacancy.get("salary_text") or "Kelishiladi"),
+                salary_text="🔒 Pro tarif" if pro_locked else str(vacancy.get("salary_text") or "Kelishiladi"),
                 location=str(vacancy.get("location") or ""),
                 district=str(vacancy.get("district") or ""),
                 posted_at=str(vacancy.get("posted_at") or "N/A"),
                 is_saved=bool(raw_id in saved_ids),
+                is_pro_locked=pro_locked,
             )
         )
 
@@ -157,13 +166,14 @@ async def search_jobs(
 
 
 @router.get("/{uid}", response_model=VacancyDetailResponse)
+@limiter.limit("60/minute")
 async def vacancy_detail(
     uid: str,
     request: Request,
     authorization: str | None = Header(default=None),
     db=Depends(get_db),
 ) -> VacancyDetailResponse:
-    request_user_id = await _get_auth_user_id(authorization) or _get_init_data_user_id(request)
+    request_user_id = await resolve_request_user_id(request=request, db=db, authorization=authorization)
     if request_user_id:
         gate_state = await get_referral_gate_state(db, request_user_id)
         raise_if_referral_locked(gate_state)
