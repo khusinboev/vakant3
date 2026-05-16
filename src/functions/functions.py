@@ -9,6 +9,36 @@ from config import BASE_DIR
 logger = logging.getLogger(__name__)
 
 
+# Legacy bot spec codes mapped to current osonish field IDs.
+LEGACY_SPEC_TO_OSONISH_FIELD: dict[str, int] = {
+    "22,322,323,324": 47,
+    "71": 41,
+    "91,522,523": 64,
+    "61": 7,
+    "214": 41,
+    "213,312": 12,
+    "23,33": 42,
+    "83": 36,
+}
+
+
+def normalize_osonish_field_id(raw_spec: str) -> int | None:
+    val = (raw_spec or "").strip()
+    if not val:
+        return None
+
+    if val.startswith("spec:"):
+        val = val[5:]
+
+    if val in LEGACY_SPEC_TO_OSONISH_FIELD:
+        return LEGACY_SPEC_TO_OSONISH_FIELD[val]
+
+    if val.isdigit():
+        return int(val)
+
+    return None
+
+
 class functions:
     @staticmethod
     async def check_on_start(user_id: int, bot):
