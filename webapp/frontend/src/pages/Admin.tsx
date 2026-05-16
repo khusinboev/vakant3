@@ -55,7 +55,7 @@ function Section({
   icon: Icon,
   title,
   children,
-  defaultOpen = true,
+  defaultOpen = false,
 }: {
   icon: React.ElementType;
   title: string;
