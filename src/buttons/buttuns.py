@@ -33,10 +33,10 @@ MM_btn = ReplyKeyboardMarkup(
     keyboard=[
         [
             KeyboardButton(text="💼 Ish qidirish", web_app=WebAppInfo(url="https://abitur24.uz/app")),
-            KeyboardButton(text="👤 Profil", web_app=WebAppInfo(url="https://abitur24.uz/profile")),
+            KeyboardButton(text="👤 Profil", web_app=WebAppInfo(url="https://abitur24.uz/app?go=profile")),
         ],
         [
-            KeyboardButton(text="🗂 Saqlanganlar", web_app=WebAppInfo(url="https://abitur24.uz/saves")),
+            KeyboardButton(text="🗂 Saqlanganlar", web_app=WebAppInfo(url="https://abitur24.uz/app?go=saves")),
         ],
     ],
     resize_keyboard=True,

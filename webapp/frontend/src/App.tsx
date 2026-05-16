@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Route, Routes, Navigate } from "react-router-dom";
+import { Route, Routes, Navigate, useLocation } from "react-router-dom";
 
 import client from "./api/client";
 import Layout from "./components/Layout/Navbar";
@@ -19,6 +19,21 @@ const Wallet   = lazy(() => import("./pages/Wallet"));
 
 function PageFallback() {
   return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Yuklanmoqda...</div>;
+}
+
+function AppHomeEntry() {
+  const location = useLocation();
+  const go = new URLSearchParams(location.search).get("go");
+
+  if (go === "profile") {
+    return <Navigate to="/profile" replace />;
+  }
+
+  if (go === "saves") {
+    return <Navigate to="/saves" replace />;
+  }
+
+  return <Layout><Home /></Layout>;
 }
 
 function ReferralLockScreen({ current, required, refLink }: { current: number; required: number; refLink: string }) {
@@ -72,7 +87,7 @@ export default function App() {
     <Suspense fallback={<PageFallback />}>
       <Routes>
         <Route path="/" element={<Navigate to="/app" replace />} />
-        <Route path="/app" element={<Layout><Home /></Layout>} />
+        <Route path="/app" element={<AppHomeEntry />} />
         <Route path="/saves" element={<Layout><Saves /></Layout>} />
         <Route path="/profile" element={<Layout><Profile /></Layout>} />
         <Route path="/wallet" element={<Layout><Wallet /></Layout>} />
