@@ -92,37 +92,37 @@ async def search_jobs(
     is_user_pro = False
     pro_min_salary = 8_000_000
 
-    # Fetch pro settings and user status in parallel if user is identified
-    if user_id:
-        cursor_settings = await db.execute(
-            "SELECT pro_min_salary FROM webapp_admin_settings WHERE singleton = 1"
-        )
-        settings_row = await cursor_settings.fetchone()
-        if settings_row:
-            pro_min_salary = int(settings_row["pro_min_salary"] or 8_000_000)
+    cursor_settings = await db.execute(
+        "SELECT pro_min_salary FROM webapp_admin_settings WHERE singleton = 1"
+    )
+    settings_row = await cursor_settings.fetchone()
+    if settings_row:
+        pro_min_salary = int(settings_row["pro_min_salary"] or 8_000_000)
 
+    # Fetch user status if user is identified
+    if user_id:
         cursor_user = await db.execute(
             "SELECT user_pro FROM users WHERE user_id = ?", (user_id,)
         )
         user_row = await cursor_user.fetchone()
         if user_row:
             is_user_pro = bool(int(user_row["user_pro"] or 0))
-    else:
-        cursor_settings = await db.execute(
-            "SELECT pro_min_salary FROM webapp_admin_settings WHERE singleton = 1"
-        )
-        settings_row = await cursor_settings.fetchone()
-        if settings_row:
-            pro_min_salary = int(settings_row["pro_min_salary"] or 8_000_000)
+
     if user_id and vacancies_raw:
-        raw_ids = []
+        raw_ids: list[int] = []
+        seen_raw_ids: set[int] = set()
         for vacancy in vacancies_raw:
             uid = str(vacancy.get("uid", ""))
-            if uid.startswith("osonish_"):
-                try:
-                    raw_ids.append(int(uid.split("_", 1)[1]))
-                except (IndexError, ValueError):
-                    continue
+            if not uid.startswith("osonish_"):
+                continue
+            try:
+                raw_id = int(uid.split("_", 1)[1])
+            except (IndexError, ValueError):
+                continue
+            if raw_id in seen_raw_ids:
+                continue
+            seen_raw_ids.add(raw_id)
+            raw_ids.append(raw_id)
 
         if raw_ids:
             placeholders = ",".join("?" for _ in raw_ids)

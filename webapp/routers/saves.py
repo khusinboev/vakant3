@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 
 from src.functions.cache import cache_get, cache_set, make_cache_key
 from src.functions.scraping import fetch_osonish_detail
+from src.functions.vacancy_format import normalize_vacancy_detail
 from webapp.core.database import get_db
 from webapp.core.identity import require_request_user_id
 from webapp.core.limiter import limiter
@@ -53,14 +54,22 @@ async def list_saves(
         cached = await cache_get(cache_key)
 
         if isinstance(cached, dict) and isinstance(cached.get("data"), dict):
-            return {"uid": uid, "data": cached["data"]}
+            cached_data = dict(cached["data"])
+            if "normalized" not in cached_data:
+                cached_data["normalized"] = normalize_vacancy_detail(uid, cached_data)
+            return {"uid": uid, "data": cached_data}
 
         detail = await fetch_osonish_detail(save_id)
         if not isinstance(detail, dict):
             return None
 
-        await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
-        return {"uid": uid, "data": detail}
+        detail_with_normalized = {**detail, "normalized": normalize_vacancy_detail(uid, detail)}
+        await cache_set(
+            cache_key,
+            {"source": "osonish", "data": detail_with_normalized},
+            ttl=DETAIL_CACHE_TTL,
+        )
+        return {"uid": uid, "data": detail_with_normalized}
 
     save_ids = [int(row[0]) for row in rows]
     loaded = await asyncio.gather(*[_load_item(save_id) for save_id in save_ids], return_exceptions=True)
@@ -106,7 +115,12 @@ async def add_save(
     if not (isinstance(cached, dict) and isinstance(cached.get("data"), dict)):
         detail = await fetch_osonish_detail(raw_id)
         if isinstance(detail, dict):
-            await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
+            detail_with_normalized = {**detail, "normalized": normalize_vacancy_detail(uid, detail)}
+            await cache_set(
+                cache_key,
+                {"source": "osonish", "data": detail_with_normalized},
+                ttl=DETAIL_CACHE_TTL,
+            )
 
     await db.commit()
 
