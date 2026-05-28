@@ -31,9 +31,6 @@ function resolveEntryTarget(pathname: string, search: string): "home" | "profile
   if (startParam === "saves") return "saves";
   if (startParam === "home" || startParam === "app" || startParam === "jobs") return "home";
 
-  if (pathname === "/profile") return "profile";
-  if (pathname === "/saves") return "saves";
-
   return "home";
 }
 
@@ -104,8 +101,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/app" replace />} />
         <Route path="/app" element={<AppHomeEntry />} />
-        <Route path="/saves" element={<AppHomeEntry />} />
-        <Route path="/profile" element={<AppHomeEntry />} />
+        <Route path="/saves" element={<Layout><Saves /></Layout>} />
+        <Route path="/profile" element={<Layout><Profile /></Layout>} />
         <Route path="/wallet" element={<Layout><Wallet /></Layout>} />
         <Route path="/admin" element={<Layout><Admin /></Layout>} />
         <Route path="/referral" element={<Layout><Referral /></Layout>} />

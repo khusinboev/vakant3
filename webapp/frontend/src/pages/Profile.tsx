@@ -5,6 +5,7 @@ import { Bookmark, Crown, Share2, Users, Wallet } from "lucide-react";
 import client from "../api/client";
 import { useSaves } from "../hooks/useSaves";
 import { shareRefLink } from "../components/Referral/ReferralCard";
+import { useAuthStore } from "../store/auth";
 
 type WalletData = { balance: number; is_pro: boolean; pro_price: number; referral_reward: number };
 
@@ -14,9 +15,28 @@ function fmt(n: number) {
 
 export default function Profile() {
   const navigate = useNavigate();
+  const authUser = useAuthStore((s) => s.user);
   const webApp = window.Telegram?.WebApp;
   const initData = webApp?.initDataUnsafe;
-  const user = initData?.user;
+  const tgUser = initData?.user;
+
+  const user = tgUser
+    ? {
+        id: tgUser.id,
+        first_name: tgUser.first_name,
+        last_name: tgUser.last_name,
+        username: tgUser.username,
+        photo_url: tgUser.photo_url,
+      }
+    : authUser
+      ? {
+          id: authUser.user_id,
+          first_name: authUser.first_name,
+          last_name: "",
+          username: authUser.username ?? undefined,
+          photo_url: authUser.photo_url ?? undefined,
+        }
+      : null;
 
   if (!webApp) {
     return (

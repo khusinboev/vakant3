@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import client from "../api/client";
 import { shareRefLink } from "../components/Referral/ReferralCard";
+import { useAuthStore } from "../store/auth";
 
 type WalletData = {
   balance: number;
@@ -19,6 +20,7 @@ function fmt(n: number) {
 export default function WalletPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const authUser = useAuthStore((s) => s.user);
 
   const wallet = useQuery({
     queryKey: ["wallet"],
@@ -44,9 +46,10 @@ export default function WalletPage() {
 
   const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
   const botUsername = (window as any).__BOT_USERNAME__ || "bandlikuzbot";
+  const refUserId = tgUser?.id ?? authUser?.user_id;
 
-  const refLink = tgUser
-    ? `https://t.me/${botUsername}?start=ref_${tgUser.id}`
+  const refLink = refUserId
+    ? `https://t.me/${botUsername}?start=ref_${refUserId}`
     : null;
 
   function copyRef() {
