@@ -8,6 +8,14 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 
 from config import TOKEN, WEBAPP_URL
 
+
+def _resolve_public_webapp_base() -> str:
+    raw = (WEBAPP_URL or "").strip().rstrip("/")
+    if raw.startswith("https://"):
+        return raw
+    # Telegram WebApp buttons require a public HTTPS URL.
+    return "https://abitur24.uz"
+
 # Admin panel
 main_btn = ReplyKeyboardMarkup(
     keyboard=[
@@ -34,7 +42,7 @@ reklama_btn = ReplyKeyboardMarkup(
 )
 
 def build_webapp_url(user_id: int, target: str = "home") -> str:
-    base_url = WEBAPP_URL.rstrip("/") + "/app"
+    base_url = _resolve_public_webapp_base() + "/app"
     payload = f"{user_id}:{target}"
     signature = hmac.new(TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()[:16]
     return f"{base_url}?go={target}&uid={user_id}&sig={signature}"
