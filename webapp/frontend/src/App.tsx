@@ -21,15 +21,31 @@ function PageFallback() {
   return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Yuklanmoqda...</div>;
 }
 
+function resolveEntryTarget(pathname: string, search: string): "home" | "profile" | "saves" {
+  const go = (new URLSearchParams(search).get("go") || "").toLowerCase();
+  if (go === "profile") return "profile";
+  if (go === "saves") return "saves";
+
+  const startParam = (window.Telegram?.WebApp?.initDataUnsafe?.start_param || "").toLowerCase();
+  if (startParam === "profile") return "profile";
+  if (startParam === "saves") return "saves";
+  if (startParam === "home" || startParam === "app" || startParam === "jobs") return "home";
+
+  if (pathname === "/profile") return "profile";
+  if (pathname === "/saves") return "saves";
+
+  return "home";
+}
+
 function AppHomeEntry() {
   const location = useLocation();
-  const go = new URLSearchParams(location.search).get("go");
+  const target = resolveEntryTarget(location.pathname, location.search);
 
-  if (go === "profile") {
+  if (target === "profile") {
     return <Navigate to="/profile" replace />;
   }
 
-  if (go === "saves") {
+  if (target === "saves") {
     return <Navigate to="/saves" replace />;
   }
 
@@ -88,8 +104,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/app" replace />} />
         <Route path="/app" element={<AppHomeEntry />} />
-        <Route path="/saves" element={<Layout><Saves /></Layout>} />
-        <Route path="/profile" element={<Layout><Profile /></Layout>} />
+        <Route path="/saves" element={<AppHomeEntry />} />
+        <Route path="/profile" element={<AppHomeEntry />} />
         <Route path="/wallet" element={<Layout><Wallet /></Layout>} />
         <Route path="/admin" element={<Layout><Admin /></Layout>} />
         <Route path="/referral" element={<Layout><Referral /></Layout>} />

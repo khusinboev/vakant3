@@ -31,6 +31,17 @@ export default function useTelegramAuth() {
 
     let cancelled = false;
 
+    const waitForInitData = async (): Promise<string> => {
+      for (let i = 0; i < 10; i += 1) {
+        const initData = window.Telegram?.WebApp?.initData;
+        if (initData) {
+          return initData;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      return "";
+    };
+
     const restoreOrLogin = async () => {
       const store = useAuthStore.getState();
       const existingToken = localStorage.getItem("session_token");
@@ -50,7 +61,7 @@ export default function useTelegramAuth() {
         }
       }
 
-      const initData = window.Telegram?.WebApp?.initData;
+      const initData = await waitForInitData();
       if (!initData) {
         return;
       }
