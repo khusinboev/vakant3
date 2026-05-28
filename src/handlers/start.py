@@ -7,7 +7,7 @@ from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from config import BASE_DIR, bot, ADMIN_IDS
-from src.buttons.buttuns import MM_btn
+from src.buttons.buttuns import build_user_menu, build_webapp_url
 from src.functions.functions import functions
 from src.functions.referral_gate import get_referral_gate_state, referral_gate_message
 from src.functions.vacancy_format import format_vacancy_message_html
@@ -150,7 +150,7 @@ async def welcome(message: Message):
         await message.answer(
             f"Assalomu alaykum, {message.from_user.first_name}!\n"
             f"Botimizga xush kelibsiz. Kerakli bo'limni tanlang!",
-            reply_markup=MM_btn,
+            reply_markup=build_user_menu(user_id),
         )
     else:
         join_keyboard = await build_channel_keyboard()
@@ -164,7 +164,7 @@ async def welcome(message: Message):
             await message.answer(
                 f"Assalomu alaykum, {message.from_user.first_name}!\n"
                 f"Botimizga xush kelibsiz. Kerakli bo'limni tanlang!",
-                reply_markup=MM_btn
+                reply_markup=build_user_menu(user_id)
             )
 
 
@@ -227,7 +227,7 @@ async def check_subscription(call: CallbackQuery):
         await call.message.answer(
             f"Xush kelibsiz, {call.from_user.first_name}!\n"
             f"Endi botdan to'liq foydalanishingiz mumkin.",
-            reply_markup=MM_btn
+            reply_markup=build_user_menu(user_id)
         )
     else:
         await call.answer(
@@ -281,7 +281,7 @@ async def coder(message: Message):
 async def open_webapp_jobs(message: Message):
     await send_webapp_shortcut(
         message,
-        url="https://abitur24.uz/app",
+        url=build_webapp_url(message.from_user.id, "home"),
         title="💼 Ish qidirish bo'limini ochish",
         caption="Quyidagi tugma orqali Ish qidirish bo'limini oching:",
     )
@@ -291,7 +291,7 @@ async def open_webapp_jobs(message: Message):
 async def open_webapp_profile(message: Message):
     await send_webapp_shortcut(
         message,
-        url="https://abitur24.uz/app?go=profile",
+        url=build_webapp_url(message.from_user.id, "profile"),
         title="👤 Profil bo'limini ochish",
         caption="Quyidagi tugma orqali Profil bo'limini oching:",
     )
@@ -301,7 +301,7 @@ async def open_webapp_profile(message: Message):
 async def open_webapp_saves(message: Message):
     await send_webapp_shortcut(
         message,
-        url="https://abitur24.uz/app?go=saves",
+        url=build_webapp_url(message.from_user.id, "saves"),
         title="🗂 Saqlanganlar bo'limini ochish",
         caption="Quyidagi tugma orqali Saqlanganlar bo'limini oching:",
     )

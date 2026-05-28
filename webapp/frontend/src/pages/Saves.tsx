@@ -17,8 +17,9 @@ function fmtSalary(min: unknown, max: unknown): string {
 
 export default function Saves() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const authUser = useAuthStore((s) => s.user);
   const telegramUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-  const canUseSaves = isAuthenticated || Boolean(telegramUserId);
+  const canUseSaves = isAuthenticated || Boolean(telegramUserId ?? authUser?.user_id);
   const [showPrompt, setShowPrompt] = useState(false);
   const [activeItem, setActiveItem] = useState<{
     uid: string;

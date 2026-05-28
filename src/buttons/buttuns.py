@@ -1,7 +1,12 @@
 # ============================================
 # src/buttons/buttuns.py - Aiogram 3.x
 # ============================================
+import hashlib
+import hmac
+
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+
+from config import TOKEN, WEBAPP_URL
 
 # Admin panel
 main_btn = ReplyKeyboardMarkup(
@@ -28,19 +33,26 @@ reklama_btn = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# User menu — WebApp buttons
-MM_btn = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(text="💼 Ish qidirish", web_app=WebAppInfo(url="https://abitur24.uz/app")),
-            KeyboardButton(text="👤 Profil", web_app=WebAppInfo(url="https://abitur24.uz/app?go=profile")),
+def build_webapp_url(user_id: int, target: str = "home") -> str:
+    base_url = WEBAPP_URL.rstrip("/") + "/app"
+    payload = f"{user_id}:{target}"
+    signature = hmac.new(TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()[:16]
+    return f"{base_url}?go={target}&uid={user_id}&sig={signature}"
+
+
+def build_user_menu(user_id: int) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="💼 Ish qidirish", web_app=WebAppInfo(url=build_webapp_url(user_id, "home"))),
+                KeyboardButton(text="👤 Profil", web_app=WebAppInfo(url=build_webapp_url(user_id, "profile"))),
+            ],
+            [
+                KeyboardButton(text="🗂 Saqlanganlar", web_app=WebAppInfo(url=build_webapp_url(user_id, "saves"))),
+            ],
         ],
-        [
-            KeyboardButton(text="🗂 Saqlanganlar", web_app=WebAppInfo(url="https://abitur24.uz/app?go=saves")),
-        ],
-    ],
-    resize_keyboard=True,
-)
+        resize_keyboard=True,
+    )
 
 # Orqaga qaytish
 back_btn = ReplyKeyboardMarkup(
