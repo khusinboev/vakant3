@@ -9,6 +9,7 @@ import useTelegramAuth, { isTelegramWebApp } from "./hooks/useTelegramAuth";
 import useTelegramBackButton from "./hooks/useTelegramBackButton";
 import Home from "./pages/Home";
 import Hub from "./pages/Hub";
+import ResumeStudio from "./pages/ResumeStudio";
 
 // Lazy-load secondary pages — they are NOT needed on first paint
 const Landing  = lazy(() => import("./pages/Landing"));
@@ -105,6 +106,7 @@ export default function App() {
         <Route path="/saves" element={<Layout><Saves /></Layout>} />
         <Route path="/profile" element={<Layout><Profile /></Layout>} />
         <Route path="/hub" element={<Layout><Hub /></Layout>} />
+        <Route path="/hub/resume" element={<Layout><ResumeStudio /></Layout>} />
         <Route path="/wallet" element={<Layout><Wallet /></Layout>} />
         <Route path="/admin" element={<Layout><Admin /></Layout>} />
         <Route path="/referral" element={<Layout><Referral /></Layout>} />

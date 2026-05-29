@@ -1,5 +1,6 @@
 import html
 import json
+import re
 import time
 
 import httpx
@@ -13,6 +14,23 @@ from webapp.core.session import get_current_user
 router = APIRouter(prefix="/resume", tags=["resume"])
 
 
+class ResumeExperienceItem(BaseModel):
+    role: str = ""
+    company: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    location: str = ""
+    description: str = ""
+
+
+class ResumeEducationItem(BaseModel):
+    school: str = ""
+    degree: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    description: str = ""
+
+
 class ResumeProfileData(BaseModel):
     full_name: str = ""
     position: str = ""
@@ -21,8 +39,8 @@ class ResumeProfileData(BaseModel):
     location: str = ""
     website: str = ""
     summary: str = ""
-    experience: str = ""
-    education: str = ""
+    experiences: list[ResumeExperienceItem] = Field(default_factory=list)
+    educations: list[ResumeEducationItem] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
 
@@ -30,18 +48,23 @@ class ResumeProfileData(BaseModel):
 class ResumeProfileResponse(BaseModel):
     profile: ResumeProfileData
     selected_template: str
+    accent_color: str
     updated_at: int | None = None
 
 
 class ResumeProfileUpsertRequest(BaseModel):
     profile: ResumeProfileData
     selected_template: str = "clean"
+    accent_color: str | None = None
 
 
 class ResumeTemplateItem(BaseModel):
     id: str
     title: str
     description: str
+    supports_color: bool = True
+    preview_variant: str = "single"
+    palette: list[str] = Field(default_factory=list)
 
 
 class ResumeTemplatesResponse(BaseModel):
@@ -62,18 +85,29 @@ TEMPLATES: dict[str, ResumeTemplateItem] = {
         id="clean",
         title="Clean Classic",
         description="Soddaroq klassik ko'rinish, barcha sohalar uchun.",
+        supports_color=True,
+        preview_variant="single",
+        palette=["#0f766e", "#2563eb", "#b45309", "#be123c", "#374151"],
     ),
     "modern": ResumeTemplateItem(
         id="modern",
         title="Modern Accent",
         description="Qisqa va zamonaviy blokli uslub.",
+        supports_color=True,
+        preview_variant="split",
+        palette=["#2563eb", "#7c3aed", "#0f766e", "#ea580c", "#334155"],
     ),
     "compact": ResumeTemplateItem(
         id="compact",
         title="Compact One-Page",
         description="Bir sahifaga sig'adigan ixcham format.",
+        supports_color=False,
+        preview_variant="mono",
+        palette=["#111827"],
     ),
 }
+
+HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 def _default_profile(first_name: str) -> ResumeProfileData:
@@ -93,6 +127,105 @@ def _safe_text(value: str) -> str:
     return html.escape(value or "")
 
 
+def _normalize_color(raw: str | None, template_id: str) -> str:
+    template = TEMPLATES.get(template_id)
+    if not template:
+        return "#0f766e"
+
+    if not template.supports_color:
+        return template.palette[0] if template.palette else "#111827"
+
+    color = str(raw or "").strip()
+    if HEX_COLOR_RE.match(color):
+        return color.lower()
+    return (template.palette[0] if template.palette else "#0f766e").lower()
+
+
+def _normalize_experiences(values: list[ResumeExperienceItem]) -> list[ResumeExperienceItem]:
+    out: list[ResumeExperienceItem] = []
+    for item in values:
+        normalized = ResumeExperienceItem(
+            role=str(item.role or "").strip(),
+            company=str(item.company or "").strip(),
+            start_date=str(item.start_date or "").strip(),
+            end_date=str(item.end_date or "").strip(),
+            location=str(item.location or "").strip(),
+            description=str(item.description or "").strip(),
+        )
+        if any([normalized.role, normalized.company, normalized.start_date, normalized.end_date, normalized.location, normalized.description]):
+            out.append(normalized)
+    return out
+
+
+def _normalize_educations(values: list[ResumeEducationItem]) -> list[ResumeEducationItem]:
+    out: list[ResumeEducationItem] = []
+    for item in values:
+        normalized = ResumeEducationItem(
+            school=str(item.school or "").strip(),
+            degree=str(item.degree or "").strip(),
+            start_date=str(item.start_date or "").strip(),
+            end_date=str(item.end_date or "").strip(),
+            description=str(item.description or "").strip(),
+        )
+        if any([normalized.school, normalized.degree, normalized.start_date, normalized.end_date, normalized.description]):
+            out.append(normalized)
+    return out
+
+
+def _normalize_profile_from_payload(raw: dict, first_name_fallback: str) -> ResumeProfileData:
+    if not isinstance(raw, dict):
+        raw = {}
+
+    # Legacy compatibility: old schema had plain experience/education text fields.
+    legacy_experience = str(raw.get("experience") or "").strip()
+    legacy_education = str(raw.get("education") or "").strip()
+
+    experiences_raw = raw.get("experiences") if isinstance(raw.get("experiences"), list) else []
+    educations_raw = raw.get("educations") if isinstance(raw.get("educations"), list) else []
+
+    experiences: list[ResumeExperienceItem] = []
+    for item in experiences_raw:
+        if isinstance(item, dict):
+            experiences.append(ResumeExperienceItem(**item))
+    if not experiences and legacy_experience:
+        experiences = [ResumeExperienceItem(description=legacy_experience)]
+
+    educations: list[ResumeEducationItem] = []
+    for item in educations_raw:
+        if isinstance(item, dict):
+            educations.append(ResumeEducationItem(**item))
+    if not educations and legacy_education:
+        educations = [ResumeEducationItem(description=legacy_education)]
+
+    profile = ResumeProfileData(
+        full_name=str(raw.get("full_name") or first_name_fallback),
+        position=str(raw.get("position") or ""),
+        phone=str(raw.get("phone") or ""),
+        email=str(raw.get("email") or ""),
+        location=str(raw.get("location") or ""),
+        website=str(raw.get("website") or ""),
+        summary=str(raw.get("summary") or ""),
+        experiences=experiences,
+        educations=educations,
+        skills=[str(x) for x in (raw.get("skills") or []) if str(x).strip()],
+        languages=[str(x) for x in (raw.get("languages") or []) if str(x).strip()],
+    )
+
+    return ResumeProfileData(
+        full_name=profile.full_name.strip(),
+        position=profile.position.strip(),
+        phone=profile.phone.strip(),
+        email=profile.email.strip(),
+        location=profile.location.strip(),
+        website=profile.website.strip(),
+        summary=profile.summary.strip(),
+        experiences=_normalize_experiences(profile.experiences),
+        educations=_normalize_educations(profile.educations),
+        skills=_normalize_items(profile.skills),
+        languages=_normalize_items(profile.languages),
+    )
+
+
 def _render_lines(values: list[str]) -> str:
     cleaned = _normalize_items(values)
     if not cleaned:
@@ -101,12 +234,59 @@ def _render_lines(values: list[str]) -> str:
     return f"<ul>{rows}</ul>"
 
 
-def _render_resume_html(profile: ResumeProfileData, template_id: str) -> str:
+def _render_experience_blocks(values: list[ResumeExperienceItem]) -> str:
+    if not values:
+        return "<p class='muted'>Tajriba kiritilmagan</p>"
+
+    blocks = []
+    for item in values:
+        period = " - ".join([x for x in [item.start_date, item.end_date] if x]).strip(" -")
+        head_left = " / ".join([x for x in [item.role, item.company] if x]) or "Lavozim"
+        head_right = " | ".join([x for x in [item.location, period] if x])
+        blocks.append(
+            """
+            <div class='entry'>
+              <div class='entry-head'>
+                <strong>{left}</strong>
+                <span>{right}</span>
+              </div>
+              <p class='block'>{desc}</p>
+            </div>
+            """.format(left=_safe_text(head_left), right=_safe_text(head_right), desc=_safe_text(item.description or ""))
+        )
+    return "".join(blocks)
+
+
+def _render_education_blocks(values: list[ResumeEducationItem]) -> str:
+    if not values:
+        return "<p class='muted'>Ta'lim ma'lumoti kiritilmagan</p>"
+
+    blocks = []
+    for item in values:
+        period = " - ".join([x for x in [item.start_date, item.end_date] if x]).strip(" -")
+        head_left = " / ".join([x for x in [item.school, item.degree] if x]) or "Ta'lim"
+        blocks.append(
+            """
+            <div class='entry'>
+              <div class='entry-head'>
+                <strong>{left}</strong>
+                <span>{right}</span>
+              </div>
+              <p class='block'>{desc}</p>
+            </div>
+            """.format(left=_safe_text(head_left), right=_safe_text(period), desc=_safe_text(item.description or ""))
+        )
+    return "".join(blocks)
+
+
+def _render_resume_html(profile: ResumeProfileData, template_id: str, accent_color: str) -> str:
     palette = {
         "clean": {"accent": "#0f766e", "bg": "#f8fafc"},
         "modern": {"accent": "#2563eb", "bg": "#f8fafc"},
-        "compact": {"accent": "#7c3aed", "bg": "#ffffff"},
+        "compact": {"accent": "#111827", "bg": "#ffffff"},
     }.get(template_id, {"accent": "#0f766e", "bg": "#f8fafc"})
+
+    palette["accent"] = accent_color
 
     contact_parts = [
         part.strip()
@@ -131,9 +311,12 @@ def _render_resume_html(profile: ResumeProfileData, template_id: str) -> str:
     .section {{ padding: 18px 24px; border-top: 1px solid #e2e8f0; }}
     .section h2 {{ margin: 0 0 10px 0; font-size: 16px; color: {palette['accent']}; text-transform: uppercase; letter-spacing: .08em; }}
     .muted {{ color: #64748b; margin: 0; }}
+    .entry {{ margin-bottom: 12px; }}
+    .entry-head {{ display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 14px; color: #111827; }}
+    .entry-head span {{ color: #64748b; font-size: 12px; }}
     ul {{ margin: 0; padding-left: 18px; }}
     li {{ margin: 4px 0; }}
-    .block {{ white-space: pre-wrap; line-height: 1.5; }}
+    .block {{ white-space: pre-wrap; line-height: 1.5; margin: 4px 0 0; }}
   </style>
 </head>
 <body>
@@ -151,12 +334,12 @@ def _render_resume_html(profile: ResumeProfileData, template_id: str) -> str:
 
     <section class=\"section\">
       <h2>Tajriba</h2>
-      <p class=\"block\">{_safe_text(profile.experience or 'Tajriba kiritilmagan')}</p>
+      {_render_experience_blocks(profile.experiences)}
     </section>
 
     <section class=\"section\">
       <h2>Ta'lim</h2>
-      <p class=\"block\">{_safe_text(profile.education or 'Ta\'lim ma\'lumoti kiritilmagan')}</p>
+      {_render_education_blocks(profile.educations)}
     </section>
 
     <section class=\"section\">
@@ -197,6 +380,7 @@ async def get_profile(current=Depends(get_current_user), db=Depends(get_db)) -> 
         return ResumeProfileResponse(
             profile=_default_profile(str(user.get("first_name") or "")),
             selected_template="clean",
+            accent_color="#0f766e",
             updated_at=None,
         )
 
@@ -205,10 +389,14 @@ async def get_profile(current=Depends(get_current_user), db=Depends(get_db)) -> 
     except Exception:
         payload = {}
 
-    profile = ResumeProfileData(**payload)
+    selected_template = str(row["selected_template"] or "clean")
+    profile = _normalize_profile_from_payload(payload, str(user.get("first_name") or ""))
+    accent_color = _normalize_color(payload.get("accent_color") if isinstance(payload, dict) else None, selected_template)
+
     return ResumeProfileResponse(
         profile=profile,
-        selected_template=str(row["selected_template"] or "clean"),
+        selected_template=selected_template,
+        accent_color=accent_color,
         updated_at=int(row["updated_at"] or 0),
     )
 
@@ -220,15 +408,30 @@ async def put_profile(payload: ResumeProfileUpsertRequest, current=Depends(get_c
     if template_id not in TEMPLATES:
         raise HTTPException(status_code=400, detail="Unknown template")
 
-    normalized_profile = payload.profile.model_copy(
-        update={
-            "skills": _normalize_items(payload.profile.skills),
-            "languages": _normalize_items(payload.profile.languages),
-        }
+    normalized_profile = ResumeProfileData(
+        full_name=str(payload.profile.full_name or "").strip(),
+        position=str(payload.profile.position or "").strip(),
+        phone=str(payload.profile.phone or "").strip(),
+        email=str(payload.profile.email or "").strip(),
+        location=str(payload.profile.location or "").strip(),
+        website=str(payload.profile.website or "").strip(),
+        summary=str(payload.profile.summary or "").strip(),
+        experiences=_normalize_experiences(payload.profile.experiences),
+        educations=_normalize_educations(payload.profile.educations),
+        skills=_normalize_items(payload.profile.skills),
+        languages=_normalize_items(payload.profile.languages),
     )
 
+    accent_color = _normalize_color(payload.accent_color, template_id)
+
     now = int(time.time())
-    profile_json = json.dumps(normalized_profile.model_dump(), ensure_ascii=False)
+    profile_json = json.dumps(
+        {
+            **normalized_profile.model_dump(),
+            "accent_color": accent_color,
+        },
+        ensure_ascii=False,
+    )
 
     await db.execute(
         """
@@ -243,7 +446,12 @@ async def put_profile(payload: ResumeProfileUpsertRequest, current=Depends(get_c
     )
     await db.commit()
 
-    return ResumeProfileResponse(profile=normalized_profile, selected_template=template_id, updated_at=now)
+    return ResumeProfileResponse(
+        profile=normalized_profile,
+        selected_template=template_id,
+        accent_color=accent_color,
+        updated_at=now,
+    )
 
 
 @router.post("/send-telegram", response_model=ResumeSendResponse)
@@ -257,14 +465,16 @@ async def send_resume_to_telegram(payload: ResumeSendRequest, current=Depends(ge
     row = await _load_resume_row(db, user_id)
     if not row:
         profile = _default_profile(str(user.get("first_name") or ""))
+        accent_color = _normalize_color(None, template_id)
     else:
         try:
             raw_payload = json.loads(str(row["profile_json"] or "{}"))
         except Exception:
             raw_payload = {}
-        profile = ResumeProfileData(**raw_payload)
+        profile = _normalize_profile_from_payload(raw_payload, str(user.get("first_name") or ""))
+        accent_color = _normalize_color(raw_payload.get("accent_color") if isinstance(raw_payload, dict) else None, template_id)
 
-    rendered = _render_resume_html(profile, template_id)
+    rendered = _render_resume_html(profile, template_id, accent_color)
     file_name = f"resume_{template_id}_{user_id}.html"
 
     settings = get_settings()
