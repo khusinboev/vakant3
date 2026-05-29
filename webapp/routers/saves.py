@@ -17,6 +17,18 @@ router = APIRouter(prefix="/saves", tags=["saves"])
 DETAIL_CACHE_TTL = 60 * 60
 
 
+def _save_id_to_raw_id(value: object) -> int | None:
+    s = str(value or "").strip()
+    if not s:
+        return None
+    if s.startswith("osonish_"):
+        s = s.split("_", 1)[1]
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return None
+
+
 def _uid_to_raw_id(uid: str) -> int:
     if not uid.startswith("osonish_"):
         raise HTTPException(status_code=400, detail="Only osonish vacancies are supported")
@@ -83,7 +95,12 @@ async def list_saves(
         await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
         return {"uid": uid, "data": detail}
 
-    save_ids = [int(row[0]) for row in rows]
+    save_ids: list[int] = []
+    for row in rows:
+        raw_id = _save_id_to_raw_id(row[0])
+        if raw_id is not None:
+            save_ids.append(raw_id)
+
     loaded = await asyncio.gather(*[_load_item(save_id) for save_id in save_ids], return_exceptions=True)
 
     items: list[dict] = []

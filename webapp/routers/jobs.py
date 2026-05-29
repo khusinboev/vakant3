@@ -16,6 +16,18 @@ from webapp.models.schemas import JobsSearchResponse, VacancyDetailResponse, Vac
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
+def _row_save_id_to_raw_id(value: object) -> int | None:
+    s = str(value or "").strip()
+    if not s:
+        return None
+    if s.startswith("osonish_"):
+        s = s.split("_", 1)[1]
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return None
+
+
 def _uid_to_raw_id(uid: str) -> int:
     if not uid.startswith("osonish_"):
         raise HTTPException(status_code=404, detail="Only osonish vacancies are supported")
@@ -150,7 +162,11 @@ async def search_jobs(
                 f"SELECT save_id FROM saves WHERE user_id = ? AND save_id IN ({placeholders})",
                 tuple([user_id, *raw_ids]),
             )
-            saved_ids = {int(row[0]) for row in await cursor.fetchall()}
+            saved_ids = {
+                raw for row in await cursor.fetchall()
+                for raw in [_row_save_id_to_raw_id(row[0])]
+                if raw is not None
+            }
 
     items: list[VacancyItem] = []
     for vacancy in vacancies_raw:
