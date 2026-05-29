@@ -43,7 +43,10 @@ export default function BottomNav({ fixed = true }: { fixed?: boolean }) {
     ? [...links, { to: "/admin", label: "Admin", icon: ShieldCheck }]
     : links;
 
-  if (keyboardOpen) return null;
+  // In inline (non-fixed) mode the nav is inside a stable-height flex column —
+  // the keyboard overlays it from below without pushing it up, so we never hide it.
+  // In fixed mode (Layout pages) we hide on keyboard open to prevent floating above keyboard.
+  if (fixed && keyboardOpen) return null;
 
   const navCls = fixed
     ? "fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 pb-[var(--tg-content-safe-area-bottom)] backdrop-blur"
