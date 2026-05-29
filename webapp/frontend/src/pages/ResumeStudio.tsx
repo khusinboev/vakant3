@@ -1,6 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, Download, FileText, Send } from "lucide-react";
+import {
+  AlertCircle,
+  Briefcase,
+  Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Eye,
+  FileEdit,
+  FileText,
+  GraduationCap,
+  Loader2,
+  Palette,
+  Plus,
+  Send,
+  Trash2,
+  User,
+  X,
+  Zap,
+} from "lucide-react";
 
 import client from "../api/client";
 
@@ -73,14 +93,33 @@ type LocalDraft = {
 };
 
 const LOCAL_DRAFT_KEY = "resume_wizard_draft_v2";
+
 const STEP_ITEMS: StepItem[] = [
-  { id: "basic", label: "Asosiy" },
-  { id: "experience", label: "Tajriba" },
-  { id: "education", label: "Ta'lim" },
-  { id: "skills", label: "Ko'nikma" },
-  { id: "summary", label: "Summary" },
-  { id: "template", label: "Shablon" },
+  { id: "basic",      label: "Asosiy"   },
+  { id: "experience", label: "Tajriba"  },
+  { id: "education",  label: "Ta'lim"   },
+  { id: "skills",     label: "Ko'nikma" },
+  { id: "summary",    label: "Summary"  },
+  { id: "template",   label: "Shablon"  },
 ];
+
+const STEP_ICONS: Record<StepId, React.ElementType> = {
+  basic:      User,
+  experience: Briefcase,
+  education:  GraduationCap,
+  skills:     Zap,
+  summary:    FileEdit,
+  template:   Palette,
+};
+
+const STEP_HINTS: Record<StepId, string> = {
+  basic:      "Ism, lavozim va kontakt ma'lumotlari",
+  experience: "Ish tajriba va yutuqlaringizni kiriting",
+  education:  "Ta'lim va malakangizni kiriting",
+  skills:     "Ko'nikmalar va til bilimlaringizni kiriting",
+  summary:    "Qisqacha professional tavsif yozing",
+  template:   "Dizayn tanlang va rezyumeni tayyorlang",
+};
 
 const LOCAL_TEMPLATES: ResumeTemplateItem[] = [
   {
@@ -290,39 +329,177 @@ function getRoleBasedSuggestions(role: string): string[] {
   ];
 }
 
+// ─── UI primitives ────────────────────────────────────────────────────────────
+
+/** Labeled field wrapper with optional error/hint */
+function Field({
+  label, required, error, hint, children,
+}: {
+  label: string; required?: boolean; error?: string; hint?: string; children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="flex items-baseline gap-1 text-xs font-semibold text-slate-600">
+        {label}
+        {required && <span className="text-red-500">*</span>}
+        {hint   && <span className="ml-1 font-normal text-slate-400">{hint}</span>}
+      </label>
+      {children}
+      {error && (
+        <p className="flex items-center gap-1 text-xs text-red-600">
+          <AlertCircle size={11} className="shrink-0" /> {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const INPUT_CLS =
+  "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm " +
+  "placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-400 " +
+  "focus:border-brand-400 transition-all";
+
+/** Chip-style tag input — Enter or comma to add, Backspace to remove last */
+function TagInput({
+  tags, onAdd, onRemove, placeholder,
+}: {
+  tags: string[]; onAdd: (t: string) => void; onRemove: (i: number) => void; placeholder: string;
+}) {
+  const [val, setVal] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+
+  const commit = (raw: string) => {
+    const v = raw.trim().replace(/,+$/, "");
+    if (v && !tags.includes(v)) onAdd(v);
+    setVal("");
+  };
+
+  return (
+    <div
+      className="min-h-[48px] rounded-xl border border-slate-300 bg-white p-2 flex flex-wrap gap-1.5
+                 cursor-text focus-within:ring-2 focus-within:ring-brand-400 focus-within:border-brand-400 transition-all"
+      onClick={() => ref.current?.focus()}
+    >
+      {tags.map((tag, idx) => (
+        <span
+          key={idx}
+          className="inline-flex items-center gap-1 bg-brand-50 border border-brand-200
+                     text-brand-700 text-xs px-2.5 py-1 rounded-full font-medium"
+        >
+          {tag}
+          <button
+            type="button"
+            className="text-brand-400 hover:text-red-500 transition-colors leading-none"
+            onClick={(e) => { e.stopPropagation(); onRemove(idx); }}
+          >
+            <X size={10} />
+          </button>
+        </span>
+      ))}
+      <input
+        ref={ref}
+        className="flex-1 min-w-[80px] outline-none text-sm bg-transparent py-0.5 placeholder:text-slate-400"
+        placeholder={tags.length === 0 ? placeholder : "+qo'shish"}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commit(val); }
+          if (e.key === "Backspace" && !val && tags.length > 0) onRemove(tags.length - 1);
+        }}
+        onBlur={() => { if (val.trim()) commit(val); }}
+      />
+    </div>
+  );
+}
+
+/** Horizontal step progress — dots + connectors */
+function WizardProgress({
+  steps, currentStep, isStepDone, onStepClick,
+}: {
+  steps: StepItem[];
+  currentStep: number;
+  isStepDone: (id: StepId) => boolean;
+  onStepClick: (i: number) => void;
+}) {
+  return (
+    <div className="flex items-center px-4 pb-2.5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+      {steps.map((item, idx) => {
+        const done      = isStepDone(item.id);
+        const active    = currentStep === idx;
+        const clickable = idx < currentStep || done;
+        return (
+          <Fragment key={item.id}>
+            <button
+              className="flex flex-col items-center min-w-[46px] shrink-0 disabled:cursor-default"
+              onClick={() => clickable && onStepClick(idx)}
+              disabled={!clickable}
+            >
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${
+                  active
+                    ? "bg-brand-600 text-white shadow-md shadow-brand-200"
+                    : done
+                      ? "bg-emerald-500 text-white"
+                      : idx < currentStep
+                        ? "bg-slate-300 text-slate-600"
+                        : "bg-slate-100 text-slate-300 border border-slate-200"
+                }`}
+              >
+                {done && !active ? <Check size={12} /> : idx + 1}
+              </div>
+              <span
+                className={`mt-0.5 text-[9px] font-medium whitespace-nowrap transition-colors ${
+                  active ? "text-brand-600" : done ? "text-emerald-600" : "text-slate-400"
+                }`}
+              >
+                {item.label}
+              </span>
+            </button>
+            {idx < steps.length - 1 && (
+              <div
+                className={`h-0.5 flex-1 min-w-[6px] mx-0.5 rounded-full transition-all duration-500 ${
+                  done ? "bg-emerald-400" : "bg-slate-200"
+                }`}
+              />
+            )}
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
 function TemplatePreview({ template, color }: { template: ResumeTemplateItem; color: string }) {
   if (template.preview_variant === "split") {
     return (
-      <div className="h-20 w-full overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <div className="flex h-full">
-          <div className="w-1/3" style={{ backgroundColor: color }} />
-          <div className="flex-1 p-2">
-            <div className="h-2 w-2/3 rounded bg-slate-300" />
-            <div className="mt-2 h-1.5 w-full rounded bg-slate-200" />
-            <div className="mt-1 h-1.5 w-4/5 rounded bg-slate-200" />
-          </div>
+      <div className="h-16 w-full overflow-hidden rounded-lg border border-slate-200 bg-white flex">
+        <div className="w-1/3" style={{ backgroundColor: color }} />
+        <div className="flex-1 p-1.5">
+          <div className="h-1.5 w-3/4 rounded bg-slate-300" />
+          <div className="mt-1.5 h-1 w-full rounded bg-slate-200" />
+          <div className="mt-1 h-1 w-4/5 rounded bg-slate-200" />
+          <div className="mt-1 h-1 w-2/3 rounded bg-slate-200" />
         </div>
       </div>
     );
   }
-
   if (template.preview_variant === "mono") {
     return (
-      <div className="h-20 w-full overflow-hidden rounded-lg border border-slate-200 bg-white p-2">
-        <div className="h-2 w-2/3 rounded bg-slate-800" />
-        <div className="mt-2 h-1.5 w-full rounded bg-slate-300" />
-        <div className="mt-1 h-1.5 w-4/5 rounded bg-slate-300" />
+      <div className="h-16 w-full overflow-hidden rounded-lg border border-slate-200 bg-white p-2">
+        <div className="h-1.5 w-2/3 rounded bg-slate-800" />
+        <div className="mt-1.5 h-1 w-full rounded bg-slate-300" />
+        <div className="mt-1 h-1 w-4/5 rounded bg-slate-300" />
+        <div className="mt-1 h-1 w-3/5 rounded bg-slate-200" />
       </div>
     );
   }
-
   return (
-    <div className="h-20 w-full overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="h-5" style={{ backgroundColor: color }} />
-      <div className="p-2">
-        <div className="h-2 w-1/2 rounded bg-slate-300" />
-        <div className="mt-2 h-1.5 w-full rounded bg-slate-200" />
-        <div className="mt-1 h-1.5 w-5/6 rounded bg-slate-200" />
+    <div className="h-16 w-full overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="h-4" style={{ backgroundColor: color }} />
+      <div className="p-1.5">
+        <div className="h-1.5 w-1/2 rounded bg-slate-300" />
+        <div className="mt-1.5 h-1 w-full rounded bg-slate-200" />
+        <div className="mt-1 h-1 w-5/6 rounded bg-slate-200" />
       </div>
     </div>
   );
@@ -338,46 +515,41 @@ function ResumePreview({
   templateName: string;
 }) {
   return (
-    <section className="card p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Live Preview</h3>
-        <span className="text-[11px] text-slate-400">{templateName}</span>
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+      <div className="px-4 py-3 text-white" style={{ backgroundColor: accentColor }}>
+        <p className="text-sm font-bold">{profile.full_name || "Nomsiz nomzod"}</p>
+        <p className="text-xs opacity-90 mt-0.5">{profile.position || "Lavozim ko'rsatilmagan"}</p>
+        <p className="text-[10px] opacity-75 mt-0.5">
+          {[profile.phone, profile.email, profile.location].filter(Boolean).join(" · ") || "Kontakt kiritilmagan"}
+        </p>
       </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="px-4 py-3 text-white" style={{ backgroundColor: accentColor }}>
-          <p className="text-sm font-semibold">{profile.full_name || "Nomsiz nomzod"}</p>
-          <p className="text-xs opacity-90">{profile.position || "Lavozim ko'rsatilmagan"}</p>
-        </div>
-        <div className="space-y-3 p-4 text-xs">
+      <div className="p-3 space-y-2.5 text-xs">
+        {profile.summary && (
           <div>
-            <p className="font-semibold text-slate-700">Kontakt</p>
-            <p className="mt-1 text-slate-600">
-              {[profile.phone, profile.email, profile.location].filter(Boolean).join(" | ") || "Kontakt kiritilmagan"}
-            </p>
+            <p className="font-semibold text-slate-600 uppercase tracking-wide text-[9px] mb-1">Summary</p>
+            <p className="text-slate-700 line-clamp-3 leading-relaxed">{profile.summary}</p>
           </div>
+        )}
+        {profile.experiences.length > 0 && (
           <div>
-            <p className="font-semibold text-slate-700">Summary</p>
-            <p className="mt-1 whitespace-pre-wrap text-slate-600">{profile.summary || "Summary kiritilmagan"}</p>
+            <p className="font-semibold text-slate-600 uppercase tracking-wide text-[9px] mb-1">Tajriba</p>
+            {profile.experiences.slice(0, 2).map((x, i) => (
+              <p key={i} className="text-slate-700">
+                {[x.role, x.company].filter(Boolean).join(" @ ") || "Tajriba"}
+                {x.start_date && <span className="text-slate-400 ml-1">· {x.start_date}</span>}
+              </p>
+            ))}
           </div>
+        )}
+        {profile.skills.length > 0 && (
           <div>
-            <p className="font-semibold text-slate-700">Tajriba</p>
-            {profile.experiences.length === 0 ? (
-              <p className="mt-1 text-slate-500">Kiritilmagan</p>
-            ) : (
-              <ul className="mt-1 list-disc space-y-1 pl-4 text-slate-600">
-                {profile.experiences.slice(0, 3).map((item, idx) => (
-                  <li key={idx}>{[item.role, item.company].filter(Boolean).join(" - ") || "Tajriba"}</li>
-                ))}
-              </ul>
-            )}
+            <p className="font-semibold text-slate-600 uppercase tracking-wide text-[9px] mb-1">Ko'nikmalar</p>
+            <p className="text-slate-700 line-clamp-2">{profile.skills.slice(0, 8).join(", ")}</p>
           </div>
-          <div>
-            <p className="font-semibold text-slate-700">Ko'nikmalar</p>
-            <p className="mt-1 text-slate-600">{profile.skills.join(", ") || "Kiritilmagan"}</p>
-          </div>
-        </div>
+        )}
+        <p className="text-[9px] text-slate-400 text-right">{templateName}</p>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -405,6 +577,7 @@ export default function ResumeStudioPage() {
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "synced" | "error">("idle");
   const [hasConflict, setHasConflict] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showPreview, setShowPreview] = useState(false);
 
   const trackEvent = (payload: ResumeEventPayload) => {
     void client.post("/resume/events", payload).catch(() => undefined);
@@ -823,366 +996,608 @@ export default function ResumeStudioPage() {
     markDirty();
   };
 
-  const syncLabel =
-    syncStatus === "saving"
-      ? "Auto-save: saqlanmoqda..."
-      : syncStatus === "synced"
-        ? "Auto-save: sinxron"
-        : syncStatus === "error"
-          ? "Auto-save: xatolik"
-          : "Auto-save: kutish";
-
   if (authHintAvailable && profileQuery.isLoading && !hydratedRef.current) {
-    return <div className="card p-4 text-sm text-slate-500">Yuklanmoqda...</div>;
+    return (
+      <div className="flex items-center justify-center gap-3 py-20 text-slate-500">
+        <Loader2 size={20} className="animate-spin" />
+        <span className="text-sm">Yuklanmoqda...</span>
+      </div>
+    );
   }
 
+  const currentStepItem = STEP_ITEMS[step];
+  const StepIcon        = STEP_ICONS[currentStepItem?.id ?? "basic"];
+  const isLastStep      = step === STEP_ITEMS.length - 1;
+  const progressPct     = Math.round(
+    (STEP_ITEMS.filter((x) => isStepDone(x.id)).length / STEP_ITEMS.length) * 100,
+  );
+  const syncLabel =
+    syncStatus === "saving" ? "Saqlanmoqda..." :
+    syncStatus === "synced" ? "Saqlandi"       :
+    syncStatus === "error"  ? "Xatolik"        : "Kutish";
+
   return (
-    <div className="space-y-4">
-      <section className="card p-4">
-        <div className="flex items-center justify-between gap-2">
+    <div className="flex flex-col bg-slate-50" style={{ minHeight: "var(--app-viewport-height, 100dvh)" }}>
+
+      {/* ── STICKY HEADER ─────────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-20 bg-white border-b border-slate-200 shadow-sm">
+
+        {/* Title row */}
+        <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
           <div className="flex items-center gap-2">
-            <FileText size={16} className="text-brand-600" />
-            <h2 className="text-sm font-semibold text-slate-800">Resume Wizard</h2>
+            <FileText size={15} className="text-brand-600 shrink-0" />
+            <span className="text-sm font-bold text-slate-800">Resume Wizard</span>
           </div>
-          <span className={`text-xs ${syncStatus === "error" ? "text-red-600" : "text-slate-500"}`}>{syncLabel}</span>
-        </div>
-        <p className="mt-2 text-sm text-slate-600">Step-by-step to'ldiring, live previewdan darhol natijani ko'ring.</p>
-        {hasConflict && (
-          <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Serverda sizdan tashqari yangilanish bor. Local va server versiya to'qnashmoqda.
+          <div className="flex items-center gap-3">
             <button
-              className="ml-2 font-semibold text-amber-900 underline"
-              onClick={() => {
-                if (profileQuery.data) {
-                  applyServerPayload(profileQuery.data);
-                  setInfo("Server versiyasi yuklandi.");
-                }
-              }}
+              className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-brand-600 transition-colors"
+              onClick={() => setShowPreview((p) => !p)}
+            >
+              <Eye size={13} />
+              <span>Preview</span>
+            </button>
+            <span
+              className={`flex items-center gap-1 text-[10px] font-semibold ${
+                syncStatus === "saving" ? "text-amber-500" :
+                syncStatus === "synced" ? "text-emerald-600" :
+                syncStatus === "error"  ? "text-red-500"    : "text-slate-300"
+              }`}
+            >
+              {syncStatus === "saving" ? <Loader2 size={10} className="animate-spin" /> :
+               syncStatus === "synced" ? <Check size={10} /> :
+               syncStatus === "error"  ? <AlertCircle size={10} /> : null}
+              {syncLabel}
+            </span>
+          </div>
+        </div>
+
+        {/* Step dots */}
+        <WizardProgress
+          steps={STEP_ITEMS}
+          currentStep={step}
+          isStepDone={isStepDone}
+          onStepClick={setStep}
+        />
+
+        {/* Linear progress bar */}
+        <div className="h-[3px] bg-slate-100">
+          <div
+            className="h-full bg-emerald-500 transition-all duration-700 ease-out"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* ── CONFLICT BANNER ───────────────────────────────────────────────── */}
+      {hasConflict && (
+        <div className="flex items-start gap-2 bg-amber-50 border-b border-amber-200 px-4 py-2.5">
+          <AlertCircle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-800 flex-1">
+            Server va lokal ma'lumotlar to'qnashmoqda.{" "}
+            <button
+              className="underline font-semibold"
+              onClick={() => { if (profileQuery.data) { applyServerPayload(profileQuery.data); setInfo("Server versiyasi yuklandi."); } }}
             >
               Server versiyasini yuklash
             </button>
-          </div>
-        )}
-      </section>
+          </p>
+        </div>
+      )}
 
-      <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_320px]">
-        <aside className="card p-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Qadamlar</p>
-          <div className="space-y-1">
-            {STEP_ITEMS.map((item, idx) => (
-              <button
-                key={item.id}
-                onClick={() => setStep(idx)}
-                className={`tap-target flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm ${
-                  step === idx ? "bg-brand-50 text-brand-700" : "text-slate-600"
-                }`}
-              >
-                <span>{idx + 1}. {item.label}</span>
-                {isStepDone(item.id) && <CheckCircle2 size={14} className="text-emerald-600" />}
-              </button>
-            ))}
-          </div>
-          <p className="mt-3 text-[11px] text-slate-500">Progress: {Math.round((STEP_ITEMS.filter((x) => isStepDone(x.id)).length / STEP_ITEMS.length) * 100)}%</p>
-        </aside>
+      {/* ── SCROLLABLE CONTENT ────────────────────────────────────────────── */}
+      <div className="flex-1 pb-36">
 
-        <section className="space-y-4">
+        {/* Step header */}
+        <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+          <div className="p-2.5 rounded-2xl bg-brand-50 border border-brand-100 shrink-0">
+            <StepIcon size={20} className="text-brand-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-base font-bold text-slate-800">{currentStepItem?.label}</h2>
+            <p className="text-xs text-slate-500 mt-0.5 truncate">{STEP_HINTS[currentStepItem?.id]}</p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-[11px] font-semibold text-slate-400">{step + 1}/{STEP_ITEMS.length}</p>
+            <p className="text-[11px] font-bold text-emerald-600">{progressPct}%</p>
+          </div>
+        </div>
+
+        {/* Step content — key triggers re-mount animation on step change */}
+        <div key={`step-${step}`} className="px-4 space-y-4 step-enter">
+
+          {/* ═══ STEP 0: Basic ══════════════════════════════════════════ */}
           {step === 0 && (
-            <section className="card p-4 space-y-3">
-              <h3 className="text-sm font-semibold text-slate-800">Asosiy ma'lumotlar</h3>
-              <div className="grid gap-3 md:grid-cols-2">
-                <input className="tap-target rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="F.I.Sh" value={profile.full_name} onChange={(e) => { setProfile((p) => ({ ...p, full_name: e.target.value })); markDirty(); }} />
-                <input className="tap-target rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Lavozim" value={profile.position} onChange={(e) => { setProfile((p) => ({ ...p, position: e.target.value })); markDirty(); }} />
-                <input className="tap-target rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Telefon" value={profile.phone} onChange={(e) => { setProfile((p) => ({ ...p, phone: e.target.value })); markDirty(); }} />
-                <input className="tap-target rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Email" value={profile.email} onChange={(e) => { setProfile((p) => ({ ...p, email: e.target.value })); markDirty(); }} />
-                <input className="tap-target rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Manzil" value={profile.location} onChange={(e) => { setProfile((p) => ({ ...p, location: e.target.value })); markDirty(); }} />
-                <input className="tap-target rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Portfolio / LinkedIn" value={profile.website} onChange={(e) => { setProfile((p) => ({ ...p, website: e.target.value })); markDirty(); }} />
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="F.I.Sh" required error={errors.full_name}>
+                  <input className={INPUT_CLS} placeholder="Abdullayev Ali" value={profile.full_name}
+                    onChange={(e) => { setProfile((p) => ({ ...p, full_name: e.target.value })); markDirty(); }} />
+                </Field>
+                <Field label="Lavozim" required error={errors.position}>
+                  <input className={INPUT_CLS} placeholder="Frontend Dev" value={profile.position}
+                    onChange={(e) => { setProfile((p) => ({ ...p, position: e.target.value })); markDirty(); }} />
+                </Field>
               </div>
-              {errors.full_name && <p className="text-xs text-red-600">{errors.full_name}</p>}
-              {errors.position && <p className="text-xs text-red-600">{errors.position}</p>}
-              {errors.contact && <p className="text-xs text-red-600">{errors.contact}</p>}
-            </section>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Telefon" error={errors.contact}>
+                  <input className={INPUT_CLS} placeholder="+998 90 123 45 67" value={profile.phone}
+                    onChange={(e) => { setProfile((p) => ({ ...p, phone: e.target.value })); markDirty(); }} />
+                </Field>
+                <Field label="Email">
+                  <input className={INPUT_CLS} placeholder="ali@email.com" type="email" value={profile.email}
+                    onChange={(e) => { setProfile((p) => ({ ...p, email: e.target.value })); markDirty(); }} />
+                </Field>
+              </div>
+              <Field label="Manzil">
+                <input className={INPUT_CLS} placeholder="Toshkent, O'zbekiston" value={profile.location}
+                  onChange={(e) => { setProfile((p) => ({ ...p, location: e.target.value })); markDirty(); }} />
+              </Field>
+              <Field label="Portfolio / LinkedIn" hint="(ixtiyoriy)">
+                <input className={INPUT_CLS} placeholder="linkedin.com/in/username" value={profile.website}
+                  onChange={(e) => { setProfile((p) => ({ ...p, website: e.target.value })); markDirty(); }} />
+              </Field>
+            </div>
           )}
 
+          {/* ═══ STEP 1: Experience ══════════════════════════════════════ */}
           {step === 1 && (
-            <section className="card p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-800">Ish tajribasi</h3>
-                <button
-                  className="tap-target rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
-                  onClick={() => {
-                    setProfile((p) => ({ ...p, experiences: [...p.experiences, { ...EMPTY_EXPERIENCE }] }));
-                    markDirty();
-                  }}
-                >
-                  + Qo'shish
-                </button>
-              </div>
-
+            <div className="space-y-3">
+              {profile.experiences.length === 0 && (
+                <div className="rounded-2xl border-2 border-dashed border-slate-300 p-8 text-center bg-white">
+                  <Briefcase size={36} className="mx-auto text-slate-300 mb-3" />
+                  <p className="text-sm font-semibold text-slate-500">Ish tajribasi qo'shilmagan</p>
+                  <p className="text-xs text-slate-400 mt-1">Quyidagi tugmani bosib qo'shing</p>
+                </div>
+              )}
               {profile.experiences.map((exp, idx) => (
-                <div key={idx} className="rounded-xl border border-slate-200 p-3 space-y-2">
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <input className="tap-target rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Lavozim" value={exp.role} onChange={(e) => updateExperience(idx, "role", e.target.value)} />
-                    <input className="tap-target rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Kompaniya" value={exp.company} onChange={(e) => updateExperience(idx, "company", e.target.value)} />
-                    <input className="tap-target rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Boshlanish (MM/YYYY)" value={exp.start_date} onChange={(e) => updateExperience(idx, "start_date", e.target.value)} />
-                    <input className="tap-target rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Tugash (MM/YYYY)" value={exp.end_date} onChange={(e) => updateExperience(idx, "end_date", e.target.value)} />
-                  </div>
-                  <input className="tap-target w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Joylashuv" value={exp.location} onChange={(e) => updateExperience(idx, "location", e.target.value)} />
-                  <textarea className="min-h-[90px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Natijalar va vazifalar" value={exp.description} onChange={(e) => updateExperience(idx, "description", e.target.value)} />
-                  <div className="flex flex-wrap gap-2">
-                    {getRoleBasedSuggestions(exp.role).map((suggestion) => (
-                      <button
-                        key={suggestion}
-                        className="tap-target rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700"
-                        onClick={() => appendSuggestion(idx, suggestion)}
-                      >
-                        + {suggestion.slice(0, 35)}...
-                      </button>
-                    ))}
-                  </div>
-                  {profile.experiences.length > 1 && (
+                <div key={idx} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-800 truncate">
+                        {exp.role || exp.company ? `${exp.role || "Lavozim"} @ ${exp.company || "Kompaniya"}` : `Tajriba ${idx + 1}`}
+                      </p>
+                      {(exp.start_date || exp.end_date) && (
+                        <p className="text-xs text-slate-400 mt-0.5">{[exp.start_date, exp.end_date].filter(Boolean).join(" – ")}</p>
+                      )}
+                    </div>
                     <button
-                      className="tap-target rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600"
-                      onClick={() => {
-                        setProfile((p) => ({ ...p, experiences: p.experiences.filter((_, i) => i !== idx) }));
-                        markDirty();
-                      }}
+                      className="p-2 rounded-xl border border-red-200 text-red-400 hover:bg-red-50 shrink-0 transition-colors"
+                      onClick={() => { setProfile((p) => ({ ...p, experiences: p.experiences.filter((_, i) => i !== idx) })); markDirty(); }}
                     >
-                      O'chirish
+                      <Trash2 size={14} />
                     </button>
-                  )}
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Lavozim">
+                        <input className={INPUT_CLS} placeholder="Senior Engineer" value={exp.role}
+                          onChange={(e) => updateExperience(idx, "role", e.target.value)} />
+                      </Field>
+                      <Field label="Kompaniya">
+                        <input className={INPUT_CLS} placeholder="Google Inc." value={exp.company}
+                          onChange={(e) => updateExperience(idx, "company", e.target.value)} />
+                      </Field>
+                      <Field label="Boshlanish">
+                        <input className={INPUT_CLS} placeholder="01/2022" value={exp.start_date}
+                          onChange={(e) => updateExperience(idx, "start_date", e.target.value)} />
+                      </Field>
+                      <Field label="Tugash">
+                        <input className={INPUT_CLS} placeholder="Hozir" value={exp.end_date}
+                          onChange={(e) => updateExperience(idx, "end_date", e.target.value)} />
+                      </Field>
+                    </div>
+                    <Field label="Joylashuv" hint="(ixtiyoriy)">
+                      <input className={INPUT_CLS} placeholder="Toshkent" value={exp.location}
+                        onChange={(e) => updateExperience(idx, "location", e.target.value)} />
+                    </Field>
+                    <Field label="Natijalar va vazifalar">
+                      <textarea
+                        className={`${INPUT_CLS} min-h-[96px] resize-none`}
+                        placeholder="- Asosiy yutuqlar va vazifalar..."
+                        value={exp.description}
+                        onChange={(e) => updateExperience(idx, "description", e.target.value)}
+                      />
+                    </Field>
+                    <div className="flex flex-wrap gap-1.5">
+                      {getRoleBasedSuggestions(exp.role).slice(0, 2).map((sug) => (
+                        <button
+                          key={sug}
+                          className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] text-emerald-700 text-left"
+                          onClick={() => appendSuggestion(idx, sug)}
+                        >
+                          + {sug.slice(0, 38)}…
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               ))}
-              {errors.experience && <p className="text-xs text-red-600">{errors.experience}</p>}
-            </section>
+              {errors.experience && (
+                <p className="flex items-center gap-1.5 text-xs text-red-600 px-1">
+                  <AlertCircle size={12} className="shrink-0" /> {errors.experience}
+                </p>
+              )}
+              <button
+                className="tap-target w-full flex items-center justify-center gap-2 rounded-2xl
+                           border-2 border-dashed border-brand-300 bg-brand-50 py-3.5
+                           text-sm font-semibold text-brand-600 hover:bg-brand-100 transition-colors"
+                onClick={() => { setProfile((p) => ({ ...p, experiences: [...p.experiences, { ...EMPTY_EXPERIENCE }] })); markDirty(); }}
+              >
+                <Plus size={16} /> Tajriba qo'shish
+              </button>
+            </div>
           )}
 
+          {/* ═══ STEP 2: Education ════════════════════════════════════════ */}
           {step === 2 && (
-            <section className="card p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-800">Ta'lim</h3>
-                <button
-                  className="tap-target rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
-                  onClick={() => {
-                    setProfile((p) => ({ ...p, educations: [...p.educations, { ...EMPTY_EDUCATION }] }));
-                    markDirty();
-                  }}
-                >
-                  + Qo'shish
-                </button>
-              </div>
-
+            <div className="space-y-3">
+              {profile.educations.length === 0 && (
+                <div className="rounded-2xl border-2 border-dashed border-slate-300 p-8 text-center bg-white">
+                  <GraduationCap size={36} className="mx-auto text-slate-300 mb-3" />
+                  <p className="text-sm font-semibold text-slate-500">Ta'lim ma'lumoti qo'shilmagan</p>
+                </div>
+              )}
               {profile.educations.map((edu, idx) => (
-                <div key={idx} className="rounded-xl border border-slate-200 p-3 space-y-2">
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <input className="tap-target rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="O'quv yurti" value={edu.school} onChange={(e) => updateEducation(idx, "school", e.target.value)} />
-                    <input className="tap-target rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Daraja" value={edu.degree} onChange={(e) => updateEducation(idx, "degree", e.target.value)} />
-                    <input className="tap-target rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Boshlanish" value={edu.start_date} onChange={(e) => updateEducation(idx, "start_date", e.target.value)} />
-                    <input className="tap-target rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Tugash" value={edu.end_date} onChange={(e) => updateEducation(idx, "end_date", e.target.value)} />
-                  </div>
-                  <textarea className="min-h-[84px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Qo'shimcha ma'lumot" value={edu.description} onChange={(e) => updateEducation(idx, "description", e.target.value)} />
-                  {profile.educations.length > 1 && (
+                <div key={idx} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-800 truncate">
+                        {edu.school || edu.degree ? `${edu.school || "O'quv yurti"} — ${edu.degree || "Daraja"}` : `Ta'lim ${idx + 1}`}
+                      </p>
+                      {(edu.start_date || edu.end_date) && (
+                        <p className="text-xs text-slate-400 mt-0.5">{[edu.start_date, edu.end_date].filter(Boolean).join(" – ")}</p>
+                      )}
+                    </div>
                     <button
-                      className="tap-target rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600"
-                      onClick={() => {
-                        setProfile((p) => ({ ...p, educations: p.educations.filter((_, i) => i !== idx) }));
-                        markDirty();
-                      }}
+                      className="p-2 rounded-xl border border-red-200 text-red-400 hover:bg-red-50 shrink-0 transition-colors"
+                      onClick={() => { setProfile((p) => ({ ...p, educations: p.educations.filter((_, i) => i !== idx) })); markDirty(); }}
                     >
-                      O'chirish
+                      <Trash2 size={14} />
                     </button>
-                  )}
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="O'quv yurti">
+                        <input className={INPUT_CLS} placeholder="Toshkent DTU" value={edu.school}
+                          onChange={(e) => updateEducation(idx, "school", e.target.value)} />
+                      </Field>
+                      <Field label="Daraja">
+                        <input className={INPUT_CLS} placeholder="Bakalavr" value={edu.degree}
+                          onChange={(e) => updateEducation(idx, "degree", e.target.value)} />
+                      </Field>
+                      <Field label="Boshlanish">
+                        <input className={INPUT_CLS} placeholder="2019" value={edu.start_date}
+                          onChange={(e) => updateEducation(idx, "start_date", e.target.value)} />
+                      </Field>
+                      <Field label="Tugash">
+                        <input className={INPUT_CLS} placeholder="2023" value={edu.end_date}
+                          onChange={(e) => updateEducation(idx, "end_date", e.target.value)} />
+                      </Field>
+                    </div>
+                    <Field label="Qo'shimcha ma'lumot" hint="(ixtiyoriy)">
+                      <textarea
+                        className={`${INPUT_CLS} min-h-[72px] resize-none`}
+                        placeholder="Diplom, mukofotlar, loyihalar..."
+                        value={edu.description}
+                        onChange={(e) => updateEducation(idx, "description", e.target.value)}
+                      />
+                    </Field>
+                  </div>
                 </div>
               ))}
-              {errors.education && <p className="text-xs text-red-600">{errors.education}</p>}
-            </section>
+              {errors.education && (
+                <p className="flex items-center gap-1.5 text-xs text-red-600 px-1">
+                  <AlertCircle size={12} className="shrink-0" /> {errors.education}
+                </p>
+              )}
+              <button
+                className="tap-target w-full flex items-center justify-center gap-2 rounded-2xl
+                           border-2 border-dashed border-brand-300 bg-brand-50 py-3.5
+                           text-sm font-semibold text-brand-600 hover:bg-brand-100 transition-colors"
+                onClick={() => { setProfile((p) => ({ ...p, educations: [...p.educations, { ...EMPTY_EDUCATION }] })); markDirty(); }}
+              >
+                <Plus size={16} /> Ta'lim qo'shish
+              </button>
+            </div>
           )}
 
+          {/* ═══ STEP 3: Skills ═══════════════════════════════════════════ */}
           {step === 3 && (
-            <section className="card p-4 space-y-3">
-              <h3 className="text-sm font-semibold text-slate-800">Ko'nikmalar va tillar</h3>
-              <input
-                className="tap-target w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Ko'nikmalar (vergul bilan)"
-                value={profile.skills.join(", ")}
-                onChange={(e) => {
-                  setProfile((p) => ({ ...p, skills: splitItems(e.target.value) }));
-                  markDirty();
-                }}
-              />
-              <input
-                className="tap-target w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Tillar (vergul bilan)"
-                value={profile.languages.join(", ")}
-                onChange={(e) => {
-                  setProfile((p) => ({ ...p, languages: splitItems(e.target.value) }));
-                  markDirty();
-                }}
-              />
-              {errors.skills && <p className="text-xs text-red-600">{errors.skills}</p>}
-            </section>
-          )}
-
-          {step === 4 && (
-            <section className="card p-4 space-y-3">
-              <h3 className="text-sm font-semibold text-slate-800">Summary va JD moslash</h3>
-              <textarea
-                className="min-h-[120px] w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Qisqacha professional summary"
-                value={profile.summary}
-                onChange={(e) => {
-                  setProfile((p) => ({ ...p, summary: e.target.value }));
-                  markDirty();
-                }}
-              />
-              {errors.summary && <p className="text-xs text-red-600">{errors.summary}</p>}
-
-              <div className="rounded-xl border border-slate-200 p-3">
-                <p className="text-xs font-semibold text-slate-700">Job description (AI-siz moslash)</p>
-                <textarea
-                  className="mt-2 min-h-[100px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="Vakansiya matnini shu yerga qo'ying"
-                  value={jobDescription}
-                  onChange={(e) => {
-                    setJobDescription(e.target.value);
-                    markDirty();
-                  }}
+            <div className="space-y-4">
+              <Field label="Ko'nikmalar" hint="— Enter yoki vergul bilan ajrating" error={errors.skills}>
+                <TagInput
+                  tags={profile.skills}
+                  onAdd={(t) => { setProfile((p) => ({ ...p, skills: [...p.skills, t] })); markDirty(); }}
+                  onRemove={(i) => { setProfile((p) => ({ ...p, skills: p.skills.filter((_, j) => j !== i) })); markDirty(); }}
+                  placeholder="JavaScript, React, Python..."
                 />
-                <div className="mt-2">
-                  <p className="text-xs text-slate-500">Top keywordlar: {topKeywords.slice(0, 8).join(", ") || "-"}</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {missingKeywords.map((kw) => (
-                      <button
-                        key={kw}
-                        className="tap-target rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-700"
-                        onClick={() => {
-                          if (!profile.skills.some((s) => s.toLowerCase() === kw.toLowerCase())) {
-                            setProfile((p) => ({ ...p, skills: [...p.skills, kw] }));
-                            markDirty();
-                          }
-                        }}
-                      >
-                        + {kw}
-                      </button>
-                    ))}
+                <p className="text-xs text-slate-400">
+                  {profile.skills.length} ta ko'nikma
+                  {profile.skills.length < 3 && <span className="text-amber-500 ml-1">(kamida 3 ta)</span>}
+                </p>
+              </Field>
+
+              <Field label="Tillar" hint="— Enter yoki vergul bilan ajrating">
+                <TagInput
+                  tags={profile.languages}
+                  onAdd={(t) => { setProfile((p) => ({ ...p, languages: [...p.languages, t] })); markDirty(); }}
+                  onRemove={(i) => { setProfile((p) => ({ ...p, languages: p.languages.filter((_, j) => j !== i) })); markDirty(); }}
+                  placeholder="O'zbek, Ingliz, Rus..."
+                />
+              </Field>
+
+              {profile.position && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-semibold text-slate-600 mb-2.5">«{profile.position}» uchun tavsiyalar</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {["JavaScript","TypeScript","React","Node.js","Python","SQL","Git","Docker","REST API","Agile"]
+                      .filter((s) => !profile.skills.some((x) => x.toLowerCase() === s.toLowerCase()))
+                      .slice(0, 8)
+                      .map((kw) => (
+                        <button
+                          key={kw}
+                          className="rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs text-brand-600 font-medium"
+                          onClick={() => { setProfile((p) => ({ ...p, skills: [...p.skills, kw] })); markDirty(); }}
+                        >
+                          + {kw}
+                        </button>
+                      ))}
                   </div>
                 </div>
-              </div>
-            </section>
+              )}
+            </div>
           )}
 
+          {/* ═══ STEP 4: Summary ══════════════════════════════════════════ */}
+          {step === 4 && (
+            <div className="space-y-4">
+              <Field label="Professional summary" error={errors.summary}>
+                <textarea
+                  className={`${INPUT_CLS} min-h-[130px] resize-none`}
+                  placeholder="5+ yillik tajribaga ega dasturchi sifatida..."
+                  value={profile.summary}
+                  onChange={(e) => { setProfile((p) => ({ ...p, summary: e.target.value })); markDirty(); }}
+                />
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-slate-400">Kamida 40 ta belgi</span>
+                  <span className={`text-xs font-semibold ${profile.summary.length >= 40 ? "text-emerald-600" : "text-slate-400"}`}>
+                    {profile.summary.length} belgi
+                  </span>
+                </div>
+              </Field>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 overflow-hidden">
+                <div className="px-4 py-3 border-b border-amber-200">
+                  <p className="text-xs font-bold text-amber-800">Vakansiya bo'yicha moslash</p>
+                  <p className="text-[11px] text-amber-600 mt-0.5">Vakansiya matnini kiriting — kalit so'zlarni tavsiya qilamiz</p>
+                </div>
+                <div className="p-4 space-y-3">
+                  <textarea
+                    className={`${INPUT_CLS} min-h-[90px] resize-none border-amber-300 focus:ring-amber-400 focus:border-amber-400`}
+                    placeholder="Ish e'loni matnini shu yerga nusxalang..."
+                    value={jobDescription}
+                    onChange={(e) => { setJobDescription(e.target.value); markDirty(); }}
+                  />
+                  {topKeywords.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-slate-500">
+                        Top kalit so'zlar: <span className="font-medium">{topKeywords.slice(0, 6).join(", ")}</span>
+                      </p>
+                      {missingKeywords.length > 0 ? (
+                        <div>
+                          <p className="text-xs font-semibold text-amber-700 mb-1.5">Rezyumeda yo'q kalit so'zlar:</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {missingKeywords.map((kw) => (
+                              <button
+                                key={kw}
+                                className="rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-700"
+                                onClick={() => { setProfile((p) => ({ ...p, skills: [...p.skills, kw] })); markDirty(); }}
+                              >
+                                + {kw}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="flex items-center gap-1 text-xs text-emerald-700 font-semibold">
+                          <Check size={12} /> Barcha kalit so'zlar rezyumeda mavjud!
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ═══ STEP 5: Template ═════════════════════════════════════════ */}
           {step === 5 && (
-            <section className="card p-4 space-y-3">
-              <h3 className="text-sm font-semibold text-slate-800">Shablon va rang</h3>
-              <div className="grid gap-3 md:grid-cols-3">
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-2.5">
                 {templates.map((tpl) => {
-                  const isSelected = tpl.id === selectedTemplate;
-                  const previewColor = tpl.supports_color ? accentColor : tpl.palette[0] || "#111827";
+                  const sel = tpl.id === selectedTemplate;
+                  const col = tpl.supports_color ? accentColor : tpl.palette[0] || "#111827";
                   return (
                     <button
                       key={tpl.id}
-                      className={`tap-target rounded-xl border p-2 text-left ${isSelected ? "border-brand-500 bg-brand-50" : "border-slate-200"}`}
-                      onClick={() => {
-                        setSelectedTemplate(tpl.id);
-                        markDirty();
-                      }}
+                      className={`tap-target rounded-2xl border-2 p-2 text-left transition-all ${
+                        sel ? "border-brand-500 bg-brand-50 shadow-md shadow-brand-100" : "border-slate-200 bg-white"
+                      }`}
+                      onClick={() => { setSelectedTemplate(tpl.id); markDirty(); }}
                     >
-                      <TemplatePreview template={tpl} color={previewColor} />
-                      <p className="mt-2 text-sm font-semibold text-slate-800">{tpl.title}</p>
-                      <p className="text-xs text-slate-500">{tpl.description}</p>
+                      <TemplatePreview template={tpl} color={col} />
+                      <div className="mt-2 flex items-center justify-between gap-1">
+                        <p className="text-xs font-bold text-slate-800 leading-tight truncate">{tpl.title}</p>
+                        {sel && <Check size={12} className="text-brand-600 shrink-0" />}
+                      </div>
                     </button>
                   );
                 })}
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                {(activeTemplate?.palette || []).map((color) => (
-                  <button
-                    key={color}
-                    className={`tap-target h-8 w-8 rounded-full border-2 ${accentColor === color ? "border-slate-900" : "border-white"}`}
-                    style={{ backgroundColor: color }}
-                    onClick={() => {
-                      setAccentColor(color);
-                      markDirty();
-                    }}
-                  />
-                ))}
+              {activeTemplate?.supports_color && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-semibold text-slate-600 mb-3">Rang tanlash</p>
+                  <div className="flex gap-3 flex-wrap">
+                    {(activeTemplate.palette || []).map((color) => (
+                      <button
+                        key={color}
+                        className={`w-9 h-9 rounded-full border-[3px] transition-all ${
+                          accentColor === color ? "border-slate-800 scale-110 shadow-md" : "border-white shadow"
+                        }`}
+                        style={{ backgroundColor: color }}
+                        onClick={() => { setAccentColor(color); markDirty(); }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {errors.template && (
+                <p className="flex items-center gap-1 text-xs text-red-600">
+                  <AlertCircle size={11} /> {errors.template}
+                </p>
+              )}
+
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Live Preview</p>
+                <ResumePreview
+                  profile={previewState.profile}
+                  accentColor={previewState.accentColor}
+                  templateName={templates.find((x) => x.id === previewState.selectedTemplate)?.title || "Template"}
+                />
               </div>
-              {errors.template && <p className="text-xs text-red-600">{errors.template}</p>}
-            </section>
+
+              <div className="space-y-2.5 pt-1">
+                <p className="text-xs font-semibold text-slate-600">Yuborish va yuklab olish</p>
+                <button
+                  className="tap-target w-full flex items-center justify-center gap-2 rounded-2xl
+                             bg-emerald-600 py-4 text-sm font-bold text-white
+                             shadow-lg shadow-emerald-200 disabled:opacity-60"
+                  disabled={isBusy}
+                  onClick={() => sendMutation.mutate()}
+                >
+                  {sendMutation.isPending
+                    ? <><Loader2 size={16} className="animate-spin" /> Yuborilmoqda...</>
+                    : <><Send size={16} /> Telegramga yuborish</>}
+                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    className="tap-target flex items-center justify-center gap-1.5 rounded-2xl
+                               border border-slate-300 bg-white py-3 text-sm font-semibold
+                               text-slate-700 disabled:opacity-60"
+                    disabled={isBusy}
+                    onClick={() => exportMutation.mutate("pdf")}
+                  >
+                    {exportMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    PDF
+                  </button>
+                  <button
+                    className="tap-target flex items-center justify-center gap-1.5 rounded-2xl
+                               border border-slate-300 bg-white py-3 text-sm font-semibold
+                               text-slate-700 disabled:opacity-60"
+                    disabled={isBusy}
+                    onClick={() => exportMutation.mutate("docx")}
+                  >
+                    {exportMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    DOCX
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
-          <section className="card p-4">
-            <div className="grid gap-2 md:grid-cols-3">
-              <button
-                className="tap-target rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-                disabled={isBusy || step === 0}
-                onClick={goPrev}
-              >
-                Orqaga
-              </button>
-
-              <button
-                className="tap-target rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-                disabled={isBusy}
-                onClick={() => saveMutation.mutate()}
-              >
-                {saveMutation.isPending ? "Saqlanmoqda..." : "Saqlash"}
-              </button>
-
-              <button
-                className="tap-target rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white"
-                disabled={isBusy || step === STEP_ITEMS.length - 1}
-                onClick={goNext}
-              >
-                Keyingi
-              </button>
+          {/* Preview toggle — steps 0–4 */}
+          {showPreview && step < STEP_ITEMS.length - 1 && (
+            <div className="pt-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Live Preview</p>
+              <ResumePreview
+                profile={previewState.profile}
+                accentColor={previewState.accentColor}
+                templateName={templates.find((x) => x.id === previewState.selectedTemplate)?.title || "Template"}
+              />
             </div>
+          )}
 
-            <button
-              className="tap-target mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white"
-              disabled={isBusy}
-              onClick={() => sendMutation.mutate()}
+          {/* Info message */}
+          {Boolean(info) && (
+            <div
+              className={`flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium ${
+                syncStatus === "error"
+                  ? "bg-red-50 text-red-700 border border-red-200"
+                  : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+              }`}
             >
-              <Send size={15} />
-              {sendMutation.isPending ? "Yuborilmoqda..." : "Telegramga yuborish"}
-            </button>
-
-            <div className="mt-2 grid gap-2 md:grid-cols-2">
-              <button
-                className="tap-target flex items-center justify-center gap-2 rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-                disabled={isBusy}
-                onClick={() => exportMutation.mutate("pdf")}
-              >
-                <Download size={15} />
-                {exportMutation.isPending ? "Yuklanmoqda..." : "PDF yuklab olish"}
-              </button>
-              <button
-                className="tap-target flex items-center justify-center gap-2 rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-                disabled={isBusy}
-                onClick={() => exportMutation.mutate("docx")}
-              >
-                <Download size={15} />
-                {exportMutation.isPending ? "Yuklanmoqda..." : "DOCX yuklab olish"}
-              </button>
+              {syncStatus === "error" ? <AlertCircle size={15} /> : <CheckCircle2 size={15} />}
+              {info}
             </div>
+          )}
+        </div>
+      </div>
 
-            {Boolean(info) && (
-              <p className={`mt-3 flex items-center gap-2 text-sm ${syncStatus === "error" ? "text-red-600" : "text-slate-700"}`}>
-                {syncStatus === "error" ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
-                {info}
-              </p>
+      {/* ── FIXED BOTTOM NAV ──────────────────────────────────────────────── */}
+      <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-sm border-t border-slate-200 px-4 py-3 z-20">
+        <div className="flex items-center gap-2">
+
+          {/* Back */}
+          <button
+            className={`tap-target flex items-center justify-center w-12 h-12 rounded-2xl border border-slate-300 transition-all ${
+              step === 0 ? "opacity-25 cursor-default" : "text-slate-700"
+            }`}
+            onClick={goPrev}
+            disabled={step === 0 || isBusy}
+          >
+            <ChevronLeft size={20} />
+          </button>
+
+          {/* Save */}
+          <button
+            className={`flex-1 h-12 rounded-2xl border text-sm font-semibold transition-all ${
+              localDirty
+                ? "border-brand-300 bg-brand-50 text-brand-700"
+                : "border-slate-200 bg-slate-50 text-slate-400"
+            }`}
+            onClick={() => saveMutation.mutate()}
+            disabled={isBusy}
+          >
+            {saveMutation.isPending ? (
+              <span className="flex items-center justify-center gap-1.5">
+                <Loader2 size={13} className="animate-spin" /> Saqlanmoqda...
+              </span>
+            ) : localDirty ? (
+              "Saqlash"
+            ) : (
+              <span className="flex items-center justify-center gap-1">
+                <Check size={13} /> Saqlandi
+              </span>
             )}
-          </section>
-        </section>
+          </button>
 
-        <div className="space-y-4 lg:sticky lg:top-3 lg:h-fit">
-          <ResumePreview
-            profile={previewState.profile}
-            accentColor={previewState.accentColor}
-            templateName={templates.find((x) => x.id === previewState.selectedTemplate)?.title || "Template"}
-          />
+          {/* Next / Finish */}
+          {!isLastStep ? (
+            <button
+              className="tap-target flex items-center gap-1.5 h-12 px-5 rounded-2xl
+                         bg-brand-600 text-white text-sm font-bold
+                         shadow-md shadow-brand-200 disabled:opacity-60"
+              onClick={goNext}
+              disabled={isBusy}
+            >
+              Keyingi <ChevronRight size={18} />
+            </button>
+          ) : (
+            <button
+              className="tap-target flex items-center gap-1.5 h-12 px-5 rounded-2xl
+                         bg-emerald-600 text-white text-sm font-bold
+                         shadow-md shadow-emerald-200 disabled:opacity-60"
+              onClick={() => sendMutation.mutate()}
+              disabled={isBusy}
+            >
+              <Send size={15} /> Yuborish
+            </button>
+          )}
         </div>
       </div>
     </div>
   );
 }
+
