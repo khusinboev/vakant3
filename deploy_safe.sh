@@ -16,6 +16,8 @@ cd "$(dirname "$0")"
 rsync -az \
   --exclude '__pycache__' \
   --exclude '*.pyc' \
+  --exclude '.env' \
+  --exclude '.env.*' \
   --exclude '.git' \
   --exclude '.venv' \
   --exclude 'webapp/frontend/node_modules' \
