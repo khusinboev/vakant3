@@ -14,6 +14,10 @@ type AdminState = {
   pro_price: number;
   referral_reward: number;
   pro_min_salary: number;
+  resume_target_creation_minutes: number;
+  resume_target_completion_rate: number;
+  resume_target_send_success_rate: number;
+  resume_target_export_success_rate: number;
 };
 
 type ResumeMetrics = {
@@ -23,10 +27,67 @@ type ResumeMetrics = {
   save_error_24h: number;
   send_success_24h: number;
   send_error_24h: number;
+  export_success_24h: number;
+  export_error_24h: number;
   unique_users_24h: number;
   avg_ttfi_ms: number;
   avg_save_latency_ms: number;
   avg_send_latency_ms: number;
+  avg_export_latency_ms: number;
+};
+
+type ResumeFunnelStep = {
+  step: string;
+  entered_users: number;
+  completed_users: number;
+  dropoff_users: number;
+  completion_rate: number;
+};
+
+type ResumeFunnel = {
+  window_hours: number;
+  steps: ResumeFunnelStep[];
+};
+
+type ResumeUserInspect = {
+  user_id: number;
+  first_name: string;
+  username: string;
+  has_resume: boolean;
+  selected_template: string;
+  updated_at: number | null;
+  profile_preview: Record<string, string | number>;
+  recent_events: Array<{ event_name: string; step?: string | null; created_at: number }>;
+};
+
+type ResumeDiagnostics = {
+  items: Array<{
+    source: string;
+    status: string;
+    error_text: string;
+    count_24h: number;
+    last_seen_at: number;
+  }>;
+};
+
+type ResumeGoals = {
+  window_hours: number;
+  opened_users: number;
+  completed_users: number;
+  send_attempts: number;
+  pdf_export_attempts: number;
+  median_creation_minutes: number;
+  completion_rate: number;
+  send_success_rate: number;
+  pdf_export_success_rate: number;
+  creation_time_target_minutes: number;
+  completion_rate_target: number;
+  send_success_rate_target: number;
+  pdf_export_success_rate_target: number;
+  creation_time_ok: boolean;
+  completion_rate_ok: boolean;
+  send_success_rate_ok: boolean;
+  pdf_export_success_rate_ok: boolean;
 };
 
 // ─── Setting input: placeholder shows current value, type to override ────────
@@ -127,11 +188,41 @@ export default function Admin() {
   const [resetUserId, setResetUserId] = useState("");
   const [resetMsg, setResetMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [inspectUserId, setInspectUserId] = useState("");
+  const [inspectResult, setInspectResult] = useState<ResumeUserInspect | null>(null);
+  const [inspectError, setInspectError] = useState("");
 
   const resumeMetrics = useQuery({
     queryKey: ["admin", "resume-metrics"],
     queryFn: async () => {
       const { data } = await client.get<ResumeMetrics>("/admin/resume-metrics");
+      return data;
+    },
+    retry: false,
+  });
+
+  const resumeFunnel = useQuery({
+    queryKey: ["admin", "resume-funnel"],
+    queryFn: async () => {
+      const { data } = await client.get<ResumeFunnel>("/admin/resume-funnel");
+      return data;
+    },
+    retry: false,
+  });
+
+  const resumeDiagnostics = useQuery({
+    queryKey: ["admin", "resume-diagnostics"],
+    queryFn: async () => {
+      const { data } = await client.get<ResumeDiagnostics>("/admin/resume-diagnostics");
+      return data;
+    },
+    retry: false,
+  });
+
+  const resumeGoals = useQuery({
+    queryKey: ["admin", "resume-goals"],
+    queryFn: async () => {
+      const { data } = await client.get<ResumeGoals>("/admin/resume-goals");
       return data;
     },
     retry: false,
@@ -183,6 +274,21 @@ export default function Admin() {
     onError: (err: any) => {
       setResetMsg({ ok: false, text: err?.response?.data?.detail || "Xatolik" });
       setResetConfirm(false);
+    },
+  });
+
+  const inspectResumeUser = useMutation({
+    mutationFn: async (userId: number) => {
+      const { data } = await client.get<ResumeUserInspect>(`/admin/resume-user/${userId}`);
+      return data;
+    },
+    onSuccess: (data) => {
+      setInspectResult(data);
+      setInspectError("");
+    },
+    onError: (err: any) => {
+      setInspectResult(null);
+      setInspectError(err?.response?.data?.detail || "Foydalanuvchi topilmadi");
     },
   });
 
@@ -257,6 +363,37 @@ export default function Admin() {
           type="number"
           currentValue={s.pro_min_salary}
           onSave={(v) => patch.mutate({ pro_min_salary: Number(v) })}
+          saving={saving}
+        />
+      </Section>
+
+      <Section icon={Settings} title="Resume KPI target sozlamalari">
+        <SettingInput
+          label="Median creation time target (daq)"
+          type="number"
+          currentValue={s.resume_target_creation_minutes}
+          onSave={(v) => patch.mutate({ resume_target_creation_minutes: Number(v) })}
+          saving={saving}
+        />
+        <SettingInput
+          label="Completion rate target (%)"
+          type="number"
+          currentValue={s.resume_target_completion_rate}
+          onSave={(v) => patch.mutate({ resume_target_completion_rate: Number(v) })}
+          saving={saving}
+        />
+        <SettingInput
+          label="Send success target (%)"
+          type="number"
+          currentValue={s.resume_target_send_success_rate}
+          onSave={(v) => patch.mutate({ resume_target_send_success_rate: Number(v) })}
+          saving={saving}
+        />
+        <SettingInput
+          label="PDF export success target (%)"
+          type="number"
+          currentValue={s.resume_target_export_success_rate}
+          onSave={(v) => patch.mutate({ resume_target_export_success_rate: Number(v) })}
           saving={saving}
         />
       </Section>
@@ -390,6 +527,14 @@ export default function Admin() {
               <p className="mt-1 text-lg font-semibold text-red-600">{resumeMetrics.data.send_error_24h}</p>
             </div>
             <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">Export success</p>
+              <p className="mt-1 text-lg font-semibold text-emerald-700">{resumeMetrics.data.export_success_24h}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">Export error</p>
+              <p className="mt-1 text-lg font-semibold text-red-600">{resumeMetrics.data.export_error_24h}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
               <p className="text-xs text-slate-500">Aktiv user</p>
               <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.unique_users_24h}</p>
             </div>
@@ -405,9 +550,143 @@ export default function Admin() {
               <p className="text-xs text-slate-500">O'rtacha send latency</p>
               <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.avg_send_latency_ms} ms</p>
             </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">O'rtacha export latency</p>
+              <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.avg_export_latency_ms} ms</p>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-slate-500">Metrikalar olinmadi.</p>
+        )}
+      </Section>
+
+      <Section icon={Settings} title="Resume funnel (drop-off)">
+        {resumeFunnel.isLoading ? (
+          <p className="text-sm text-slate-500">Yuklanmoqda...</p>
+        ) : resumeFunnel.data ? (
+          <div className="space-y-2">
+            {resumeFunnel.data.steps.map((item) => (
+              <div key={item.step} className="rounded-xl border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-800">{item.step}</p>
+                  <p className="text-xs text-slate-500">Completion: {item.completion_rate}%</p>
+                </div>
+                <div className="mt-1 grid grid-cols-3 gap-2 text-xs text-slate-600">
+                  <p>Entered: {item.entered_users}</p>
+                  <p>Completed: {item.completed_users}</p>
+                  <p>Drop-off: {item.dropoff_users}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">Funnel ma'lumotlari olinmadi.</p>
+        )}
+      </Section>
+
+      <Section icon={Users} title="Resume user inspect">
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <input
+            type="number"
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+            placeholder="Telegram user ID"
+            value={inspectUserId}
+            onChange={(e) => {
+              setInspectUserId(e.target.value);
+              setInspectError("");
+            }}
+          />
+          <button
+            className="tap-target rounded-2xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            disabled={!inspectUserId || inspectResumeUser.isPending}
+            onClick={() => inspectResumeUser.mutate(Number(inspectUserId))}
+          >
+            {inspectResumeUser.isPending ? "Qidirilmoqda..." : "Ko'rish"}
+          </button>
+        </div>
+        {inspectError && <p className="text-xs text-red-600">{inspectError}</p>}
+        {inspectResult && (
+          <div className="space-y-2 rounded-xl border border-slate-200 p-3 text-sm">
+            <p><strong>User:</strong> {inspectResult.user_id} {inspectResult.first_name ? `(${inspectResult.first_name})` : ""}</p>
+            <p><strong>Username:</strong> {inspectResult.username || "-"}</p>
+            <p><strong>Resume:</strong> {inspectResult.has_resume ? "Bor" : "Yo'q"}</p>
+            <p><strong>Template:</strong> {inspectResult.selected_template}</p>
+            <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+              {Object.entries(inspectResult.profile_preview || {}).map(([key, val]) => (
+                <p key={key}>{key}: {String(val)}</p>
+              ))}
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-slate-700">Oxirgi eventlar</p>
+              {inspectResult.recent_events.length === 0 ? (
+                <p className="text-xs text-slate-500">Event yo'q</p>
+              ) : (
+                inspectResult.recent_events.slice(0, 8).map((ev, idx) => (
+                  <p key={`${ev.event_name}-${idx}`} className="text-xs text-slate-600">
+                    {ev.event_name} {ev.step ? `(${ev.step})` : ""} - {new Date(ev.created_at * 1000).toLocaleString()}
+                  </p>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </Section>
+
+      <Section icon={Settings} title="Resume error diagnostics">
+        {resumeDiagnostics.isLoading ? (
+          <p className="text-sm text-slate-500">Yuklanmoqda...</p>
+        ) : resumeDiagnostics.data ? (
+          <div className="space-y-2">
+            {resumeDiagnostics.data.items.length === 0 ? (
+              <p className="text-sm text-emerald-700">Oxirgi 24 soatda xatolik topilmadi.</p>
+            ) : (
+              resumeDiagnostics.data.items.map((item, idx) => (
+                <div key={`${item.source}-${item.error_text}-${idx}`} className="rounded-xl border border-slate-200 p-3">
+                  <p className="text-sm font-semibold text-slate-800">{item.source} / {item.status}</p>
+                  <p className="text-xs text-slate-600">{item.error_text}</p>
+                  <p className="mt-1 text-xs text-slate-500">Count: {item.count_24h} | Last: {new Date(item.last_seen_at * 1000).toLocaleString()}</p>
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">Diagnostika ma'lumotlari olinmadi.</p>
+        )}
+      </Section>
+
+      <Section icon={Settings} title="Resume KPI targets">
+        {resumeGoals.isLoading ? (
+          <p className="text-sm text-slate-500">Yuklanmoqda...</p>
+        ) : resumeGoals.data ? (
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <div className={`rounded-xl border p-3 ${resumeGoals.data.creation_time_ok ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"}`}>
+              <p className="text-xs text-slate-600">Median creation time</p>
+              <p className="text-sm font-semibold text-slate-800">{resumeGoals.data.median_creation_minutes} min</p>
+              <p className="text-xs text-slate-500">Target: ≤ {resumeGoals.data.creation_time_target_minutes} min</p>
+            </div>
+            <div className={`rounded-xl border p-3 ${resumeGoals.data.completion_rate_ok ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"}`}>
+              <p className="text-xs text-slate-600">Wizard completion</p>
+              <p className="text-sm font-semibold text-slate-800">{resumeGoals.data.completion_rate}%</p>
+              <p className="text-xs text-slate-500">Target: ≥ {resumeGoals.data.completion_rate_target}%</p>
+            </div>
+            <div className={`rounded-xl border p-3 ${resumeGoals.data.send_success_rate_ok ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"}`}>
+              <p className="text-xs text-slate-600">Telegram send success</p>
+              <p className="text-sm font-semibold text-slate-800">{resumeGoals.data.send_success_rate}%</p>
+              <p className="text-xs text-slate-500">Target: ≥ {resumeGoals.data.send_success_rate_target}%</p>
+            </div>
+            <div className={`rounded-xl border p-3 ${resumeGoals.data.pdf_export_success_rate_ok ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"}`}>
+              <p className="text-xs text-slate-600">PDF export success</p>
+              <p className="text-sm font-semibold text-slate-800">{resumeGoals.data.pdf_export_success_rate}%</p>
+              <p className="text-xs text-slate-500">Target: ≥ {resumeGoals.data.pdf_export_success_rate_target}%</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3 md:col-span-2">
+              <p className="text-xs text-slate-500">Window: {resumeGoals.data.window_hours} soat</p>
+              <p className="text-xs text-slate-500">Opened users: {resumeGoals.data.opened_users} | Completed users: {resumeGoals.data.completed_users}</p>
+              <p className="text-xs text-slate-500">Send attempts: {resumeGoals.data.send_attempts} | PDF export attempts: {resumeGoals.data.pdf_export_attempts}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">KPI ma'lumotlari olinmadi.</p>
         )}
       </Section>
 

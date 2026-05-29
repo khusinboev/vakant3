@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, FileText, Send } from "lucide-react";
+import { AlertCircle, CheckCircle2, Download, FileText, Send } from "lucide-react";
 
 import client from "../api/client";
 
@@ -239,6 +239,17 @@ function loadLocalDraft(): LocalDraft | null {
   }
 }
 
+function triggerFileDownload(blob: Blob, filename: string): void {
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 function makeFingerprint(profile: ResumeProfileData, selectedTemplate: string, accentColor: string): string {
   return JSON.stringify({ profile, selectedTemplate, accentColor });
 }
@@ -378,6 +389,7 @@ export default function ResumeStudioPage() {
   const screenStartMsRef = useRef(typeof performance !== "undefined" ? performance.now() : Date.now());
   const saveStartMsRef = useRef<number | null>(null);
   const sendStartMsRef = useRef<number | null>(null);
+  const exportStartMsRef = useRef<number | null>(null);
   const syncFpRef = useRef<string>("");
   const serverUpdatedAtRef = useRef<number>(0);
   const localDirtyRef = useRef(false);
@@ -670,7 +682,46 @@ export default function ResumeStudioPage() {
     },
   });
 
-  const isBusy = saveMutation.isPending || sendMutation.isPending;
+  const exportMutation = useMutation({
+    retry: false,
+    onMutate: () => {
+      exportStartMsRef.current = typeof performance !== "undefined" ? performance.now() : Date.now();
+    },
+    mutationFn: async (format: "pdf" | "docx") => {
+      await persistProfile(`resume_export_${format}_persist`);
+      const response = await client.post<Blob>(
+        "/resume/export",
+        {
+          format,
+          template_id: selectedTemplate,
+        },
+        { responseType: "blob" },
+      );
+      const header = String(response.headers["content-disposition"] || "");
+      const matched = /filename="?([^";]+)"?/i.exec(header);
+      const filename = matched?.[1] || `resume.${format}`;
+      triggerFileDownload(response.data, filename);
+      return format;
+    },
+    onSuccess: (format) => {
+      const latencyMs = Math.max(
+        0,
+        Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - (exportStartMsRef.current ?? (typeof performance !== "undefined" ? performance.now() : Date.now()))),
+      );
+      setInfo(`${format.toUpperCase()} yuklab olindi.`);
+      trackEvent({ event_name: "export_success", step: "final", meta_json: JSON.stringify({ format, latency_ms: latencyMs }) });
+    },
+    onError: (_error, format) => {
+      const latencyMs = Math.max(
+        0,
+        Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - (exportStartMsRef.current ?? (typeof performance !== "undefined" ? performance.now() : Date.now()))),
+      );
+      setInfo("Exportda xatolik bo'ldi.");
+      trackEvent({ event_name: "export_error", step: "final", meta_json: JSON.stringify({ format, latency_ms: latencyMs }) });
+    },
+  });
+
+  const isBusy = saveMutation.isPending || sendMutation.isPending || exportMutation.isPending;
 
   const resumeCorpus = useMemo(() => {
     const exp = profile.experiences.map((item) => [item.role, item.company, item.description].join(" ")).join(" ");
@@ -1095,6 +1146,25 @@ export default function ResumeStudioPage() {
               <Send size={15} />
               {sendMutation.isPending ? "Yuborilmoqda..." : "Telegramga yuborish"}
             </button>
+
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              <button
+                className="tap-target flex items-center justify-center gap-2 rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
+                disabled={isBusy}
+                onClick={() => exportMutation.mutate("pdf")}
+              >
+                <Download size={15} />
+                {exportMutation.isPending ? "Yuklanmoqda..." : "PDF yuklab olish"}
+              </button>
+              <button
+                className="tap-target flex items-center justify-center gap-2 rounded-2xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
+                disabled={isBusy}
+                onClick={() => exportMutation.mutate("docx")}
+              >
+                <Download size={15} />
+                {exportMutation.isPending ? "Yuklanmoqda..." : "DOCX yuklab olish"}
+              </button>
+            </div>
 
             {Boolean(info) && (
               <p className={`mt-3 flex items-center gap-2 text-sm ${syncStatus === "error" ? "text-red-600" : "text-slate-700"}`}>

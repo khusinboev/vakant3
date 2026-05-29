@@ -5,6 +5,7 @@ import aiosqlite
 import logging
 
 from config import BASE_DIR
+from src.functions.scraping import fetch_osonish_list
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,17 @@ def normalize_osonish_field_id(raw_spec: str) -> int | None:
         return int(val)
 
     return None
+
+
+async def search_vakant(page: int, money: int, yurt: str, specs: str) -> tuple[list, int]:
+    """Backward-compatible search entrypoint used by legacy tests and handlers."""
+    field_id = normalize_osonish_field_id(specs)
+    return await fetch_osonish_list(
+        page=page,
+        salary=money,
+        soato_region=yurt,
+        mmk_group_field_id=field_id,
+    )
 
 
 class functions:

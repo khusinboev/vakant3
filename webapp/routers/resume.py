@@ -1,10 +1,13 @@
 import html
+import io
 import json
 import re
 import time
+import zipfile
+from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from webapp.core.config import get_settings
@@ -41,10 +44,10 @@ class ResumeProfileData(BaseModel):
     location: str = Field(default="", max_length=120)
     website: str = Field(default="", max_length=240)
     summary: str = Field(default="", max_length=2400)
-    experiences: list[ResumeExperienceItem] = Field(default_factory=list, max_items=12)
-    educations: list[ResumeEducationItem] = Field(default_factory=list, max_items=8)
-    skills: list[str] = Field(default_factory=list, max_items=40)
-    languages: list[str] = Field(default_factory=list, max_items=20)
+    experiences: list[ResumeExperienceItem] = Field(default_factory=list, max_length=12)
+    educations: list[ResumeEducationItem] = Field(default_factory=list, max_length=8)
+    skills: list[str] = Field(default_factory=list, max_length=40)
+    languages: list[str] = Field(default_factory=list, max_length=20)
 
 
 class ResumeProfileResponse(BaseModel):
@@ -65,6 +68,8 @@ class ResumeTemplateItem(BaseModel):
     title: str
     description: str
     supports_color: bool = True
+    supports_sidebar: bool = False
+    supports_photo: bool = False
     preview_variant: str = "single"
     palette: list[str] = Field(default_factory=list)
 
@@ -80,6 +85,11 @@ class ResumeSendRequest(BaseModel):
 class ResumeSendResponse(BaseModel):
     ok: bool
     message: str
+
+
+class ResumeExportRequest(BaseModel):
+    format: Literal["pdf", "docx"] = "pdf"
+    template_id: str | None = None
 
 
 class ResumeEventRequest(BaseModel):
@@ -102,6 +112,8 @@ TEMPLATES: dict[str, ResumeTemplateItem] = {
         title="Modern Accent",
         description="Qisqa va zamonaviy blokli uslub.",
         supports_color=True,
+        supports_sidebar=True,
+        supports_photo=True,
         preview_variant="split",
         palette=["#2563eb", "#7c3aed", "#0f766e", "#ea580c", "#334155"],
     ),
@@ -244,6 +256,197 @@ def _render_lines(values: list[str]) -> str:
     return f"<ul>{rows}</ul>"
 
 
+def _build_resume_document(profile: ResumeProfileData) -> dict:
+    contacts = [x for x in [profile.phone, profile.email, profile.location, profile.website] if (x or "").strip()]
+    experiences = [
+        {
+            "title": " / ".join([x for x in [item.role, item.company] if x]) or "Lavozim",
+            "period": " - ".join([x for x in [item.start_date, item.end_date] if x]).strip(" -"),
+            "location": item.location,
+            "description": item.description,
+        }
+        for item in profile.experiences
+    ]
+    educations = [
+        {
+            "title": " / ".join([x for x in [item.school, item.degree] if x]) or "Ta'lim",
+            "period": " - ".join([x for x in [item.start_date, item.end_date] if x]).strip(" -"),
+            "description": item.description,
+        }
+        for item in profile.educations
+    ]
+    return {
+        "name": profile.full_name or "Nomsiz nomzod",
+        "position": profile.position or "Lavozim ko'rsatilmagan",
+        "contacts": contacts,
+        "summary": profile.summary or "Qisqacha ma'lumot kiritilmagan",
+        "experiences": experiences,
+        "educations": educations,
+        "skills": profile.skills,
+        "languages": profile.languages,
+    }
+
+
+def _document_to_lines(doc: dict) -> list[str]:
+    lines: list[str] = []
+    lines.append(str(doc.get("name") or "Nomsiz nomzod"))
+    lines.append(str(doc.get("position") or "Lavozim"))
+    contacts = doc.get("contacts") or []
+    if contacts:
+        lines.append(" | ".join(str(x) for x in contacts))
+    lines.append("")
+    lines.append("QISQACHA")
+    lines.extend(str(doc.get("summary") or "").splitlines() or ["-"])
+    lines.append("")
+    lines.append("TAJRIBA")
+    for item in doc.get("experiences") or []:
+        lines.append(f"- {item.get('title')}")
+        period = " | ".join([x for x in [item.get("location"), item.get("period")] if x])
+        if period:
+            lines.append(f"  {period}")
+        for part in str(item.get("description") or "").splitlines():
+            if part.strip():
+                lines.append(f"  {part.strip()}")
+    lines.append("")
+    lines.append("TA'LIM")
+    for item in doc.get("educations") or []:
+        lines.append(f"- {item.get('title')}")
+        if item.get("period"):
+            lines.append(f"  {item.get('period')}")
+        for part in str(item.get("description") or "").splitlines():
+            if part.strip():
+                lines.append(f"  {part.strip()}")
+    lines.append("")
+    lines.append("KO'NIKMALAR")
+    skills = doc.get("skills") or []
+    lines.append(", ".join(str(x) for x in skills) if skills else "-")
+    lines.append("")
+    lines.append("TILLAR")
+    langs = doc.get("languages") or []
+    lines.append(", ".join(str(x) for x in langs) if langs else "-")
+    return lines
+
+
+def _pdf_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _generate_pdf_bytes(doc: dict, title: str) -> bytes:
+    lines = _document_to_lines(doc)[:90]
+    y_start = 795
+    content_parts = ["BT", "/F1 11 Tf", f"50 {y_start} Td"]
+    for line in lines:
+        content_parts.append(f"({_pdf_escape(line[:140])}) Tj")
+        content_parts.append("T*")
+    content_parts.append("ET")
+    stream = "\n".join(content_parts).encode("latin-1", errors="replace")
+
+    objects: list[bytes] = []
+    objects.append(b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n")
+    objects.append(b"2 0 obj << /Type /Pages /Count 1 /Kids [3 0 R] >> endobj\n")
+    objects.append(b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >> endobj\n")
+    objects.append(f"4 0 obj << /Length {len(stream)} >> stream\n".encode("latin-1") + stream + b"\nendstream endobj\n")
+    objects.append(b"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n")
+
+    result = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(result))
+        result.extend(obj)
+
+    xref_start = len(result)
+    result.extend(f"xref\n0 {len(offsets)}\n".encode("latin-1"))
+    result.extend(b"0000000000 65535 f \n")
+    for off in offsets[1:]:
+        result.extend(f"{off:010d} 00000 n \n".encode("latin-1"))
+
+    result.extend(
+        (
+            "trailer\n"
+            f"<< /Size {len(offsets)} /Root 1 0 R /Info << /Title ({_pdf_escape(title)}) >> >>\n"
+            f"startxref\n{xref_start}\n%%EOF"
+        ).encode("latin-1", errors="replace")
+    )
+    return bytes(result)
+
+
+def _generate_docx_bytes(doc: dict, title: str) -> bytes:
+    def p(text: str) -> str:
+        return f"<w:p><w:r><w:t xml:space='preserve'>{html.escape(text)}</w:t></w:r></w:p>"
+
+    lines = _document_to_lines(doc)
+    body = "".join(p(line) for line in lines)
+    document_xml = (
+        "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>"
+        "<w:document xmlns:w='http://schemas.openxmlformats.org/wordprocessingml/2006/main'>"
+        f"<w:body>{body}<w:sectPr/></w:body></w:document>"
+    )
+    content_types = (
+        "<?xml version='1.0' encoding='UTF-8'?>"
+        "<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'>"
+        "<Default Extension='rels' ContentType='application/vnd.openxmlformats-package.relationships+xml'/>"
+        "<Default Extension='xml' ContentType='application/xml'/>"
+        "<Override PartName='/word/document.xml' ContentType='application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml'/>"
+        "<Override PartName='/docProps/core.xml' ContentType='application/vnd.openxmlformats-package.core-properties+xml'/>"
+        "<Override PartName='/docProps/app.xml' ContentType='application/vnd.openxmlformats-officedocument.extended-properties+xml'/>"
+        "</Types>"
+    )
+    rels = (
+        "<?xml version='1.0' encoding='UTF-8'?>"
+        "<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'>"
+        "<Relationship Id='rId1' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument' Target='word/document.xml'/>"
+        "<Relationship Id='rId2' Type='http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties' Target='docProps/core.xml'/>"
+        "<Relationship Id='rId3' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties' Target='docProps/app.xml'/>"
+        "</Relationships>"
+    )
+    core_xml = (
+        "<?xml version='1.0' encoding='UTF-8'?>"
+        "<cp:coreProperties xmlns:cp='http://schemas.openxmlformats.org/package/2006/metadata/core-properties' "
+        "xmlns:dc='http://purl.org/dc/elements/1.1/' xmlns:dcterms='http://purl.org/dc/terms/' "
+        "xmlns:dcmitype='http://purl.org/dc/dcmitype/' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'>"
+        f"<dc:title>{html.escape(title)}</dc:title><dc:creator>Vakant3</dc:creator></cp:coreProperties>"
+    )
+    app_xml = (
+        "<?xml version='1.0' encoding='UTF-8'?>"
+        "<Properties xmlns='http://schemas.openxmlformats.org/officeDocument/2006/extended-properties' "
+        "xmlns:vt='http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes'>"
+        "<Application>Vakant3</Application></Properties>"
+    )
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("word/document.xml", document_xml)
+        zf.writestr("docProps/core.xml", core_xml)
+        zf.writestr("docProps/app.xml", app_xml)
+    return buffer.getvalue()
+
+
+async def _create_export_row(db, user_id: int, fmt: str, template_id: str, status: str = "pending") -> int:
+    now = int(time.time())
+    cursor = await db.execute(
+        """
+        INSERT INTO resume_exports (user_id, fmt, template_id, status, error_text, created_at, completed_at)
+        VALUES (?, ?, ?, ?, NULL, ?, NULL)
+        """,
+        (user_id, fmt, template_id, status, now),
+    )
+    return int(cursor.lastrowid)
+
+
+async def _complete_export_row(db, export_id: int, status: str, error_text: str | None = None) -> None:
+    now = int(time.time())
+    await db.execute(
+        """
+        UPDATE resume_exports
+        SET status = ?, error_text = ?, completed_at = ?
+        WHERE id = ?
+        """,
+        (status, error_text, now, export_id),
+    )
+
+
 def _render_experience_blocks(values: list[ResumeExperienceItem]) -> str:
     if not values:
         return "<p class='muted'>Tajriba kiritilmagan</p>"
@@ -290,6 +493,7 @@ def _render_education_blocks(values: list[ResumeEducationItem]) -> str:
 
 
 def _render_resume_html(profile: ResumeProfileData, template_id: str, accent_color: str) -> str:
+    doc = _build_resume_document(profile)
     palette = {
         "clean": {"accent": "#0f766e", "bg": "#f8fafc"},
         "modern": {"accent": "#2563eb", "bg": "#f8fafc"},
@@ -298,11 +502,7 @@ def _render_resume_html(profile: ResumeProfileData, template_id: str, accent_col
 
     palette["accent"] = accent_color
 
-    contact_parts = [
-        part.strip()
-        for part in [profile.phone, profile.email, profile.location, profile.website]
-        if part and part.strip()
-    ]
+    contact_parts = [str(part).strip() for part in (doc.get("contacts") or []) if str(part).strip()]
     contact_line = " | ".join(_safe_text(part) for part in contact_parts) or "Kontakt kiritilmagan"
 
     return f"""
@@ -311,7 +511,7 @@ def _render_resume_html(profile: ResumeProfileData, template_id: str, accent_col
 <head>
   <meta charset=\"utf-8\" />
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <title>Resume - {_safe_text(profile.full_name)}</title>
+    <title>Resume - {_safe_text(str(doc.get('name') or profile.full_name))}</title>
   <style>
     body {{ margin: 0; font-family: Arial, sans-serif; background: {palette['bg']}; color: #0f172a; }}
     .page {{ max-width: 850px; margin: 24px auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; }}
@@ -332,14 +532,14 @@ def _render_resume_html(profile: ResumeProfileData, template_id: str, accent_col
 <body>
   <main class=\"page\">
     <header class=\"head\">
-      <h1>{_safe_text(profile.full_name or 'Nomsiz nomzod')}</h1>
-      <p>{_safe_text(profile.position or 'Lavozim ko\'rsatilmagan')}</p>
+    <h1>{_safe_text(str(doc.get('name') or 'Nomsiz nomzod'))}</h1>
+    <p>{_safe_text(str(doc.get('position') or 'Lavozim ko\'rsatilmagan'))}</p>
       <p>{contact_line}</p>
     </header>
 
     <section class=\"section\">
       <h2>Qisqacha</h2>
-      <p class=\"block\">{_safe_text(profile.summary or 'Qisqacha ma\'lumot kiritilmagan')}</p>
+    <p class=\"block\">{_safe_text(str(doc.get('summary') or 'Qisqacha ma\'lumot kiritilmagan'))}</p>
     </section>
 
     <section class=\"section\">
@@ -571,17 +771,17 @@ async def send_resume_to_telegram(payload: ResumeSendRequest, request: Request, 
     row = await _load_resume_row(db, user_id)
     if not row:
         profile = _default_profile(str(user.get("first_name") or ""))
-        accent_color = _normalize_color(None, template_id)
     else:
         try:
             raw_payload = json.loads(str(row["profile_json"] or "{}"))
         except Exception:
             raw_payload = {}
         profile = _normalize_profile_from_payload(raw_payload, str(user.get("first_name") or ""))
-        accent_color = _normalize_color(raw_payload.get("accent_color") if isinstance(raw_payload, dict) else None, template_id)
 
-    rendered = _render_resume_html(profile, template_id, accent_color)
-    file_name = f"resume_{template_id}_{user_id}.html"
+    doc = _build_resume_document(profile)
+    file_name = f"resume_{template_id}_{user_id}.pdf"
+    export_id = await _create_export_row(db, user_id, "pdf", template_id, "pending")
+    await db.commit()
 
     settings = get_settings()
     if not settings.TOKEN:
@@ -589,22 +789,82 @@ async def send_resume_to_telegram(payload: ResumeSendRequest, request: Request, 
 
     endpoint = f"https://api.telegram.org/bot{settings.TOKEN}/sendDocument"
     caption = "Resume tayyor. Faylni yuklab olib ishlatishingiz mumkin."
+    file_bytes = _generate_pdf_bytes(doc, str(doc.get("name") or "Resume"))
 
-    async with httpx.AsyncClient(timeout=25) as client:
-        response = await client.post(
-            endpoint,
-            data={"chat_id": str(user_id), "caption": caption},
-            files={"document": (file_name, rendered.encode("utf-8"), "text/html")},
-        )
+    response = None
+    for _ in range(2):
+        async with httpx.AsyncClient(timeout=25) as client:
+            response = await client.post(
+                endpoint,
+                data={"chat_id": str(user_id), "caption": caption},
+                files={"document": (file_name, file_bytes, "application/pdf")},
+            )
+        if response.status_code < 500:
+            break
 
-    if response.status_code >= 400:
+    if response is None or response.status_code >= 400:
+        await _complete_export_row(db, export_id, "failed", "telegram_http_error")
+        await db.commit()
         raise HTTPException(status_code=502, detail="Telegramga yuborishda xatolik")
 
     body = response.json() if response.content else {}
     if not body.get("ok"):
+        await _complete_export_row(db, export_id, "failed", "telegram_api_error")
+        await db.commit()
         raise HTTPException(status_code=502, detail="Telegram API xatolik qaytardi")
 
+    await _complete_export_row(db, export_id, "completed")
+    await db.commit()
+
     return ResumeSendResponse(ok=True, message="Resume Telegramga yuborildi")
+
+
+@router.post("/export")
+@limiter.limit("20/minute")
+async def export_resume(payload: ResumeExportRequest, request: Request, db=Depends(get_db)) -> Response:
+    user = await _resolve_user_from_request(request, db)
+    user_id = int(user["user_id"])
+    row = await _load_resume_row(db, user_id)
+
+    template_id = (payload.template_id or "").strip().lower() or (str(row["selected_template"] or "clean") if row else "clean")
+    if template_id not in TEMPLATES:
+        raise HTTPException(status_code=400, detail="Unknown template")
+
+    if not row:
+        profile = _default_profile(str(user.get("first_name") or ""))
+    else:
+        try:
+            raw_payload = json.loads(str(row["profile_json"] or "{}"))
+        except Exception:
+            raw_payload = {}
+        profile = _normalize_profile_from_payload(raw_payload, str(user.get("first_name") or ""))
+
+    doc = _build_resume_document(profile)
+    export_id = await _create_export_row(db, user_id, payload.format, template_id, "pending")
+    await db.commit()
+
+    try:
+        if payload.format == "pdf":
+            file_bytes = _generate_pdf_bytes(doc, str(doc.get("name") or "Resume"))
+            filename = f"resume_{template_id}_{user_id}.pdf"
+            content_type = "application/pdf"
+        else:
+            file_bytes = _generate_docx_bytes(doc, str(doc.get("name") or "Resume"))
+            filename = f"resume_{template_id}_{user_id}.docx"
+            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    except Exception:
+        await _complete_export_row(db, export_id, "failed", "export_generation_error")
+        await db.commit()
+        raise HTTPException(status_code=500, detail="Export generation failed")
+
+    await _complete_export_row(db, export_id, "completed")
+    await db.commit()
+
+    return Response(
+        content=file_bytes,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/events", response_model=ResumeSendResponse)

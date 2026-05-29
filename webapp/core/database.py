@@ -118,6 +118,26 @@ async def init_db() -> None:
         )
         await conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS resume_exports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                fmt TEXT NOT NULL,
+                template_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error_text TEXT,
+                created_at INTEGER NOT NULL,
+                completed_at INTEGER
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_resume_exports_user_created ON resume_exports(user_id, created_at)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_resume_exports_status_created ON resume_exports(status, created_at)"
+        )
+        await conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS webapp_admin_settings (
                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                 auto_post_enabled INTEGER NOT NULL DEFAULT 0,
@@ -128,21 +148,29 @@ async def init_db() -> None:
                 next_auto_post_ts INTEGER NOT NULL DEFAULT 0,
                 pro_price INTEGER NOT NULL DEFAULT 10000,
                 referral_reward INTEGER NOT NULL DEFAULT 2000,
-                pro_min_salary INTEGER NOT NULL DEFAULT 8000000
+                pro_min_salary INTEGER NOT NULL DEFAULT 8000000,
+                resume_target_creation_minutes REAL NOT NULL DEFAULT 8,
+                resume_target_completion_rate REAL NOT NULL DEFAULT 60,
+                resume_target_send_success_rate REAL NOT NULL DEFAULT 98,
+                resume_target_export_success_rate REAL NOT NULL DEFAULT 99
             )
             """
         )
         # Migrate existing rows — add missing columns if not present
         cursor = await conn.execute("PRAGMA table_info(webapp_admin_settings)")
         admin_cols = {row[1] for row in await cursor.fetchall()}
-        for col, default in [
-            ("pro_price", 10000),
-            ("referral_reward", 2000),
-            ("pro_min_salary", 8000000),
+        for col, default, col_type in [
+            ("pro_price", 10000, "INTEGER"),
+            ("referral_reward", 2000, "INTEGER"),
+            ("pro_min_salary", 8000000, "INTEGER"),
+            ("resume_target_creation_minutes", 8, "REAL"),
+            ("resume_target_completion_rate", 60, "REAL"),
+            ("resume_target_send_success_rate", 98, "REAL"),
+            ("resume_target_export_success_rate", 99, "REAL"),
         ]:
             if col not in admin_cols:
                 await conn.execute(
-                    f"ALTER TABLE webapp_admin_settings ADD COLUMN {col} INTEGER NOT NULL DEFAULT {default}"
+                    f"ALTER TABLE webapp_admin_settings ADD COLUMN {col} {col_type} NOT NULL DEFAULT {default}"
                 )
         await conn.execute(
             """
@@ -156,9 +184,13 @@ async def init_db() -> None:
                 next_auto_post_ts,
                 pro_price,
                 referral_reward,
-                pro_min_salary
+                pro_min_salary,
+                resume_target_creation_minutes,
+                resume_target_completion_rate,
+                resume_target_send_success_rate,
+                resume_target_export_success_rate
             )
-            VALUES (1, 0, '', 8000000, 0, 0, 0, 10000, 2000, 8000000)
+            VALUES (1, 0, '', 8000000, 0, 0, 0, 10000, 2000, 8000000, 8, 60, 98, 99)
             """
         )
         await conn.commit()
