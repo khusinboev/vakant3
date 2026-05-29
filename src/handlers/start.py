@@ -7,7 +7,6 @@ from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from config import BASE_DIR, bot, ADMIN_IDS
-from src.buttons.buttuns import build_user_menu, build_webapp_url
 from src.functions.functions import functions
 from src.functions.referral_gate import get_referral_gate_state, referral_gate_message
 from src.functions.vacancy_format import format_vacancy_message_html
@@ -16,33 +15,17 @@ from src.functions.scraping import fetch_osonish_detail
 router = Router()
 
 
-def build_webapp_shortcut_keyboard(url: str, title: str) -> InlineKeyboardMarkup:
+def build_main_webapp_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=title, web_app=WebAppInfo(url=url))],
+            [
+                InlineKeyboardButton(text="💼 Ish qidirish", web_app=WebAppInfo(url="https://abitur24.uz/app")),
+                InlineKeyboardButton(text="👤 Profil", web_app=WebAppInfo(url="https://abitur24.uz/app?go=profile")),
+            ],
+            [
+                InlineKeyboardButton(text="🗂 Saqlanganlar", web_app=WebAppInfo(url="https://abitur24.uz/app?go=saves")),
+            ],
         ]
-    )
-
-
-async def send_webapp_shortcut(message: Message, *, url: str, title: str, caption: str) -> None:
-    user_id = message.from_user.id
-    gate_state = await get_referral_gate_state(user_id)
-    if not bool(gate_state.get("unlocked")):
-        await message.answer(referral_gate_message(gate_state))
-        return
-
-    if not await functions.check_on_start(user_id, bot):
-        join_keyboard = await build_channel_keyboard()
-        if join_keyboard:
-            await message.answer(
-                "Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:",
-                reply_markup=join_keyboard,
-            )
-        return
-
-    await message.answer(
-        caption,
-        reply_markup=build_webapp_shortcut_keyboard(url, title),
     )
 
 
@@ -150,7 +133,7 @@ async def welcome(message: Message):
         await message.answer(
             f"Assalomu alaykum, {message.from_user.first_name}!\n"
             f"Botimizga xush kelibsiz. Kerakli bo'limni tanlang!",
-            reply_markup=build_user_menu(user_id),
+            reply_markup=build_main_webapp_keyboard(),
         )
     else:
         join_keyboard = await build_channel_keyboard()
@@ -164,7 +147,7 @@ async def welcome(message: Message):
             await message.answer(
                 f"Assalomu alaykum, {message.from_user.first_name}!\n"
                 f"Botimizga xush kelibsiz. Kerakli bo'limni tanlang!",
-                reply_markup=build_user_menu(user_id)
+                reply_markup=build_main_webapp_keyboard()
             )
 
 
@@ -227,7 +210,7 @@ async def check_subscription(call: CallbackQuery):
         await call.message.answer(
             f"Xush kelibsiz, {call.from_user.first_name}!\n"
             f"Endi botdan to'liq foydalanishingiz mumkin.",
-            reply_markup=build_user_menu(user_id)
+            reply_markup=build_main_webapp_keyboard()
         )
     else:
         await call.answer(
@@ -274,34 +257,4 @@ async def diagnose_channels(message: Message):
 async def coder(message: Message):
     await message.reply(
         "Bot dasturchisi @coder_admin_py\n\nPowered by @coder_admin_py"
-    )
-
-
-@router.message(F.text == "💼 Ish qidirish")
-async def open_webapp_jobs(message: Message):
-    await send_webapp_shortcut(
-        message,
-        url=build_webapp_url(message.from_user.id, "home"),
-        title="💼 Ish qidirish bo'limini ochish",
-        caption="Quyidagi tugma orqali Ish qidirish bo'limini oching:",
-    )
-
-
-@router.message(F.text == "👤 Profil")
-async def open_webapp_profile(message: Message):
-    await send_webapp_shortcut(
-        message,
-        url=build_webapp_url(message.from_user.id, "profile"),
-        title="👤 Profil bo'limini ochish",
-        caption="Quyidagi tugma orqali Profil bo'limini oching:",
-    )
-
-
-@router.message(F.text == "🗂 Saqlanganlar")
-async def open_webapp_saves(message: Message):
-    await send_webapp_shortcut(
-        message,
-        url=build_webapp_url(message.from_user.id, "saves"),
-        title="🗂 Saqlanganlar bo'limini ochish",
-        caption="Quyidagi tugma orqali Saqlanganlar bo'limini oching:",
     )
