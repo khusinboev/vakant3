@@ -10,40 +10,41 @@ from pydantic import BaseModel, Field
 from webapp.core.config import get_settings
 from webapp.core.database import get_db
 from webapp.core.identity import resolve_user_id_from_init_data
+from webapp.core.limiter import limiter
 from webapp.core.session import get_optional_current_user
 
 router = APIRouter(prefix="/resume", tags=["resume"])
 
 
 class ResumeExperienceItem(BaseModel):
-    role: str = ""
-    company: str = ""
-    start_date: str = ""
-    end_date: str = ""
-    location: str = ""
-    description: str = ""
+    role: str = Field(default="", max_length=120)
+    company: str = Field(default="", max_length=120)
+    start_date: str = Field(default="", max_length=30)
+    end_date: str = Field(default="", max_length=30)
+    location: str = Field(default="", max_length=120)
+    description: str = Field(default="", max_length=2400)
 
 
 class ResumeEducationItem(BaseModel):
-    school: str = ""
-    degree: str = ""
-    start_date: str = ""
-    end_date: str = ""
-    description: str = ""
+    school: str = Field(default="", max_length=160)
+    degree: str = Field(default="", max_length=160)
+    start_date: str = Field(default="", max_length=30)
+    end_date: str = Field(default="", max_length=30)
+    description: str = Field(default="", max_length=1600)
 
 
 class ResumeProfileData(BaseModel):
-    full_name: str = ""
-    position: str = ""
-    phone: str = ""
-    email: str = ""
-    location: str = ""
-    website: str = ""
-    summary: str = ""
-    experiences: list[ResumeExperienceItem] = Field(default_factory=list)
-    educations: list[ResumeEducationItem] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list)
-    languages: list[str] = Field(default_factory=list)
+    full_name: str = Field(default="", max_length=120)
+    position: str = Field(default="", max_length=120)
+    phone: str = Field(default="", max_length=80)
+    email: str = Field(default="", max_length=120)
+    location: str = Field(default="", max_length=120)
+    website: str = Field(default="", max_length=240)
+    summary: str = Field(default="", max_length=2400)
+    experiences: list[ResumeExperienceItem] = Field(default_factory=list, max_items=12)
+    educations: list[ResumeEducationItem] = Field(default_factory=list, max_items=8)
+    skills: list[str] = Field(default_factory=list, max_items=40)
+    languages: list[str] = Field(default_factory=list, max_items=20)
 
 
 class ResumeProfileResponse(BaseModel):
@@ -79,6 +80,12 @@ class ResumeSendRequest(BaseModel):
 class ResumeSendResponse(BaseModel):
     ok: bool
     message: str
+
+
+class ResumeEventRequest(BaseModel):
+    event_name: str = Field(min_length=2, max_length=64)
+    step: str | None = Field(default=None, max_length=64)
+    meta_json: str | None = Field(default=None, max_length=2000)
 
 
 TEMPLATES: dict[str, ResumeTemplateItem] = {
@@ -417,6 +424,7 @@ async def get_templates() -> ResumeTemplatesResponse:
 
 
 @router.get("/profile", response_model=ResumeProfileResponse)
+@limiter.limit("120/minute")
 async def get_profile(request: Request, db=Depends(get_db)) -> ResumeProfileResponse:
     user = await _resolve_user_from_request(request, db)
     user_id = int(user["user_id"])
@@ -448,6 +456,7 @@ async def get_profile(request: Request, db=Depends(get_db)) -> ResumeProfileResp
 
 
 @router.put("/profile", response_model=ResumeProfileResponse)
+@limiter.limit("30/minute")
 async def put_profile(payload: ResumeProfileUpsertRequest, request: Request, db=Depends(get_db)) -> ResumeProfileResponse:
     user = await _resolve_user_from_request(request, db)
     user_id = int(user["user_id"])
@@ -502,6 +511,7 @@ async def put_profile(payload: ResumeProfileUpsertRequest, request: Request, db=
 
 
 @router.post("/send-telegram", response_model=ResumeSendResponse)
+@limiter.limit("10/minute")
 async def send_resume_to_telegram(payload: ResumeSendRequest, request: Request, db=Depends(get_db)) -> ResumeSendResponse:
     user = await _resolve_user_from_request(request, db)
     user_id = int(user["user_id"])
@@ -546,3 +556,26 @@ async def send_resume_to_telegram(payload: ResumeSendRequest, request: Request, 
         raise HTTPException(status_code=502, detail="Telegram API xatolik qaytardi")
 
     return ResumeSendResponse(ok=True, message="Resume Telegramga yuborildi")
+
+
+@router.post("/events", response_model=ResumeSendResponse)
+@limiter.limit("60/minute")
+async def track_resume_event(payload: ResumeEventRequest, request: Request, db=Depends(get_db)) -> ResumeSendResponse:
+    user = await _resolve_user_from_request(request, db)
+    user_id = int(user["user_id"])
+    now = int(time.time())
+    await db.execute(
+        """
+        INSERT INTO resume_events (user_id, event_name, step, meta_json, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            payload.event_name.strip().lower(),
+            (payload.step or "").strip().lower() or None,
+            payload.meta_json,
+            now,
+        ),
+    )
+    await db.commit()
+    return ResumeSendResponse(ok=True, message="Event logged")

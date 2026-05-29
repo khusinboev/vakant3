@@ -86,6 +86,24 @@ async def init_db() -> None:
         )
         await conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS resume_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                event_name TEXT NOT NULL,
+                step TEXT,
+                meta_json TEXT,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_resume_events_user_created ON resume_events(user_id, created_at)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_resume_events_name_created ON resume_events(event_name, created_at)"
+        )
+        await conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS webapp_admin_settings (
                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                 auto_post_enabled INTEGER NOT NULL DEFAULT 0,

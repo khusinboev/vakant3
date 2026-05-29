@@ -36,6 +36,15 @@ class AdminStateResponse(BaseModel):
     pro_min_salary: int
 
 
+class AdminResumeMetricsResponse(BaseModel):
+    opened_24h: int
+    save_success_24h: int
+    save_error_24h: int
+    send_success_24h: int
+    send_error_24h: int
+    unique_users_24h: int
+
+
 class AdminSettingsPatch(BaseModel):
     auto_post_enabled: bool | None = None
     auto_post_channel: str | None = None
@@ -119,3 +128,34 @@ async def patch_admin_state(payload: AdminSettingsPatch, request: Request, db=De
 
     await db.commit()
     return await get_admin_state(request, db)
+
+
+@router.get("/resume-metrics", response_model=AdminResumeMetricsResponse)
+async def get_resume_metrics(request: Request, db=Depends(get_db)) -> AdminResumeMetricsResponse:
+    _require_admin(request)
+    import time
+
+    since = int(time.time()) - 24 * 60 * 60
+    cursor = await db.execute(
+        """
+        SELECT
+            SUM(CASE WHEN event_name = 'builder_opened' THEN 1 ELSE 0 END) AS opened_24h,
+            SUM(CASE WHEN event_name = 'save_success' THEN 1 ELSE 0 END) AS save_success_24h,
+            SUM(CASE WHEN event_name = 'save_error' THEN 1 ELSE 0 END) AS save_error_24h,
+            SUM(CASE WHEN event_name = 'send_success' THEN 1 ELSE 0 END) AS send_success_24h,
+            SUM(CASE WHEN event_name = 'send_error' THEN 1 ELSE 0 END) AS send_error_24h,
+            COUNT(DISTINCT user_id) AS unique_users_24h
+        FROM resume_events
+        WHERE created_at >= ?
+        """,
+        (since,),
+    )
+    row = await cursor.fetchone()
+    return AdminResumeMetricsResponse(
+        opened_24h=int((row["opened_24h"] if row else 0) or 0),
+        save_success_24h=int((row["save_success_24h"] if row else 0) or 0),
+        save_error_24h=int((row["save_error_24h"] if row else 0) or 0),
+        send_success_24h=int((row["send_success_24h"] if row else 0) or 0),
+        send_error_24h=int((row["send_error_24h"] if row else 0) or 0),
+        unique_users_24h=int((row["unique_users_24h"] if row else 0) or 0),
+    )

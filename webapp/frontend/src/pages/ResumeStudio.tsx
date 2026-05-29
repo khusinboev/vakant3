@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Send } from "lucide-react";
 
@@ -40,6 +40,12 @@ type ResumeProfileResponse = {
   selected_template: string;
   accent_color: string;
   updated_at: number | null;
+};
+
+type ResumeEventPayload = {
+  event_name: string;
+  step?: string;
+  meta_json?: string;
 };
 
 const EMPTY_PROFILE: ResumeProfileData = {
@@ -100,11 +106,16 @@ function normalizeProfile(input: Partial<ResumeProfileData> | null | undefined):
 
 export default function ResumeStudioPage() {
   const queryClient = useQueryClient();
+  const openedTrackedRef = useRef(false);
 
   const [profile, setProfile] = useState<ResumeProfileData>(EMPTY_PROFILE);
   const [experienceText, setExperienceText] = useState("");
   const [educationText, setEducationText] = useState("");
   const [info, setInfo] = useState("");
+
+  const trackEvent = (payload: ResumeEventPayload) => {
+    void client.post("/resume/events", payload).catch(() => undefined);
+  };
 
   useEffect(() => {
     const onFocusIn = (event: FocusEvent) => {
@@ -137,6 +148,10 @@ export default function ResumeStudioPage() {
     setProfile(normalized);
     setExperienceText(normalized.experiences.map((x) => x.description).filter(Boolean).join("\n\n"));
     setEducationText(normalized.educations.map((x) => x.description).filter(Boolean).join("\n\n"));
+    if (!openedTrackedRef.current) {
+      trackEvent({ event_name: "builder_opened", step: "basic" });
+      openedTrackedRef.current = true;
+    }
   }, [profileQuery.data]);
 
   const buildPayload = () => ({
@@ -180,9 +195,11 @@ export default function ResumeStudioPage() {
     onSuccess: (data) => {
       setInfo("Ma'lumotlar saqlandi.");
       queryClient.setQueryData(["resume", "profile"], data);
+      trackEvent({ event_name: "save_success", step: "basic" });
     },
     onError: () => {
       setInfo("Saqlashda xatolik bo'ldi.");
+      trackEvent({ event_name: "save_error", step: "basic" });
     },
   });
 
@@ -197,9 +214,11 @@ export default function ResumeStudioPage() {
     onSuccess: (data) => {
       setInfo(data.message || "Resume Telegramga yuborildi.");
       queryClient.invalidateQueries({ queryKey: ["resume", "profile"] });
+      trackEvent({ event_name: "send_success", step: "final" });
     },
     onError: () => {
       setInfo("Yuborishda xatolik bo'ldi.");
+      trackEvent({ event_name: "send_error", step: "final" });
     },
   });
 

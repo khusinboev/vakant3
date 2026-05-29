@@ -16,6 +16,15 @@ type AdminState = {
   pro_min_salary: number;
 };
 
+type ResumeMetrics = {
+  opened_24h: number;
+  save_success_24h: number;
+  save_error_24h: number;
+  send_success_24h: number;
+  send_error_24h: number;
+  unique_users_24h: number;
+};
+
 // ─── Setting input: placeholder shows current value, type to override ────────
 function SettingInput({
   label,
@@ -114,6 +123,15 @@ export default function Admin() {
   const [resetUserId, setResetUserId] = useState("");
   const [resetMsg, setResetMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
+
+  const resumeMetrics = useQuery({
+    queryKey: ["admin", "resume-metrics"],
+    queryFn: async () => {
+      const { data } = await client.get<ResumeMetrics>("/admin/resume-metrics");
+      return data;
+    },
+    retry: false,
+  });
 
   const patch = useMutation({
     mutationFn: async (payload: Partial<AdminState>) => {
@@ -336,6 +354,41 @@ export default function Admin() {
             </div>
           )}
         </div>
+      </Section>
+
+      <Section icon={Settings} title="Resume metrikalari (24 soat)">
+        {resumeMetrics.isLoading ? (
+          <p className="text-sm text-slate-500">Yuklanmoqda...</p>
+        ) : resumeMetrics.data ? (
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">Builder ochilgan</p>
+              <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.opened_24h}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">Save success</p>
+              <p className="mt-1 text-lg font-semibold text-emerald-700">{resumeMetrics.data.save_success_24h}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">Save error</p>
+              <p className="mt-1 text-lg font-semibold text-red-600">{resumeMetrics.data.save_error_24h}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">Send success</p>
+              <p className="mt-1 text-lg font-semibold text-emerald-700">{resumeMetrics.data.send_success_24h}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">Send error</p>
+              <p className="mt-1 text-lg font-semibold text-red-600">{resumeMetrics.data.send_error_24h}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">Aktiv user</p>
+              <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.unique_users_24h}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">Metrikalar olinmadi.</p>
+        )}
       </Section>
 
       {saving && <p className="text-center text-xs text-slate-400">Saqlanmoqda...</p>}
