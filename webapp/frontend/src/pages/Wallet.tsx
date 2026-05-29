@@ -140,26 +140,24 @@ export default function WalletPage() {
               Do'stlaringizni taklif qiling. Har bir do'stingiz botga qo'shilganda hisobingizga <strong>{fmt(w.referral_reward)} so'm</strong> tushadi.
             </p>
             {refLink && (
-              <div className="flex gap-2 mb-3">
-                <div className="flex-1 truncate rounded-lg bg-white px-3 py-2 text-xs text-slate-600 border border-emerald-200 font-mono">
-                  {refLink}
-                </div>
+              <div className="mb-3 flex gap-2">
+                <button
+                  className="tap-target flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+                  onClick={copyRef}
+                  title={refLink}
+                >
+                  <Link size={14} className="shrink-0 text-emerald-700" />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{refLink}</span>
+                  <span className="shrink-0 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Nusxa</span>
+                </button>
                 <button
                   className="tap-target shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white flex items-center gap-1 hover:bg-emerald-700"
-                  onClick={copyRef}
+                  onClick={() => shareRefLink(refLink)}
                 >
-                  <Link size={14} />
-                  Nusxa
+                  📤 Ulash
                 </button>
               </div>
             )}
-            <button
-              className="tap-target w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white flex items-center justify-center gap-2 hover:bg-emerald-700"
-              onClick={() => refLink && shareRefLink(refLink)}
-            >
-              <Link size={15} />
-              📤 Telegram orqali ulashish
-            </button>
             <p className="text-xs text-emerald-700 mt-2 text-center">
               ✓ {fmt(w.pro_price)} so'm to'plamsa, Pro tarifni avtomatik yoqaman
             </p>
@@ -205,26 +203,24 @@ export default function WalletPage() {
               Har bir taklif qilgan do'stingiz uchun <strong>{fmt(w.referral_reward)} so'm</strong> qazanin.
             </p>
             {refLink && (
-              <div className="flex gap-2 mb-3">
-                <div className="flex-1 truncate rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 border border-slate-200 font-mono">
-                  {refLink}
-                </div>
+              <div className="mb-3 flex gap-2">
+                <button
+                  className="tap-target flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700"
+                  onClick={copyRef}
+                  title={refLink}
+                >
+                  <Link size={14} className="shrink-0 text-emerald-700" />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{refLink}</span>
+                  <span className="shrink-0 rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Nusxa</span>
+                </button>
                 <button
                   className="tap-target shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white flex items-center gap-1"
-                  onClick={copyRef}
+                  onClick={() => shareRefLink(refLink)}
                 >
-                  <Link size={14} />
-                  Nusxa
+                  📤 Ulash
                 </button>
               </div>
             )}
-            <button
-              className="tap-target w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white flex items-center justify-center gap-2"
-              onClick={() => refLink && shareRefLink(refLink)}
-            >
-              <Link size={15} />
-              📤 Ulashish
-            </button>
           </section>
         </>
       )}

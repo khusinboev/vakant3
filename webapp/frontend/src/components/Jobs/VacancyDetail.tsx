@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Lock } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 type Props = {
   open: boolean;
@@ -20,6 +21,7 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 }
 
 export default function VacancyDetail({ open, onClose, data, isLoading, isLocked = false }: Props) {
+  const navigate = useNavigate();
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState("");
   if (!open) return null;
@@ -126,9 +128,9 @@ export default function VacancyDetail({ open, onClose, data, isLoading, isLocked
         }
         tg?.close?.();
       } else {
-        // Navigate to wallet
+        // Open wallet page for Pro upgrade flow.
         onClose();
-        window.location.hash = "/wallet";
+        navigate("/wallet");
       }
     } catch (err: unknown) {
       const msg = "Xatolik yuz berdi.";
