@@ -106,7 +106,7 @@ export default function App() {
         <Route path="/saves" element={<Layout><Saves /></Layout>} />
         <Route path="/profile" element={<Layout><Profile /></Layout>} />
         <Route path="/hub" element={<Layout><Hub /></Layout>} />
-        <Route path="/hub/resume" element={<Layout><ResumeStudio /></Layout>} />
+        <Route path="/hub/resume" element={<ResumeStudio />} />
         <Route path="/wallet" element={<Layout><Wallet /></Layout>} />
         <Route path="/admin" element={<Layout><Admin /></Layout>} />
         <Route path="/referral" element={<Layout><Referral /></Layout>} />

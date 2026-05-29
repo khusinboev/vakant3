@@ -5,6 +5,7 @@ import {
   Briefcase,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -376,23 +377,74 @@ const SELECT_CLS =
   "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm " +
   "focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400 transition-all";
 
-function YearSelect({
-  value, onChange, withCurrent = false, placeholder = "Yil tanlang",
+const MONTHS = [
+  "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
+  "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr",
+];
+
+function StyledSelect({
+  children, value, onChange, disabled, className,
 }: {
-  value: string; onChange: (v: string) => void; withCurrent?: boolean; placeholder?: string;
+  children: React.ReactNode;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  disabled?: boolean;
+  className?: string;
 }) {
   return (
-    <select
-      className={SELECT_CLS}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value="">{placeholder}</option>
-      {withCurrent && <option value="Hozir">Hozir (davom etmoqda)</option>}
-      {YEARS.map((y) => (
-        <option key={y} value={y}>{y}</option>
-      ))}
-    </select>
+    <div className="relative">
+      <select
+        className={`${SELECT_CLS} appearance-none pr-8 ${disabled ? "opacity-40 cursor-not-allowed bg-slate-50" : ""} ${className ?? ""}`}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+      >
+        {children}
+      </select>
+      <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
+    </div>
+  );
+}
+
+function MonthYearSelect({
+  value, onChange, withCurrent = false,
+}: {
+  value: string; onChange: (v: string) => void; withCurrent?: boolean;
+}) {
+  const isCurrent = value === "Hozir";
+  const parts    = isCurrent ? [] : (value || "").split("/");
+  const selMonth = parts[0] ?? "";
+  const selYear  = parts[1] ?? "";
+
+  const update = (m: string, y: string) => {
+    if (y === "current") { onChange("Hozir"); return; }
+    if (!m && !y)        { onChange(""); return; }
+    onChange(m && y ? `${m}/${y}` : y || "");
+  };
+
+  return (
+    <div className="grid grid-cols-[5fr_6fr] gap-2">
+      <StyledSelect
+        value={isCurrent ? "" : selMonth}
+        onChange={(e) => update(e.target.value, isCurrent ? "" : selYear)}
+        disabled={isCurrent}
+      >
+        <option value="">Oy</option>
+        {MONTHS.map((m, i) => (
+          <option key={i} value={String(i + 1).padStart(2, "0")}>{m}</option>
+        ))}
+      </StyledSelect>
+      <StyledSelect
+        value={isCurrent ? "current" : selYear}
+        onChange={(e) => update(isCurrent ? "" : selMonth, e.target.value)}
+      >
+        <option value="">Yil</option>
+        {withCurrent && <option value="current">— Hozir —</option>}
+        {YEARS.map((y) => (
+          <option key={y} value={y}>{y}</option>
+        ))}
+      </StyledSelect>
+    </div>
   );
 }
 
@@ -1054,7 +1106,7 @@ export default function ResumeStudioPage() {
     syncStatus === "error"  ? "Xatolik"        : "Kutish";
 
   return (
-    <div className="flex flex-col bg-slate-50" style={{ minHeight: "var(--app-viewport-height, 100dvh)" }}>
+    <div className="flex flex-col bg-slate-50 overflow-hidden" style={{ height: "var(--app-viewport-height, 100dvh)" }}>
 
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 shrink-0 bg-white border-b border-slate-200 shadow-sm">
@@ -1122,7 +1174,7 @@ export default function ResumeStudioPage() {
       )}
 
       {/* ── CONTENT ──────────────────────────────────────────────────────── */}
-      <div className="flex-1 pb-4">
+      <div className="flex-1 overflow-y-auto pb-2">
 
         {/* Step header */}
         <div className="flex items-center gap-3 px-4 pt-4 pb-3">
@@ -1215,17 +1267,15 @@ export default function ResumeStudioPage() {
                           onChange={(e) => updateExperience(idx, "company", e.target.value)} />
                       </Field>
                       <Field label="Boshlanish">
-                        <YearSelect
+                        <MonthYearSelect
                           value={exp.start_date}
-                          onChange={(v) => { updateExperience(idx, "start_date", v); }}
-                          placeholder="Boshlangan yil"
+                          onChange={(v) => updateExperience(idx, "start_date", v)}
                         />
                       </Field>
                       <Field label="Tugash">
-                        <YearSelect
+                        <MonthYearSelect
                           value={exp.end_date}
-                          onChange={(v) => { updateExperience(idx, "end_date", v); }}
-                          placeholder="Tugan yil"
+                          onChange={(v) => updateExperience(idx, "end_date", v)}
                           withCurrent
                         />
                       </Field>
@@ -1306,26 +1356,26 @@ export default function ResumeStudioPage() {
                           onChange={(e) => updateEducation(idx, "school", e.target.value)} />
                       </Field>
                       <Field label="Daraja">
-                        <select className={SELECT_CLS} value={edu.degree}
-                          onChange={(e) => updateEducation(idx, "degree", e.target.value)}>
+                        <StyledSelect
+                          value={edu.degree}
+                          onChange={(e) => updateEducation(idx, "degree", e.target.value)}
+                        >
                           <option value="">Daraja tanlang</option>
                           {DEGREE_OPTIONS.map((d) => (
                             <option key={d} value={d}>{d}</option>
                           ))}
-                        </select>
+                        </StyledSelect>
                       </Field>
                       <Field label="Boshlanish">
-                        <YearSelect
+                        <MonthYearSelect
                           value={edu.start_date}
-                          onChange={(v) => { updateEducation(idx, "start_date", v); }}
-                          placeholder="Boshlangan yil"
+                          onChange={(v) => updateEducation(idx, "start_date", v)}
                         />
                       </Field>
                       <Field label="Tugash">
-                        <YearSelect
+                        <MonthYearSelect
                           value={edu.end_date}
-                          onChange={(v) => { updateEducation(idx, "end_date", v); }}
-                          placeholder="Tugan yil"
+                          onChange={(v) => updateEducation(idx, "end_date", v)}
                           withCurrent
                         />
                       </Field>

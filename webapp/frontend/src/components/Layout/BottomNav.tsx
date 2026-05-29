@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Grid2x2, Home, UserCircle2 } from "lucide-react";
 import { ShieldCheck } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -12,6 +13,22 @@ const links = [
 ];
 
 export default function BottomNav() {
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  useEffect(() => {
+    const onFocusIn = (e: FocusEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea") setKeyboardOpen(true);
+    };
+    const onFocusOut = () => setTimeout(() => setKeyboardOpen(false), 150);
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
+
   const adminState = useQuery({
     queryKey: ["admin", "state", "nav"],
     queryFn: async () => {
@@ -25,6 +42,8 @@ export default function BottomNav() {
   const navLinks = adminState.data?.is_admin
     ? [...links, { to: "/admin", label: "Admin", icon: ShieldCheck }]
     : links;
+
+  if (keyboardOpen) return null;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 pb-[var(--tg-content-safe-area-bottom)] backdrop-blur">
