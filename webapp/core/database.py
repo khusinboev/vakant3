@@ -104,6 +104,20 @@ async def init_db() -> None:
         )
         await conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS resume_idempotency (
+                idempotency_key TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                response_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_resume_idempotency_user_action ON resume_idempotency(user_id, action, created_at)"
+        )
+        await conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS webapp_admin_settings (
                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                 auto_post_enabled INTEGER NOT NULL DEFAULT 0,

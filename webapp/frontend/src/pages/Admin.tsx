@@ -18,11 +18,14 @@ type AdminState = {
 
 type ResumeMetrics = {
   opened_24h: number;
+  ready_24h: number;
   save_success_24h: number;
   save_error_24h: number;
   send_success_24h: number;
   send_error_24h: number;
   unique_users_24h: number;
+  avg_save_latency_ms: number;
+  avg_send_latency_ms: number;
 };
 
 // ─── Setting input: placeholder shows current value, type to override ────────
@@ -366,6 +369,10 @@ export default function Admin() {
               <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.opened_24h}</p>
             </div>
             <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">Builder tayyor</p>
+              <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.ready_24h}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
               <p className="text-xs text-slate-500">Save success</p>
               <p className="mt-1 text-lg font-semibold text-emerald-700">{resumeMetrics.data.save_success_24h}</p>
             </div>
@@ -384,6 +391,14 @@ export default function Admin() {
             <div className="rounded-xl border border-slate-200 p-3">
               <p className="text-xs text-slate-500">Aktiv user</p>
               <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.unique_users_24h}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">O'rtacha save latency</p>
+              <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.avg_save_latency_ms} ms</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">O'rtacha send latency</p>
+              <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.avg_send_latency_ms} ms</p>
             </div>
           </div>
         ) : (

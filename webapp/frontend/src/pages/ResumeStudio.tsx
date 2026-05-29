@@ -107,6 +107,10 @@ function normalizeProfile(input: Partial<ResumeProfileData> | null | undefined):
 export default function ResumeStudioPage() {
   const queryClient = useQueryClient();
   const openedTrackedRef = useRef(false);
+  const readyTrackedRef = useRef(false);
+  const screenStartMsRef = useRef(typeof performance !== "undefined" ? performance.now() : Date.now());
+  const saveStartMsRef = useRef<number | null>(null);
+  const sendStartMsRef = useRef<number | null>(null);
 
   const [profile, setProfile] = useState<ResumeProfileData>(EMPTY_PROFILE);
   const [experienceText, setExperienceText] = useState("");
@@ -116,6 +120,15 @@ export default function ResumeStudioPage() {
   const trackEvent = (payload: ResumeEventPayload) => {
     void client.post("/resume/events", payload).catch(() => undefined);
   };
+
+  const makeIdempotencyKey = (action: string): string => {
+    const rand = Math.random().toString(36).slice(2, 10);
+    return `${action}:${Date.now()}:${rand}`;
+  };
+
+  const authHintAvailable = Boolean(
+    localStorage.getItem("session_token") || window.Telegram?.WebApp?.initData || window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
+  );
 
   useEffect(() => {
     const onFocusIn = (event: FocusEvent) => {
@@ -139,6 +152,8 @@ export default function ResumeStudioPage() {
       const { data } = await client.get<ResumeProfileResponse>("/resume/profile");
       return data;
     },
+    retry: false,
+    enabled: authHintAvailable,
   });
 
   useEffect(() => {
@@ -151,6 +166,11 @@ export default function ResumeStudioPage() {
     if (!openedTrackedRef.current) {
       trackEvent({ event_name: "builder_opened", step: "basic" });
       openedTrackedRef.current = true;
+    }
+    if (!readyTrackedRef.current) {
+      const readyMs = Math.max(0, Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - screenStartMsRef.current));
+      trackEvent({ event_name: "builder_ready", step: "basic", meta_json: JSON.stringify({ ttfi_ms: readyMs }) });
+      readyTrackedRef.current = true;
     }
   }, [profileQuery.data]);
 
@@ -188,24 +208,44 @@ export default function ResumeStudioPage() {
   });
 
   const saveMutation = useMutation({
+    retry: false,
+    onMutate: () => {
+      saveStartMsRef.current = typeof performance !== "undefined" ? performance.now() : Date.now();
+    },
     mutationFn: async () => {
-      const { data } = await client.put<ResumeProfileResponse>("/resume/profile", buildPayload());
+      const { data } = await client.put<ResumeProfileResponse>("/resume/profile", buildPayload(), {
+        headers: { "X-Idempotency-Key": makeIdempotencyKey("resume_save") },
+      });
       return data;
     },
     onSuccess: (data) => {
       setInfo("Ma'lumotlar saqlandi.");
       queryClient.setQueryData(["resume", "profile"], data);
-      trackEvent({ event_name: "save_success", step: "basic" });
+      const latencyMs = Math.max(
+        0,
+        Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - (saveStartMsRef.current ?? (typeof performance !== "undefined" ? performance.now() : Date.now()))),
+      );
+      trackEvent({ event_name: "save_success", step: "basic", meta_json: JSON.stringify({ latency_ms: latencyMs }) });
     },
     onError: () => {
       setInfo("Saqlashda xatolik bo'ldi.");
-      trackEvent({ event_name: "save_error", step: "basic" });
+      const latencyMs = Math.max(
+        0,
+        Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - (saveStartMsRef.current ?? (typeof performance !== "undefined" ? performance.now() : Date.now()))),
+      );
+      trackEvent({ event_name: "save_error", step: "basic", meta_json: JSON.stringify({ latency_ms: latencyMs }) });
     },
   });
 
   const sendMutation = useMutation({
+    retry: false,
+    onMutate: () => {
+      sendStartMsRef.current = typeof performance !== "undefined" ? performance.now() : Date.now();
+    },
     mutationFn: async () => {
-      await client.put<ResumeProfileResponse>("/resume/profile", buildPayload());
+      await client.put<ResumeProfileResponse>("/resume/profile", buildPayload(), {
+        headers: { "X-Idempotency-Key": makeIdempotencyKey("resume_send_persist") },
+      });
       const { data } = await client.post<{ ok: boolean; message: string }>("/resume/send-telegram", {
         template_id: "clean",
       });
@@ -214,11 +254,19 @@ export default function ResumeStudioPage() {
     onSuccess: (data) => {
       setInfo(data.message || "Resume Telegramga yuborildi.");
       queryClient.invalidateQueries({ queryKey: ["resume", "profile"] });
-      trackEvent({ event_name: "send_success", step: "final" });
+      const latencyMs = Math.max(
+        0,
+        Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - (sendStartMsRef.current ?? (typeof performance !== "undefined" ? performance.now() : Date.now()))),
+      );
+      trackEvent({ event_name: "send_success", step: "final", meta_json: JSON.stringify({ latency_ms: latencyMs }) });
     },
     onError: () => {
       setInfo("Yuborishda xatolik bo'ldi.");
-      trackEvent({ event_name: "send_error", step: "final" });
+      const latencyMs = Math.max(
+        0,
+        Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - (sendStartMsRef.current ?? (typeof performance !== "undefined" ? performance.now() : Date.now()))),
+      );
+      trackEvent({ event_name: "send_error", step: "final", meta_json: JSON.stringify({ latency_ms: latencyMs }) });
     },
   });
 

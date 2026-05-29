@@ -38,11 +38,14 @@ class AdminStateResponse(BaseModel):
 
 class AdminResumeMetricsResponse(BaseModel):
     opened_24h: int
+    ready_24h: int
     save_success_24h: int
     save_error_24h: int
     send_success_24h: int
     send_error_24h: int
     unique_users_24h: int
+    avg_save_latency_ms: int
+    avg_send_latency_ms: int
 
 
 class AdminSettingsPatch(BaseModel):
@@ -140,10 +143,13 @@ async def get_resume_metrics(request: Request, db=Depends(get_db)) -> AdminResum
         """
         SELECT
             SUM(CASE WHEN event_name = 'builder_opened' THEN 1 ELSE 0 END) AS opened_24h,
+            SUM(CASE WHEN event_name = 'builder_ready' THEN 1 ELSE 0 END) AS ready_24h,
             SUM(CASE WHEN event_name = 'save_success' THEN 1 ELSE 0 END) AS save_success_24h,
             SUM(CASE WHEN event_name = 'save_error' THEN 1 ELSE 0 END) AS save_error_24h,
             SUM(CASE WHEN event_name = 'send_success' THEN 1 ELSE 0 END) AS send_success_24h,
             SUM(CASE WHEN event_name = 'send_error' THEN 1 ELSE 0 END) AS send_error_24h,
+            AVG(CASE WHEN event_name IN ('save_success','save_error') THEN CAST(json_extract(meta_json, '$.latency_ms') AS REAL) END) AS avg_save_latency_ms,
+            AVG(CASE WHEN event_name IN ('send_success','send_error') THEN CAST(json_extract(meta_json, '$.latency_ms') AS REAL) END) AS avg_send_latency_ms,
             COUNT(DISTINCT user_id) AS unique_users_24h
         FROM resume_events
         WHERE created_at >= ?
@@ -153,9 +159,12 @@ async def get_resume_metrics(request: Request, db=Depends(get_db)) -> AdminResum
     row = await cursor.fetchone()
     return AdminResumeMetricsResponse(
         opened_24h=int((row["opened_24h"] if row else 0) or 0),
+        ready_24h=int((row["ready_24h"] if row else 0) or 0),
         save_success_24h=int((row["save_success_24h"] if row else 0) or 0),
         save_error_24h=int((row["save_error_24h"] if row else 0) or 0),
         send_success_24h=int((row["send_success_24h"] if row else 0) or 0),
         send_error_24h=int((row["send_error_24h"] if row else 0) or 0),
         unique_users_24h=int((row["unique_users_24h"] if row else 0) or 0),
+        avg_save_latency_ms=int((row["avg_save_latency_ms"] if row else 0) or 0),
+        avg_send_latency_ms=int((row["avg_send_latency_ms"] if row else 0) or 0),
     )

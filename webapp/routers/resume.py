@@ -116,6 +116,8 @@ TEMPLATES: dict[str, ResumeTemplateItem] = {
 }
 
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+IDEMPOTENCY_RE = re.compile(r"^[a-zA-Z0-9_.:-]{8,120}$")
+MAX_PROFILE_BYTES = 64 * 1024
 
 
 def _default_profile(first_name: str) -> ResumeProfileData:
@@ -373,6 +375,40 @@ async def _load_resume_row(db, user_id: int):
     return await cursor.fetchone()
 
 
+async def _get_idempotent_response(db, user_id: int, action: str, key: str) -> ResumeProfileResponse | None:
+    cursor = await db.execute(
+        """
+        SELECT response_json FROM resume_idempotency
+        WHERE idempotency_key = ? AND user_id = ? AND action = ?
+        """,
+        (key, user_id, action),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        return None
+    try:
+        payload = json.loads(str(row["response_json"] or "{}"))
+        return ResumeProfileResponse(**payload)
+    except Exception:
+        return None
+
+
+async def _save_idempotent_response(db, user_id: int, action: str, key: str, response_obj: ResumeProfileResponse) -> None:
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO resume_idempotency (idempotency_key, user_id, action, response_json, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            key,
+            user_id,
+            action,
+            json.dumps(response_obj.model_dump(), ensure_ascii=False),
+            int(time.time()),
+        ),
+    )
+
+
 async def _resolve_user_from_request(request: Request, db) -> dict:
     auth_header = request.headers.get("Authorization")
     optional = await get_optional_current_user(authorization=auth_header, db=db)
@@ -460,6 +496,14 @@ async def get_profile(request: Request, db=Depends(get_db)) -> ResumeProfileResp
 async def put_profile(payload: ResumeProfileUpsertRequest, request: Request, db=Depends(get_db)) -> ResumeProfileResponse:
     user = await _resolve_user_from_request(request, db)
     user_id = int(user["user_id"])
+    idempotency_key = (request.headers.get("X-Idempotency-Key") or "").strip()
+    if idempotency_key:
+        if not IDEMPOTENCY_RE.match(idempotency_key):
+            raise HTTPException(status_code=400, detail="Invalid idempotency key")
+        cached = await _get_idempotent_response(db, user_id, "resume_profile_save", idempotency_key)
+        if cached:
+            return cached
+
     template_id = (payload.selected_template or "clean").strip().lower()
     if template_id not in TEMPLATES:
         raise HTTPException(status_code=400, detail="Unknown template")
@@ -488,6 +532,8 @@ async def put_profile(payload: ResumeProfileUpsertRequest, request: Request, db=
         },
         ensure_ascii=False,
     )
+    if len(profile_json.encode("utf-8")) > MAX_PROFILE_BYTES:
+        raise HTTPException(status_code=413, detail="Resume payload too large")
 
     await db.execute(
         """
@@ -500,14 +546,17 @@ async def put_profile(payload: ResumeProfileUpsertRequest, request: Request, db=
         """,
         (user_id, profile_json, template_id, now),
     )
-    await db.commit()
-
-    return ResumeProfileResponse(
+    response_obj = ResumeProfileResponse(
         profile=normalized_profile,
         selected_template=template_id,
         accent_color=accent_color,
         updated_at=now,
     )
+    if idempotency_key:
+        await _save_idempotent_response(db, user_id, "resume_profile_save", idempotency_key, response_obj)
+    await db.commit()
+
+    return response_obj
 
 
 @router.post("/send-telegram", response_model=ResumeSendResponse)
