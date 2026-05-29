@@ -24,6 +24,7 @@ type ResumeMetrics = {
   send_success_24h: number;
   send_error_24h: number;
   unique_users_24h: number;
+  avg_ttfi_ms: number;
   avg_save_latency_ms: number;
   avg_send_latency_ms: number;
 };
@@ -391,6 +392,10 @@ export default function Admin() {
             <div className="rounded-xl border border-slate-200 p-3">
               <p className="text-xs text-slate-500">Aktiv user</p>
               <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.unique_users_24h}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-500">O'rtacha TTFI</p>
+              <p className="mt-1 text-lg font-semibold text-slate-800">{resumeMetrics.data.avg_ttfi_ms} ms</p>
             </div>
             <div className="rounded-xl border border-slate-200 p-3">
               <p className="text-xs text-slate-500">O'rtacha save latency</p>

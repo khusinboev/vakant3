@@ -44,6 +44,7 @@ class AdminResumeMetricsResponse(BaseModel):
     send_success_24h: int
     send_error_24h: int
     unique_users_24h: int
+    avg_ttfi_ms: int
     avg_save_latency_ms: int
     avg_send_latency_ms: int
 
@@ -148,6 +149,7 @@ async def get_resume_metrics(request: Request, db=Depends(get_db)) -> AdminResum
             SUM(CASE WHEN event_name = 'save_error' THEN 1 ELSE 0 END) AS save_error_24h,
             SUM(CASE WHEN event_name = 'send_success' THEN 1 ELSE 0 END) AS send_success_24h,
             SUM(CASE WHEN event_name = 'send_error' THEN 1 ELSE 0 END) AS send_error_24h,
+            AVG(CASE WHEN event_name = 'builder_ready' THEN CAST(json_extract(meta_json, '$.ttfi_ms') AS REAL) END) AS avg_ttfi_ms,
             AVG(CASE WHEN event_name IN ('save_success','save_error') THEN CAST(json_extract(meta_json, '$.latency_ms') AS REAL) END) AS avg_save_latency_ms,
             AVG(CASE WHEN event_name IN ('send_success','send_error') THEN CAST(json_extract(meta_json, '$.latency_ms') AS REAL) END) AS avg_send_latency_ms,
             COUNT(DISTINCT user_id) AS unique_users_24h
@@ -165,6 +167,7 @@ async def get_resume_metrics(request: Request, db=Depends(get_db)) -> AdminResum
         send_success_24h=int((row["send_success_24h"] if row else 0) or 0),
         send_error_24h=int((row["send_error_24h"] if row else 0) or 0),
         unique_users_24h=int((row["unique_users_24h"] if row else 0) or 0),
+        avg_ttfi_ms=int((row["avg_ttfi_ms"] if row else 0) or 0),
         avg_save_latency_ms=int((row["avg_save_latency_ms"] if row else 0) or 0),
         avg_send_latency_ms=int((row["avg_send_latency_ms"] if row else 0) or 0),
     )
