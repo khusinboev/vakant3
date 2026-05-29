@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -1106,13 +1107,19 @@ export default function ResumeStudioPage() {
     syncStatus === "error"  ? "Xatolik"        : "Kutish";
 
   return (
-    <div className="flex flex-col bg-slate-50 overflow-hidden" style={{ height: "var(--app-viewport-height, 100dvh)" }}>
+    <div className="flex flex-col bg-slate-50 overflow-hidden" style={{ height: "calc(var(--app-viewport-height, 100dvh) - 5rem - var(--tg-content-safe-area-bottom, 0px))" }}>
 
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 shrink-0 bg-white border-b border-slate-200 shadow-sm">
 
+        {/* Bandlik.uz brand bar */}
+        <div className="flex items-center justify-center border-b border-slate-100"
+          style={{ paddingTop: "calc(0.75rem + var(--tg-content-safe-area-top, 0px))", paddingBottom: "0.625rem" }}>
+          <Link to="/app" className="font-display text-xl font-extrabold text-brand-700">Bandlik.uz</Link>
+        </div>
+
         {/* Title row */}
-        <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
+        <div className="flex items-center justify-between px-4 pt-2 pb-1.5">
           <div className="flex items-center gap-2">
             <FileText size={15} className="text-brand-600 shrink-0" />
             <span className="text-sm font-bold text-slate-800">Resume Wizard</span>
