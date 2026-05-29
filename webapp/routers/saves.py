@@ -29,6 +29,18 @@ def _save_id_to_raw_id(value: object) -> int | None:
         return None
 
 
+def _normalize_unique_save_ids(rows: list) -> list[int]:
+    ids: list[int] = []
+    seen: set[int] = set()
+    for row in rows:
+        raw_id = _save_id_to_raw_id(row[0])
+        if raw_id is None or raw_id in seen:
+            continue
+        ids.append(raw_id)
+        seen.add(raw_id)
+    return ids
+
+
 def _uid_to_raw_id(uid: str) -> int:
     if not uid.startswith("osonish_"):
         raise HTTPException(status_code=400, detail="Only osonish vacancies are supported")
@@ -71,14 +83,15 @@ async def list_saves(
 
     offset = (page - 1) * limit
 
-    cursor = await db.execute("SELECT COUNT(*) FROM saves WHERE user_id = ?", (user_id,))
-    total = int((await cursor.fetchone())[0] or 0)
-
     cursor = await db.execute(
-        "SELECT save_id FROM saves WHERE user_id = ? ORDER BY save_id DESC LIMIT ? OFFSET ?",
-        (user_id, limit, offset),
+        "SELECT save_id FROM saves WHERE user_id = ? ORDER BY save_id DESC",
+        (user_id,),
     )
-    rows = await cursor.fetchall()
+    all_rows = await cursor.fetchall()
+
+    all_ids = _normalize_unique_save_ids(all_rows)
+    total = len(all_ids)
+    save_ids = all_ids[offset: offset + limit]
 
     async def _load_item(save_id: int) -> dict | None:
         uid = f"osonish_{save_id}"
@@ -94,12 +107,6 @@ async def list_saves(
 
         await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
         return {"uid": uid, "data": detail}
-
-    save_ids: list[int] = []
-    for row in rows:
-        raw_id = _save_id_to_raw_id(row[0])
-        if raw_id is not None:
-            save_ids.append(raw_id)
 
     loaded = await asyncio.gather(*[_load_item(save_id) for save_id in save_ids], return_exceptions=True)
 
