@@ -225,6 +225,32 @@ export default function ResumeStudioPage() {
   const [accentColor, setAccentColor] = useState("#0f766e");
   const [info, setInfo] = useState("");
 
+  // Keep focused field visible above the Telegram keyboard on mobile.
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      const tag = target.tagName.toLowerCase();
+      const isEditable =
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        target.getAttribute("contenteditable") === "true";
+      if (!isEditable) return;
+
+      const scrollIntoView = () => {
+        target.scrollIntoView({ block: "center", behavior: "smooth" });
+      };
+
+      // Two passes help with delayed keyboard resize events in WebView.
+      setTimeout(scrollIntoView, 80);
+      setTimeout(scrollIntoView, 260);
+    };
+
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, []);
+
   const profileQuery = useQuery({
     queryKey: ["resume", "profile"],
     queryFn: async () => {
@@ -277,6 +303,11 @@ export default function ResumeStudioPage() {
   }, [activeTemplate, accentColor]);
 
   const saveMutation = useMutation({
+    onMutate: () => {
+      setInfo("");
+      // Clear stale send error so Save success is reflected immediately.
+      sendMutation.reset();
+    },
     mutationFn: async () => {
       const payload = {
         profile,
@@ -315,6 +346,10 @@ export default function ResumeStudioPage() {
   });
 
   const sendMutation = useMutation({
+    onMutate: () => {
+      setInfo("");
+      saveMutation.reset();
+    },
     mutationFn: async () => {
       const payload = {
         profile,
@@ -334,6 +369,7 @@ export default function ResumeStudioPage() {
   });
 
   const isBusy = saveMutation.isPending || sendMutation.isPending;
+  const hasError = saveMutation.isError || sendMutation.isError;
 
   const updateExperience = (idx: number, key: keyof ResumeExperienceItem, value: string) => {
     setProfile((prev) => {
@@ -571,11 +607,9 @@ export default function ResumeStudioPage() {
           </button>
         </div>
 
-        {(info || saveMutation.isError || sendMutation.isError) && (
-          <p className={`mt-3 text-sm ${saveMutation.isError || sendMutation.isError ? "text-red-600" : "text-emerald-700"}`}>
-            {saveMutation.isError || sendMutation.isError
-              ? "Amaliyotda xatolik bo'ldi. Qayta urinib ko'ring."
-              : info}
+        {(info || hasError) && (
+          <p className={`mt-3 text-sm ${hasError ? "text-red-600" : "text-emerald-700"}`}>
+            {hasError ? "Amaliyotda xatolik bo'ldi. Qayta urinib ko'ring." : info}
           </p>
         )}
       </section>
