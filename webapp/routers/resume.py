@@ -4,12 +4,13 @@ import re
 import time
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from webapp.core.config import get_settings
 from webapp.core.database import get_db
-from webapp.core.session import get_current_user
+from webapp.core.identity import resolve_user_id_from_init_data
+from webapp.core.session import get_optional_current_user
 
 router = APIRouter(prefix="/resume", tags=["resume"])
 
@@ -365,14 +366,53 @@ async def _load_resume_row(db, user_id: int):
     return await cursor.fetchone()
 
 
+async def _resolve_user_from_request(request: Request, db) -> dict:
+    auth_header = request.headers.get("Authorization")
+    optional = await get_optional_current_user(authorization=auth_header, db=db)
+    if optional and optional.get("user"):
+        return optional["user"]
+
+    settings = get_settings()
+    init_data = (request.headers.get("X-Telegram-Init-Data") or "").strip()
+    if not init_data:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = resolve_user_id_from_init_data(init_data, settings.TOKEN)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid initData")
+
+    cursor = await db.execute(
+        "SELECT user_id, lang, first_name, username, photo_url, date, region, district, specs, money FROM users WHERE user_id = ?",
+        (int(user_id),),
+    )
+    user_row = await cursor.fetchone()
+    if user_row:
+        return dict(user_row)
+
+    now = int(time.time())
+    await db.execute(
+        "INSERT OR IGNORE INTO users (user_id, date, lang) VALUES (?, ?, ?)",
+        (int(user_id), now, "uz"),
+    )
+    await db.commit()
+    cursor = await db.execute(
+        "SELECT user_id, lang, first_name, username, photo_url, date, region, district, specs, money FROM users WHERE user_id = ?",
+        (int(user_id),),
+    )
+    user_row = await cursor.fetchone()
+    if not user_row:
+        raise HTTPException(status_code=401, detail="User not found")
+    return dict(user_row)
+
+
 @router.get("/templates", response_model=ResumeTemplatesResponse)
 async def get_templates() -> ResumeTemplatesResponse:
     return ResumeTemplatesResponse(items=list(TEMPLATES.values()))
 
 
 @router.get("/profile", response_model=ResumeProfileResponse)
-async def get_profile(current=Depends(get_current_user), db=Depends(get_db)) -> ResumeProfileResponse:
-    user = current["user"]
+async def get_profile(request: Request, db=Depends(get_db)) -> ResumeProfileResponse:
+    user = await _resolve_user_from_request(request, db)
     user_id = int(user["user_id"])
     row = await _load_resume_row(db, user_id)
 
@@ -402,8 +442,9 @@ async def get_profile(current=Depends(get_current_user), db=Depends(get_db)) -> 
 
 
 @router.put("/profile", response_model=ResumeProfileResponse)
-async def put_profile(payload: ResumeProfileUpsertRequest, current=Depends(get_current_user), db=Depends(get_db)) -> ResumeProfileResponse:
-    user_id = int(current["user"]["user_id"])
+async def put_profile(payload: ResumeProfileUpsertRequest, request: Request, db=Depends(get_db)) -> ResumeProfileResponse:
+    user = await _resolve_user_from_request(request, db)
+    user_id = int(user["user_id"])
     template_id = (payload.selected_template or "clean").strip().lower()
     if template_id not in TEMPLATES:
         raise HTTPException(status_code=400, detail="Unknown template")
@@ -455,8 +496,8 @@ async def put_profile(payload: ResumeProfileUpsertRequest, current=Depends(get_c
 
 
 @router.post("/send-telegram", response_model=ResumeSendResponse)
-async def send_resume_to_telegram(payload: ResumeSendRequest, current=Depends(get_current_user), db=Depends(get_db)) -> ResumeSendResponse:
-    user = current["user"]
+async def send_resume_to_telegram(payload: ResumeSendRequest, request: Request, db=Depends(get_db)) -> ResumeSendResponse:
+    user = await _resolve_user_from_request(request, db)
     user_id = int(user["user_id"])
     template_id = (payload.template_id or "").strip().lower()
     if template_id not in TEMPLATES:
