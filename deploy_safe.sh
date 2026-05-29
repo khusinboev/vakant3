@@ -13,7 +13,7 @@ rsync -az --delete dist/ "$SERVER:$REMOTE_ROOT/webapp/frontend/dist/"
 
 echo "[3/5] Sync project code (DB excluded)"
 cd "$(dirname "$0")"
-rsync -az \
+rsync -azc \
   --exclude '__pycache__' \
   --exclude '*.pyc' \
   --exclude '.env' \
