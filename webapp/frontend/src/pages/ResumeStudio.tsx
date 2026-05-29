@@ -1017,10 +1017,10 @@ export default function ResumeStudioPage() {
     syncStatus === "error"  ? "Xatolik"        : "Kutish";
 
   return (
-    <div className="flex flex-col bg-slate-50" style={{ minHeight: "var(--app-viewport-height, 100dvh)" }}>
+    <div className="flex flex-col bg-slate-50 overflow-hidden" style={{ height: "var(--app-viewport-height, 100dvh)" }}>
 
-      {/* ── STICKY HEADER ─────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 bg-white border-b border-slate-200 shadow-sm">
+      {/* ── HEADER ────────────────────────────────────────────────────────── */}
+      <div className="shrink-0 bg-white border-b border-slate-200 shadow-sm z-10">
 
         {/* Title row */}
         <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
@@ -1085,7 +1085,7 @@ export default function ResumeStudioPage() {
       )}
 
       {/* ── SCROLLABLE CONTENT ────────────────────────────────────────────── */}
-      <div className="flex-1 pb-36">
+      <div className="flex-1 overflow-y-auto pb-6">
 
         {/* Step header */}
         <div className="flex items-center gap-3 px-4 pt-4 pb-3">
@@ -1535,8 +1535,8 @@ export default function ResumeStudioPage() {
         </div>
       </div>
 
-      {/* ── FIXED BOTTOM NAV ──────────────────────────────────────────────── */}
-      <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-sm border-t border-slate-200 px-4 py-3 z-20">
+      {/* ── BOTTOM NAV ───────────────────────────────────────────────────── */}
+      <div className="shrink-0 bg-white/95 backdrop-blur-sm border-t border-slate-200 px-4 py-3">
         <div className="flex items-center gap-2">
 
           {/* Back */}
