@@ -8,6 +8,7 @@ import useTelegramWebApp from "./hooks/useTelegramWebApp";
 import useTelegramAuth, { isTelegramWebApp } from "./hooks/useTelegramAuth";
 import useTelegramBackButton from "./hooks/useTelegramBackButton";
 import Home from "./pages/Home";
+import Hub from "./pages/Hub";
 
 // Lazy-load secondary pages — they are NOT needed on first paint
 const Landing  = lazy(() => import("./pages/Landing"));
@@ -16,7 +17,6 @@ const Referral = lazy(() => import("./pages/Referral"));
 const Saves    = lazy(() => import("./pages/Saves"));
 const Admin    = lazy(() => import("./pages/Admin"));
 const Wallet   = lazy(() => import("./pages/Wallet"));
-const Hub      = lazy(() => import("./pages/Hub"));
 
 function PageFallback() {
   return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Yuklanmoqda...</div>;

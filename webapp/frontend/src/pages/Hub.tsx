@@ -30,6 +30,12 @@ type ResumeTemplateItem = {
   description: string;
 };
 
+const LOCAL_TEMPLATES: ResumeTemplateItem[] = [
+  { id: "clean", title: "Clean Classic", description: "Soddaroq klassik ko'rinish, barcha sohalar uchun." },
+  { id: "modern", title: "Modern Accent", description: "Qisqa va zamonaviy blokli uslub." },
+  { id: "compact", title: "Compact One-Page", description: "Bir sahifaga sig'adigan ixcham format." },
+];
+
 const EMPTY_PROFILE: ResumeProfileData = {
   full_name: "",
   position: "",
@@ -49,6 +55,22 @@ function splitItems(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function normalizeProfile(input: Partial<ResumeProfileData> | null | undefined): ResumeProfileData {
+  return {
+    full_name: String(input?.full_name || ""),
+    position: String(input?.position || ""),
+    phone: String(input?.phone || ""),
+    email: String(input?.email || ""),
+    location: String(input?.location || ""),
+    website: String(input?.website || ""),
+    summary: String(input?.summary || ""),
+    experience: String(input?.experience || ""),
+    education: String(input?.education || ""),
+    skills: Array.isArray(input?.skills) ? input.skills.map((x) => String(x || "")).filter(Boolean) : [],
+    languages: Array.isArray(input?.languages) ? input.languages.map((x) => String(x || "")).filter(Boolean) : [],
+  };
 }
 
 export default function HubPage() {
@@ -77,7 +99,7 @@ export default function HubPage() {
 
   useEffect(() => {
     if (profileQuery.data && !hydratedRef.current) {
-      setProfile(profileQuery.data.profile);
+      setProfile(normalizeProfile(profileQuery.data.profile));
       setSelectedTemplate(profileQuery.data.selected_template || "clean");
       hydratedRef.current = true;
     }
@@ -116,6 +138,8 @@ export default function HubPage() {
     return <div className="card p-4 text-sm text-slate-500">Yuklanmoqda...</div>;
   }
 
+  const templates = templatesQuery.data?.length ? templatesQuery.data : LOCAL_TEMPLATES;
+
   return (
     <div className="space-y-4">
       <section className="card p-4">
@@ -133,6 +157,12 @@ export default function HubPage() {
           <FileText size={16} className="text-emerald-600" />
           <h3 className="text-sm font-semibold text-slate-800">Resume yasash</h3>
         </div>
+
+        {profileQuery.isError && (
+          <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            Profilni serverdan olishda xatolik bo'ldi. Bo'lim ishlaydi, ma'lumotni qayta saqlab yuboring.
+          </p>
+        )}
 
         <div className="grid gap-3 md:grid-cols-2">
           <input
@@ -198,13 +228,13 @@ export default function HubPage() {
           <input
             className="tap-target rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-400"
             placeholder="Ko'nikmalar (vergul bilan)"
-            value={profile.skills.join(", ")}
+            value={(Array.isArray(profile.skills) ? profile.skills : []).join(", ")}
             onChange={(e) => setProfile((prev) => ({ ...prev, skills: splitItems(e.target.value) }))}
           />
           <input
             className="tap-target rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-400"
             placeholder="Tillar (vergul bilan)"
-            value={profile.languages.join(", ")}
+            value={(Array.isArray(profile.languages) ? profile.languages : []).join(", ")}
             onChange={(e) => setProfile((prev) => ({ ...prev, languages: splitItems(e.target.value) }))}
           />
         </div>
@@ -213,7 +243,7 @@ export default function HubPage() {
       <section className="card p-4">
         <h3 className="text-sm font-semibold text-slate-800">Shablon tanlang</h3>
         <div className="mt-3 grid gap-2 md:grid-cols-3">
-          {(templatesQuery.data || []).map((tpl) => {
+          {templates.map((tpl) => {
             const active = selectedTemplate === tpl.id;
             return (
               <button
