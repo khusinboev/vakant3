@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import client from "../api/client";
+import BottomNav from "../components/Layout/BottomNav";
 
 type ResumeExperienceItem = {
   role: string;
@@ -1107,7 +1108,7 @@ export default function ResumeStudioPage() {
     syncStatus === "error"  ? "Xatolik"        : "Kutish";
 
   return (
-    <div className="flex flex-col bg-slate-50 overflow-hidden" style={{ height: "calc(var(--app-viewport-height, 100dvh) - 5rem - var(--tg-content-safe-area-bottom, 0px))" }}>
+    <div className="flex flex-col bg-slate-50 overflow-hidden" style={{ height: "var(--app-viewport-height, 100dvh)" }}>
 
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 shrink-0 bg-white border-b border-slate-200 shadow-sm">
@@ -1710,6 +1711,9 @@ export default function ResumeStudioPage() {
           )}
         </div>
       </div>
+
+      {/* ── BOTTOM NAV ───────────────────────────────────────────────────── */}
+      <BottomNav fixed={false} />
     </div>
   );
 }

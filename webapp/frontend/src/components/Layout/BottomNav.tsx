@@ -12,7 +12,7 @@ const links = [
   { to: "/hub", label: "Markaz", icon: Grid2x2 },
 ];
 
-export default function BottomNav() {
+export default function BottomNav({ fixed = true }: { fixed?: boolean }) {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useEffect(() => {
@@ -45,8 +45,12 @@ export default function BottomNav() {
 
   if (keyboardOpen) return null;
 
+  const navCls = fixed
+    ? "fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 pb-[var(--tg-content-safe-area-bottom)] backdrop-blur"
+    : "border-t border-slate-200 bg-white/95 pb-[var(--tg-content-safe-area-bottom)] backdrop-blur shrink-0";
+
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 pb-[var(--tg-content-safe-area-bottom)] backdrop-blur">
+    <nav className={navCls}>
       <ul
         className="mx-auto grid max-w-2xl px-[var(--tg-content-safe-area-left)] pr-[var(--tg-content-safe-area-right)]"
         style={{ gridTemplateColumns: `repeat(${navLinks.length}, minmax(0, 1fr))` }}
