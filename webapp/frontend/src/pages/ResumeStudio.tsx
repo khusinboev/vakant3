@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, FileText, Palette, Plus, Send, Trash2 } from "lucide-react";
+import type { AxiosError } from "axios";
 
 import client from "../api/client";
 
@@ -97,12 +98,39 @@ const LOCAL_TEMPLATES: ResumeTemplateItem[] = [
 ];
 
 const STEPS = ["Asosiy", "Tajriba", "Ta'lim", "Ko'nikmalar", "Shablon"];
+const RESUME_DRAFT_KEY = "resume_draft_v1";
 
 function splitItems(value: string): string[] {
   return value
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function saveLocalDraft(profile: ResumeProfileData, selectedTemplate: string, accentColor: string): void {
+  const payload = {
+    profile,
+    selected_template: selectedTemplate,
+    accent_color: accentColor,
+    updated_at: Date.now(),
+  };
+  localStorage.setItem(RESUME_DRAFT_KEY, JSON.stringify(payload));
+}
+
+function loadLocalDraft(): ResumeProfileResponse | null {
+  try {
+    const raw = localStorage.getItem(RESUME_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ResumeProfileResponse>;
+    return {
+      profile: normalizeProfile(parsed.profile),
+      selected_template: String(parsed.selected_template || "clean"),
+      accent_color: String(parsed.accent_color || "#0f766e"),
+      updated_at: Number(parsed.updated_at || Date.now()),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function normalizeProfile(input: Partial<ResumeProfileData> | null | undefined): ResumeProfileData {
@@ -226,6 +254,17 @@ export default function ResumeStudioPage() {
   }, [profileQuery.data]);
 
   useEffect(() => {
+    if (!profileQuery.isError || hydratedRef.current) return;
+    const localDraft = loadLocalDraft();
+    if (!localDraft) return;
+    setProfile(normalizeProfile(localDraft.profile));
+    setSelectedTemplate(localDraft.selected_template || "clean");
+    setAccentColor(localDraft.accent_color || "#0f766e");
+    setInfo("Serverga ulanmagani uchun oxirgi lokal draft yuklandi.");
+    hydratedRef.current = true;
+  }, [profileQuery.isError]);
+
+  useEffect(() => {
     if (!activeTemplate) return;
     if (!activeTemplate.supports_color) {
       setAccentColor(activeTemplate.palette[0] || "#111827");
@@ -244,12 +283,34 @@ export default function ResumeStudioPage() {
         selected_template: selectedTemplate,
         accent_color: accentColor,
       };
-      const { data } = await client.put<ResumeProfileResponse>("/resume/profile", payload);
-      return data;
+      try {
+        const { data } = await client.put<ResumeProfileResponse>("/resume/profile", payload);
+        saveLocalDraft(data.profile, data.selected_template, data.accent_color);
+        return { data, localFallback: false };
+      } catch (error: unknown) {
+        const axiosError = error as AxiosError<{ detail?: string }>;
+        if (axiosError.response?.status === 401) {
+          saveLocalDraft(profile, selectedTemplate, accentColor);
+          return {
+            data: {
+              profile,
+              selected_template: selectedTemplate,
+              accent_color: accentColor,
+              updated_at: Date.now(),
+            } as ResumeProfileResponse,
+            localFallback: true,
+          };
+        }
+        throw error;
+      }
     },
-    onSuccess: (data) => {
-      setInfo("Resume ma'lumotlari saqlandi.");
-      queryClient.setQueryData(["resume", "profile"], data);
+    onSuccess: (result) => {
+      setInfo(
+        result.localFallback
+          ? "Internet/auth vaqtincha yo'q. Ma'lumotlar telefonda draft sifatida saqlandi."
+          : "Resume ma'lumotlari saqlandi.",
+      );
+      queryClient.setQueryData(["resume", "profile"], result.data);
     },
   });
 
