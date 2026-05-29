@@ -76,6 +76,16 @@ async def init_db() -> None:
         )
         await conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS resume_profiles (
+                user_id INTEGER PRIMARY KEY,
+                profile_json TEXT NOT NULL,
+                selected_template TEXT NOT NULL DEFAULT 'clean',
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        await conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS webapp_admin_settings (
                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                 auto_post_enabled INTEGER NOT NULL DEFAULT 0,

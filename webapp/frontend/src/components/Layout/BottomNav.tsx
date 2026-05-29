@@ -1,4 +1,4 @@
-import { Home, UserCircle2, Wallet } from "lucide-react";
+import { Grid2x2, Home, UserCircle2 } from "lucide-react";
 import { ShieldCheck } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
@@ -8,7 +8,7 @@ import client from "../../api/client";
 const links = [
   { to: "/app", label: "Bosh sahifa", icon: Home },
   { to: "/profile", label: "Profil", icon: UserCircle2 },
-  { to: "/wallet", label: "Hamyon", icon: Wallet },
+  { to: "/hub", label: "Markaz", icon: Grid2x2 },
 ];
 
 export default function BottomNav() {

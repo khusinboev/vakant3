@@ -11,7 +11,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from webapp.core.config import get_settings
 from webapp.core.database import init_db
 from webapp.core.limiter import limiter
-from webapp.routers import admin_panel, auth, filters, jobs, profile, referral, saves, wallet
+from webapp.routers import admin_panel, auth, filters, jobs, profile, referral, resume, saves, wallet
 
 settings = get_settings()
 app = FastAPI(title="Bandlik.uz WebApp API", version="1.0.0")
@@ -35,6 +35,7 @@ app.include_router(profile.router, prefix="/api")
 app.include_router(referral.router, prefix="/api")
 app.include_router(admin_panel.router, prefix="/api")
 app.include_router(wallet.router, prefix="/api")
+app.include_router(resume.router, prefix="/api")
 
 
 @app.on_event("startup")

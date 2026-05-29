@@ -16,6 +16,7 @@ const Referral = lazy(() => import("./pages/Referral"));
 const Saves    = lazy(() => import("./pages/Saves"));
 const Admin    = lazy(() => import("./pages/Admin"));
 const Wallet   = lazy(() => import("./pages/Wallet"));
+const Hub      = lazy(() => import("./pages/Hub"));
 
 function PageFallback() {
   return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Yuklanmoqda...</div>;
@@ -103,6 +104,7 @@ export default function App() {
         <Route path="/app" element={<AppHomeEntry />} />
         <Route path="/saves" element={<Layout><Saves /></Layout>} />
         <Route path="/profile" element={<Layout><Profile /></Layout>} />
+        <Route path="/hub" element={<Layout><Hub /></Layout>} />
         <Route path="/wallet" element={<Layout><Wallet /></Layout>} />
         <Route path="/admin" element={<Layout><Admin /></Layout>} />
         <Route path="/referral" element={<Layout><Referral /></Layout>} />
