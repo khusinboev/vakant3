@@ -35,9 +35,8 @@ export default function Home() {
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const authUser = useAuthStore((state) => state.user);
-  const telegramUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-  const currentUserId = telegramUserId ?? authUser?.user_id;
-  const canUseSaves = isAuthenticated || Boolean(currentUserId);
+  const initData = window.Telegram?.WebApp?.initData;
+  const canUseSaves = isAuthenticated || Boolean(initData) || Boolean(authUser?.user_id);
 
   // Debounce text search — call API 400ms after user stops typing
   const [debouncedQuery, setDebouncedQuery] = useState("");
