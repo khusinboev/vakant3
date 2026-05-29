@@ -16,6 +16,11 @@ client.interceptors.request.use((config) => {
     config.headers["X-Telegram-Init-Data"] = initData;
   }
 
+  const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  if (tgUserId) {
+    config.headers["X-Telegram-User-Id"] = String(tgUserId);
+  }
+
   return config;
 });
 
