@@ -179,6 +179,19 @@ const EMPTY_EDUCATION: ResumeEducationItem = {
   description: "",
 };
 
+const DEGREE_OPTIONS = [
+  "O'rta ta'lim",
+  "O'rta maxsus ta'lim (kollej / texnikum)",
+  "Bakalavr",
+  "Magistr (Master)",
+  "Doktorantura (PhD)",
+  "Sertifikat / Kurslar",
+  "Boshqa",
+];
+
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: CURRENT_YEAR - 1989 }, (_, i) => String(CURRENT_YEAR - i));
+
 const STOP_WORDS = new Set([
   "the",
   "and",
@@ -358,6 +371,30 @@ const INPUT_CLS =
   "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm " +
   "placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-400 " +
   "focus:border-brand-400 transition-all";
+
+const SELECT_CLS =
+  "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm " +
+  "focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400 transition-all";
+
+function YearSelect({
+  value, onChange, withCurrent = false, placeholder = "Yil tanlang",
+}: {
+  value: string; onChange: (v: string) => void; withCurrent?: boolean; placeholder?: string;
+}) {
+  return (
+    <select
+      className={SELECT_CLS}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">{placeholder}</option>
+      {withCurrent && <option value="Hozir">Hozir (davom etmoqda)</option>}
+      {YEARS.map((y) => (
+        <option key={y} value={y}>{y}</option>
+      ))}
+    </select>
+  );
+}
 
 /** Chip-style tag input — Enter or comma to add, Backspace to remove last */
 function TagInput({
@@ -1017,10 +1054,10 @@ export default function ResumeStudioPage() {
     syncStatus === "error"  ? "Xatolik"        : "Kutish";
 
   return (
-    <div className="flex flex-col bg-slate-50 overflow-hidden" style={{ height: "var(--app-viewport-height, 100dvh)" }}>
+    <div className="flex flex-col bg-slate-50" style={{ minHeight: "var(--app-viewport-height, 100dvh)" }}>
 
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
-      <div className="shrink-0 bg-white border-b border-slate-200 shadow-sm z-10">
+      <div className="sticky top-0 z-20 shrink-0 bg-white border-b border-slate-200 shadow-sm">
 
         {/* Title row */}
         <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
@@ -1084,8 +1121,8 @@ export default function ResumeStudioPage() {
         </div>
       )}
 
-      {/* ── SCROLLABLE CONTENT ────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto pb-6">
+      {/* ── CONTENT ──────────────────────────────────────────────────────── */}
+      <div className="flex-1 pb-4">
 
         {/* Step header */}
         <div className="flex items-center gap-3 px-4 pt-4 pb-3">
@@ -1178,12 +1215,19 @@ export default function ResumeStudioPage() {
                           onChange={(e) => updateExperience(idx, "company", e.target.value)} />
                       </Field>
                       <Field label="Boshlanish">
-                        <input className={INPUT_CLS} placeholder="01/2022" value={exp.start_date}
-                          onChange={(e) => updateExperience(idx, "start_date", e.target.value)} />
+                        <YearSelect
+                          value={exp.start_date}
+                          onChange={(v) => { updateExperience(idx, "start_date", v); }}
+                          placeholder="Boshlangan yil"
+                        />
                       </Field>
                       <Field label="Tugash">
-                        <input className={INPUT_CLS} placeholder="Hozir" value={exp.end_date}
-                          onChange={(e) => updateExperience(idx, "end_date", e.target.value)} />
+                        <YearSelect
+                          value={exp.end_date}
+                          onChange={(v) => { updateExperience(idx, "end_date", v); }}
+                          placeholder="Tugan yil"
+                          withCurrent
+                        />
                       </Field>
                     </div>
                     <Field label="Joylashuv" hint="(ixtiyoriy)">
@@ -1262,16 +1306,28 @@ export default function ResumeStudioPage() {
                           onChange={(e) => updateEducation(idx, "school", e.target.value)} />
                       </Field>
                       <Field label="Daraja">
-                        <input className={INPUT_CLS} placeholder="Bakalavr" value={edu.degree}
-                          onChange={(e) => updateEducation(idx, "degree", e.target.value)} />
+                        <select className={SELECT_CLS} value={edu.degree}
+                          onChange={(e) => updateEducation(idx, "degree", e.target.value)}>
+                          <option value="">Daraja tanlang</option>
+                          {DEGREE_OPTIONS.map((d) => (
+                            <option key={d} value={d}>{d}</option>
+                          ))}
+                        </select>
                       </Field>
                       <Field label="Boshlanish">
-                        <input className={INPUT_CLS} placeholder="2019" value={edu.start_date}
-                          onChange={(e) => updateEducation(idx, "start_date", e.target.value)} />
+                        <YearSelect
+                          value={edu.start_date}
+                          onChange={(v) => { updateEducation(idx, "start_date", v); }}
+                          placeholder="Boshlangan yil"
+                        />
                       </Field>
                       <Field label="Tugash">
-                        <input className={INPUT_CLS} placeholder="2023" value={edu.end_date}
-                          onChange={(e) => updateEducation(idx, "end_date", e.target.value)} />
+                        <YearSelect
+                          value={edu.end_date}
+                          onChange={(v) => { updateEducation(idx, "end_date", v); }}
+                          placeholder="Tugan yil"
+                          withCurrent
+                        />
                       </Field>
                     </div>
                     <Field label="Qo'shimcha ma'lumot" hint="(ixtiyoriy)">
