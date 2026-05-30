@@ -1,0 +1,191 @@
+========================================================
+  VAKANT3 — DEPLOY VA SERVER BOSHQARUV QOʻLLANMASI
+========================================================
+
+LOYIHA TUZILMASI
+──────────────────
+Local:  /home/adhambek/projects/pythons/vakant3/
+GitHub: https://github.com/khusinboev/vakant3.git  (branch: master)
+Server: root@194.163.136.239  →  /home/vakant/
+
+Servislar:
+  vakant-api  — FastAPI backend   (port 8001, uvicorn, 2 worker)
+  vakant-bot  — Telegram bot      (python main.py)
+
+Virtual env:  /home/vakant/.venv/
+Database:     /home/vakant/data/database.sqlite3   ← HECH QACHON O'CHIRILMASIN
+Env fayl:     /home/vakant/.env
+
+
+========================================================
+  1. LOCAL O'ZGARISHDAN TO'LIQ DEPLOY QILISH
+========================================================
+
+Har safar o'zgartirish qilingandan keyin quyidagi tartibda ishlang:
+
+── Qadam 1: O'zgarishlarni tekshirish ──────────────────
+  cd /home/adhambek/projects/pythons/vakant3
+  git status
+  git diff
+
+── Qadam 2: GitHub ga yuborish ─────────────────────────
+  git add -A
+  git commit -m "fix: qisqa va aniq tavsif"
+  git push origin master
+
+── Qadam 3: Serverga deploy qilish ─────────────────────
+  bash deploy_safe.sh
+
+  deploy_safe.sh ichida nima bo'ladi:
+    [1/5] Frontend build  →  npm run build
+    [2/5] dist/ papkasini serverga rsync qiladi
+    [3/5] Python kodini rsync qiladi (.env, .git, venv, DB — yuborilmaydi)
+    [4/5] DB yo'lini /home/vakant/data/database.sqlite3 ga belgilaydi
+    [5/5] vakant-api va vakant-bot servislarini qayta ishga tushiradi
+           va /api/health endpoint'ini tekshiradi
+
+── Hammasi birda (tezkor deploy) ───────────────────────
+  git add -A && git commit -m "fix: tavsif" && git push origin master && bash deploy_safe.sh
+
+
+========================================================
+  2. FAQAT PYTHON KODNI DEPLOY QILISH (frontend o'zgarmasa)
+========================================================
+
+  rsync -azc \
+    --exclude '__pycache__' \
+    --exclude '*.pyc' \
+    --exclude '.env' \
+    --exclude '.git' \
+    --exclude '.venv' \
+    --exclude 'webapp/frontend/node_modules' \
+    --exclude 'webapp/frontend/dist' \
+    --exclude 'src/database/database.sqlite3' \
+    ./ root@194.163.136.239:/home/vakant/
+
+  ssh root@194.163.136.239 "systemctl restart vakant-api vakant-bot"
+
+
+========================================================
+  3. FAQAT FRONTEND DEPLOY QILISH
+========================================================
+
+  cd webapp/frontend
+  npm run build
+  rsync -az --delete dist/ root@194.163.136.239:/home/vakant/webapp/frontend/dist/
+  # Backend restart shart emas — statik fayllar o'zgaradi, xolos
+
+
+========================================================
+  4. SERVERGA ULANISH VA ASOSIY BUYRUQLAR
+========================================================
+
+SSH kirish:
+  ssh root@194.163.136.239
+
+Servis holati tekshirish:
+  systemctl status vakant-api
+  systemctl status vakant-bot
+
+Servislarni qayta ishga tushirish:
+  systemctl restart vakant-api
+  systemctl restart vakant-bot
+  systemctl restart vakant-api vakant-bot   # ikkalasini birda
+
+Loglarni ko'rish (real vaqtda):
+  journalctl -u vakant-api -f
+  journalctl -u vakant-bot -f
+  tail -f /var/log/vakant-bot.log
+
+Oxirgi 100 qator log:
+  journalctl -u vakant-api -n 100 --no-pager
+  journalctl -u vakant-bot -n 100 --no-pager
+
+Health check:
+  curl http://localhost:8001/api/health
+
+Python virtual env ni faollashtirish (serverda):
+  source /home/vakant/.venv/bin/activate
+
+Paketlarni yangilash (requirements.txt o'zgarganda):
+  cd /home/vakant
+  .venv/bin/pip install -r requirements.txt
+  systemctl restart vakant-api vakant-bot
+
+
+========================================================
+  5. DATABASE BILAN ISHLASH
+========================================================
+
+DB joylashuvi:  /home/vakant/data/database.sqlite3
+
+DB ni serverdan localga yuklab olish (backup):
+  scp root@194.163.136.239:/home/vakant/data/database.sqlite3 \
+      /home/adhambek/projects/pythons/vakant3/backup_$(date +%Y%m%d).sqlite3
+
+SQLite konsolga kirish (serverda):
+  sqlite3 /home/vakant/data/database.sqlite3
+
+Jadvallarni ko'rish:
+  sqlite3 /home/vakant/data/database.sqlite3 ".tables"
+
+DB ni HECH QACHON o'chirmang — barcha foydalanuvchi ma'lumotlari shu yerda.
+deploy_safe.sh ham DB ni exclude qiladi (tasodifan ustiga yozilmaydi).
+
+
+========================================================
+  6. ENV FAYL (.env) BOSHQARISH
+========================================================
+
+.env fayl deploy paytida serverga yuborilmaydi (excluded).
+Agar yangi environment variable qo'shilsa, qo'lda serverga kirish kerak:
+
+  ssh root@194.163.136.239
+  nano /home/vakant/.env
+
+Keyin:
+  systemctl restart vakant-api vakant-bot
+
+Joriy .env (maxfiy qiymatlar ko'rsatilmaydi — serverda ko'ring):
+  DB_PATH=/home/vakant/data/database.sqlite3
+  BOT_USERNAME=bandlikuzbot
+  ADMIN_IDS=1918760732,619839487
+  BOT_TOKEN=...         (maxfiy)
+  SECRET_KEY=...        (maxfiy)
+  va boshqalar
+
+
+========================================================
+  7. NGINX KONFIGURATSIYASI (agar kerak bo'lsa)
+========================================================
+
+Nginx konfiguratsiyasini tekshirish:
+  cat /etc/nginx/sites-enabled/vakant
+  nginx -t
+  systemctl reload nginx
+
+
+========================================================
+  8. MUAMMO VA YECHIMLAR
+========================================================
+
+Servis ishga tushmasa:
+  journalctl -u vakant-api -n 50 --no-pager
+  # Xatoni ko'ring, ko'pincha: import xatosi, .env yo'q, port band
+
+Port 8001 band bo'lsa:
+  ss -tlnp | grep 8001
+  kill -9 <PID>
+  systemctl start vakant-api
+
+Frontend yangilanmasa (brauzer cache):
+  # Vite hash-based fayl nomlari ishlatadi — cache muammo bo'lmasligi kerak
+  # Agar bo'lsa: brauzerda Ctrl+Shift+R (hard reload)
+
+pip install xatosi bo'lsa:
+  .venv/bin/pip install --upgrade pip
+  .venv/bin/pip install -r requirements.txt
+
+Git pull bilan serverdan yangilash (to'g'ridan-to'g'ri):
+  ssh root@194.163.136.239 "cd /home/vakant && git pull origin master"
+  # Lekin deploy_safe.sh rsync ishlatadi — bu usul faqat qo'shimcha sifatida

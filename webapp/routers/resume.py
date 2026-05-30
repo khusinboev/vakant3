@@ -1,6 +1,7 @@
 import html
 import io
 import json
+import os
 import re
 import time
 import zipfile
@@ -130,6 +131,49 @@ TEMPLATES: dict[str, ResumeTemplateItem] = {
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 IDEMPOTENCY_RE = re.compile(r"^[a-zA-Z0-9_.:-]{8,120}$")
 MAX_PROFILE_BYTES = 64 * 1024
+
+_MONTH_NAMES_UZ = [
+    "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
+    "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr",
+]
+_DEJAVU_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+_DEJAVU_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+
+def _fmt_date(raw: str) -> str:
+    """Convert '05/2023' or '2023' → 'May 2023'; 'Hozir' passthrough."""
+    if not raw:
+        return ""
+    stripped = raw.strip()
+    if stripped.lower() in ("hozir", "present", "now"):
+        return stripped
+    parts = stripped.split("/")
+    if len(parts) == 2:
+        m_str, y_str = parts
+        try:
+            m_idx = int(m_str) - 1
+            if 0 <= m_idx < 12:
+                return f"{_MONTH_NAMES_UZ[m_idx]} {y_str}"
+        except ValueError:
+            pass
+    return stripped
+
+
+def _fmt_period(start: str, end: str) -> str:
+    s = _fmt_date(start or "")
+    e = _fmt_date(end or "")
+    parts = [x for x in [s, e] if x]
+    return " – ".join(parts)
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = (hex_color or "").lstrip("#")
+    if len(h) != 6:
+        return 15, 118, 110
+    try:
+        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    except ValueError:
+        return 15, 118, 110
 
 
 def _default_profile(first_name: str) -> ResumeProfileData:
@@ -261,7 +305,7 @@ def _build_resume_document(profile: ResumeProfileData) -> dict:
     experiences = [
         {
             "title": " / ".join([x for x in [item.role, item.company] if x]) or "Lavozim",
-            "period": " - ".join([x for x in [item.start_date, item.end_date] if x]).strip(" -"),
+            "period": _fmt_period(item.start_date, item.end_date),
             "location": item.location,
             "description": item.description,
         }
@@ -270,7 +314,7 @@ def _build_resume_document(profile: ResumeProfileData) -> dict:
     educations = [
         {
             "title": " / ".join([x for x in [item.school, item.degree] if x]) or "Ta'lim",
-            "period": " - ".join([x for x in [item.start_date, item.end_date] if x]).strip(" -"),
+            "period": _fmt_period(item.start_date, item.end_date),
             "description": item.description,
         }
         for item in profile.educations
@@ -331,7 +375,8 @@ def _pdf_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def _generate_pdf_bytes(doc: dict, title: str) -> bytes:
+def _generate_pdf_legacy(doc: dict, title: str) -> bytes:
+    """Fallback ASCII-only PDF generator used when fpdf2/fonts are unavailable."""
     lines = _document_to_lines(doc)[:90]
     y_start = 795
     content_parts = ["BT", "/F1 11 Tf", f"50 {y_start} Td"]
@@ -370,16 +415,244 @@ def _generate_pdf_bytes(doc: dict, title: str) -> bytes:
     return bytes(result)
 
 
-def _generate_docx_bytes(doc: dict, title: str) -> bytes:
-    def p(text: str) -> str:
-        return f"<w:p><w:r><w:t xml:space='preserve'>{html.escape(text)}</w:t></w:r></w:p>"
+def _generate_pdf_fpdf2(doc: dict, accent_hex: str) -> bytes:
+    from fpdf import FPDF  # type: ignore[import]
 
-    lines = _document_to_lines(doc)
-    body = "".join(p(line) for line in lines)
+    ar, ag, ab = _hex_to_rgb(accent_hex)
+    page_margin = 18.0
+
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_margins(page_margin, 0, page_margin)
+
+    has_regular = os.path.exists(_DEJAVU_REGULAR)
+    has_bold = os.path.exists(_DEJAVU_BOLD)
+    fam = "DejaVu" if has_regular else "Helvetica"
+
+    if has_regular:
+        pdf.add_font("DejaVu", fname=_DEJAVU_REGULAR)
+    if has_bold:
+        pdf.add_font("DejaVu", style="B", fname=_DEJAVU_BOLD)
+
+    def sf(bold: bool = False, size: float = 10.0) -> None:
+        pdf.set_font(fam, style="B" if (bold and has_bold) else "", size=size)
+
+    pdf.add_page()
+    usable_w = pdf.w - 2 * page_margin
+
+    # ── Header block ──────────────────────────────────────────────────────────
+    header_h = 30.0
+    pdf.set_fill_color(ar, ag, ab)
+    pdf.rect(0, 0, pdf.w, header_h, "F")
+    pdf.set_text_color(255, 255, 255)
+
+    pdf.set_xy(page_margin, 6)
+    sf(bold=True, size=17)
+    pdf.cell(0, 7, str(doc.get("name") or "Nomzod"), new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_x(page_margin)
+    sf(size=10)
+    pdf.cell(0, 5, str(doc.get("position") or ""), new_x="LMARGIN", new_y="NEXT")
+
+    contacts: list[str] = doc.get("contacts") or []
+    if contacts:
+        pdf.set_x(page_margin)
+        sf(size=8)
+        pdf.cell(0, 4, " | ".join(str(c) for c in contacts), new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_text_color(15, 23, 42)
+    pdf.set_y(header_h + 5)
+
+    # ── Helper: section title with coloured underline ─────────────────────────
+    def section(title: str) -> None:
+        pdf.set_x(page_margin)
+        sf(bold=True, size=8)
+        pdf.set_text_color(ar, ag, ab)
+        pdf.cell(0, 5, title.upper(), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_draw_color(ar, ag, ab)
+        pdf.set_line_width(0.3)
+        pdf.line(page_margin, pdf.get_y(), pdf.w - page_margin, pdf.get_y())
+        pdf.set_text_color(15, 23, 42)
+        pdf.ln(1.5)
+
+    # ── Helper: body paragraph ────────────────────────────────────────────────
+    def body(text: str, bold: bool = False, size: float = 9.5) -> None:
+        if not text:
+            return
+        pdf.set_x(page_margin)
+        sf(bold=bold, size=size)
+        pdf.multi_cell(usable_w, 4.8, str(text), new_x="LMARGIN", new_y="NEXT")
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    summary = str(doc.get("summary") or "").strip()
+    if summary:
+        section("Qisqacha")
+        body(summary)
+        pdf.ln(3)
+
+    # ── Experience ────────────────────────────────────────────────────────────
+    experiences: list[dict] = doc.get("experiences") or []
+    if experiences:
+        section("Tajriba")
+        for item in experiences:
+            left = str(item.get("title") or "")
+            period = str(item.get("period") or "")
+            loc = str(item.get("location") or "").strip()
+            desc = str(item.get("description") or "").strip()
+
+            pdf.set_x(page_margin)
+            sf(bold=True, size=10)
+            if period:
+                pdf.cell(usable_w * 0.62, 5, left, new_x="RIGHT")
+                sf(size=8)
+                pdf.set_text_color(100, 116, 139)
+                pdf.cell(usable_w * 0.38, 5, period, align="R", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(15, 23, 42)
+            else:
+                pdf.cell(0, 5, left, new_x="LMARGIN", new_y="NEXT")
+
+            if loc:
+                pdf.set_x(page_margin)
+                sf(size=8)
+                pdf.set_text_color(100, 116, 139)
+                pdf.cell(0, 4, loc, new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(15, 23, 42)
+
+            if desc:
+                body(desc, size=9)
+            pdf.ln(2)
+        pdf.ln(1)
+
+    # ── Education ─────────────────────────────────────────────────────────────
+    educations: list[dict] = doc.get("educations") or []
+    if educations:
+        section("Ta'lim")
+        for item in educations:
+            left = str(item.get("title") or "")
+            period = str(item.get("period") or "")
+            desc = str(item.get("description") or "").strip()
+
+            pdf.set_x(page_margin)
+            sf(bold=True, size=10)
+            if period:
+                pdf.cell(usable_w * 0.62, 5, left, new_x="RIGHT")
+                sf(size=8)
+                pdf.set_text_color(100, 116, 139)
+                pdf.cell(usable_w * 0.38, 5, period, align="R", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(15, 23, 42)
+            else:
+                pdf.cell(0, 5, left, new_x="LMARGIN", new_y="NEXT")
+
+            if desc:
+                body(desc, size=9)
+            pdf.ln(2)
+        pdf.ln(1)
+
+    # ── Skills ────────────────────────────────────────────────────────────────
+    skills: list[str] = doc.get("skills") or []
+    if skills:
+        section("Ko'nikmalar")
+        body(", ".join(str(s) for s in skills))
+        pdf.ln(3)
+
+    # ── Languages ─────────────────────────────────────────────────────────────
+    langs: list[str] = doc.get("languages") or []
+    if langs:
+        section("Tillar")
+        body(", ".join(str(l) for l in langs))
+
+    return bytes(pdf.output())
+
+
+def _generate_pdf_bytes(doc: dict, title: str, accent_hex: str = "#0f766e") -> bytes:
+    """Generate PDF with Unicode support via fpdf2; falls back to legacy ASCII on error."""
+    try:
+        return _generate_pdf_fpdf2(doc, accent_hex)
+    except Exception:
+        return _generate_pdf_legacy(doc, title)
+
+
+def _generate_docx_bytes(doc: dict, title: str) -> bytes:
+    _WNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    _REL_DOC = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+    _REL_CORE = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
+    _REL_APP = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties"
+
+    def p(text: str, bold: bool = False) -> str:
+        rpr = "<w:rPr><w:b/></w:rPr>" if bold else ""
+        return (
+            f"<w:p><w:r>{rpr}"
+            f"<w:t xml:space='preserve'>{html.escape(text)}</w:t>"
+            "</w:r></w:p>"
+        )
+
+    def section_p(text: str) -> str:
+        return (
+            "<w:p><w:pPr><w:pStyle w:val='Heading2'/></w:pPr>"
+            f"<w:r><w:t>{html.escape(text)}</w:t></w:r></w:p>"
+        )
+
+    body_parts: list[str] = []
+    body_parts.append(p(str(doc.get("name") or "Nomzod"), bold=True))
+    body_parts.append(p(str(doc.get("position") or "")))
+    contacts: list[str] = doc.get("contacts") or []
+    if contacts:
+        body_parts.append(p(" | ".join(str(c) for c in contacts)))
+    body_parts.append(p(""))
+
+    summary = str(doc.get("summary") or "").strip()
+    if summary:
+        body_parts.append(section_p("QISQACHA"))
+        for line in summary.splitlines():
+            body_parts.append(p(line))
+        body_parts.append(p(""))
+
+    experiences: list[dict] = doc.get("experiences") or []
+    if experiences:
+        body_parts.append(section_p("TAJRIBA"))
+        for item in experiences:
+            title_text = str(item.get("title") or "")
+            period = str(item.get("period") or "")
+            loc = str(item.get("location") or "").strip()
+            desc = str(item.get("description") or "").strip()
+            header = f"{title_text}   {period}".strip() if period else title_text
+            body_parts.append(p(header, bold=True))
+            if loc:
+                body_parts.append(p(loc))
+            for line in desc.splitlines():
+                if line.strip():
+                    body_parts.append(p(line))
+            body_parts.append(p(""))
+
+    educations: list[dict] = doc.get("educations") or []
+    if educations:
+        body_parts.append(section_p("TA'LIM"))
+        for item in educations:
+            title_text = str(item.get("title") or "")
+            period = str(item.get("period") or "")
+            desc = str(item.get("description") or "").strip()
+            header = f"{title_text}   {period}".strip() if period else title_text
+            body_parts.append(p(header, bold=True))
+            for line in desc.splitlines():
+                if line.strip():
+                    body_parts.append(p(line))
+            body_parts.append(p(""))
+
+    skills: list[str] = doc.get("skills") or []
+    if skills:
+        body_parts.append(section_p("KO'NIKMALAR"))
+        body_parts.append(p(", ".join(str(s) for s in skills)))
+        body_parts.append(p(""))
+
+    langs: list[str] = doc.get("languages") or []
+    if langs:
+        body_parts.append(section_p("TILLAR"))
+        body_parts.append(p(", ".join(str(l) for l in langs)))
+
     document_xml = (
         "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>"
-        "<w:document xmlns:w='http://schemas.openxmlformats.org/wordprocessingml/2006/main'>"
-        f"<w:body>{body}<w:sectPr/></w:body></w:document>"
+        f"<w:document xmlns:w='{_WNS}'>"
+        f"<w:body>{''.join(body_parts)}<w:sectPr/></w:body></w:document>"
     )
     content_types = (
         "<?xml version='1.0' encoding='UTF-8'?>"
@@ -391,13 +664,18 @@ def _generate_docx_bytes(doc: dict, title: str) -> bytes:
         "<Override PartName='/docProps/app.xml' ContentType='application/vnd.openxmlformats-officedocument.extended-properties+xml'/>"
         "</Types>"
     )
-    rels = (
+    root_rels = (
         "<?xml version='1.0' encoding='UTF-8'?>"
         "<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'>"
-        "<Relationship Id='rId1' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument' Target='word/document.xml'/>"
-        "<Relationship Id='rId2' Type='http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties' Target='docProps/core.xml'/>"
-        "<Relationship Id='rId3' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties' Target='docProps/app.xml'/>"
+        f"<Relationship Id='rId1' Type='{_REL_DOC}' Target='word/document.xml'/>"
+        f"<Relationship Id='rId2' Type='{_REL_CORE}' Target='docProps/core.xml'/>"
+        f"<Relationship Id='rId3' Type='{_REL_APP}' Target='docProps/app.xml'/>"
         "</Relationships>"
+    )
+    # Required by OOXML spec — word-level relationship file
+    word_rels = (
+        "<?xml version='1.0' encoding='UTF-8'?>"
+        "<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'/>"
     )
     core_xml = (
         "<?xml version='1.0' encoding='UTF-8'?>"
@@ -416,7 +694,8 @@ def _generate_docx_bytes(doc: dict, title: str) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", content_types)
-        zf.writestr("_rels/.rels", rels)
+        zf.writestr("_rels/.rels", root_rels)
+        zf.writestr("word/_rels/document.xml.rels", word_rels)
         zf.writestr("word/document.xml", document_xml)
         zf.writestr("docProps/core.xml", core_xml)
         zf.writestr("docProps/app.xml", app_xml)
@@ -453,7 +732,7 @@ def _render_experience_blocks(values: list[ResumeExperienceItem]) -> str:
 
     blocks = []
     for item in values:
-        period = " - ".join([x for x in [item.start_date, item.end_date] if x]).strip(" -")
+        period = _fmt_period(item.start_date, item.end_date)
         head_left = " / ".join([x for x in [item.role, item.company] if x]) or "Lavozim"
         head_right = " | ".join([x for x in [item.location, period] if x])
         blocks.append(
@@ -476,7 +755,7 @@ def _render_education_blocks(values: list[ResumeEducationItem]) -> str:
 
     blocks = []
     for item in values:
-        period = " - ".join([x for x in [item.start_date, item.end_date] if x]).strip(" -")
+        period = _fmt_period(item.start_date, item.end_date)
         head_left = " / ".join([x for x in [item.school, item.degree] if x]) or "Ta'lim"
         blocks.append(
             """
@@ -620,12 +899,6 @@ async def _resolve_user_from_request(request: Request, db) -> dict:
     user_id: int | None = None
     if init_data:
         user_id = resolve_user_id_from_init_data(init_data, settings.TOKEN)
-
-    # Final fallback for Telegram WebView edge-cases where initData can be empty.
-    if not user_id:
-        fallback_user_id = (request.headers.get("X-Telegram-User-Id") or "").strip()
-        if fallback_user_id.isdigit():
-            user_id = int(fallback_user_id)
 
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -771,12 +1044,17 @@ async def send_resume_to_telegram(payload: ResumeSendRequest, request: Request, 
     row = await _load_resume_row(db, user_id)
     if not row:
         profile = _default_profile(str(user.get("first_name") or ""))
+        accent_hex = _normalize_color(None, template_id)
     else:
         try:
             raw_payload = json.loads(str(row["profile_json"] or "{}"))
         except Exception:
             raw_payload = {}
         profile = _normalize_profile_from_payload(raw_payload, str(user.get("first_name") or ""))
+        accent_hex = _normalize_color(
+            raw_payload.get("accent_color") if isinstance(raw_payload, dict) else None,
+            template_id,
+        )
 
     doc = _build_resume_document(profile)
     file_name = f"resume_{template_id}_{user_id}.pdf"
@@ -789,7 +1067,7 @@ async def send_resume_to_telegram(payload: ResumeSendRequest, request: Request, 
 
     endpoint = f"https://api.telegram.org/bot{settings.TOKEN}/sendDocument"
     caption = "Resume tayyor. Faylni yuklab olib ishlatishingiz mumkin."
-    file_bytes = _generate_pdf_bytes(doc, str(doc.get("name") or "Resume"))
+    file_bytes = _generate_pdf_bytes(doc, str(doc.get("name") or "Resume"), accent_hex=accent_hex)
 
     response = None
     for _ in range(2):
@@ -832,12 +1110,17 @@ async def export_resume(payload: ResumeExportRequest, request: Request, db=Depen
 
     if not row:
         profile = _default_profile(str(user.get("first_name") or ""))
+        accent_hex = _normalize_color(None, template_id)
     else:
         try:
             raw_payload = json.loads(str(row["profile_json"] or "{}"))
         except Exception:
             raw_payload = {}
         profile = _normalize_profile_from_payload(raw_payload, str(user.get("first_name") or ""))
+        accent_hex = _normalize_color(
+            raw_payload.get("accent_color") if isinstance(raw_payload, dict) else None,
+            template_id,
+        )
 
     doc = _build_resume_document(profile)
     export_id = await _create_export_row(db, user_id, payload.format, template_id, "pending")
@@ -845,7 +1128,7 @@ async def export_resume(payload: ResumeExportRequest, request: Request, db=Depen
 
     try:
         if payload.format == "pdf":
-            file_bytes = _generate_pdf_bytes(doc, str(doc.get("name") or "Resume"))
+            file_bytes = _generate_pdf_bytes(doc, str(doc.get("name") or "Resume"), accent_hex=accent_hex)
             filename = f"resume_{template_id}_{user_id}.pdf"
             content_type = "application/pdf"
         else:

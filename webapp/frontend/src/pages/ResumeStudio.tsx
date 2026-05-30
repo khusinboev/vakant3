@@ -196,28 +196,20 @@ const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: CURRENT_YEAR - 1989 }, (_, i) => String(CURRENT_YEAR - i));
 
 const STOP_WORDS = new Set([
-  "the",
-  "and",
-  "for",
-  "with",
-  "from",
-  "that",
-  "this",
-  "your",
-  "you",
-  "our",
-  "will",
-  "are",
-  "or",
-  "to",
-  "in",
-  "of",
-  "on",
-  "at",
-  "by",
-  "as",
-  "an",
-  "a",
+  // English
+  "the", "and", "for", "with", "from", "that", "this", "your",
+  "you", "our", "will", "are", "or", "to", "in", "of", "on",
+  "at", "by", "as", "an", "a", "be", "have", "has", "we", "is",
+  "it", "its", "who", "all", "can", "not", "was", "but",
+  // Uzbek
+  "va", "bu", "bir", "biz", "ham", "uchun", "bilan", "yoki",
+  "da", "bo'lgan", "bo'lib", "kerak", "kabi", "siz", "men",
+  "ular", "u", "qilish", "mumkin", "bo'ladi", "bo'lsa", "ga",
+  "ni", "dan", "ning", "dagi", "gi", "li", "chi",
+  // Russian
+  "и", "в", "на", "с", "по", "для", "из", "за", "от", "не",
+  "что", "как", "это", "к", "а", "но", "или", "у", "о",
+  "так", "то", "же", "вы", "мы", "он", "она", "они",
 ]);
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -324,24 +316,37 @@ function extractTopKeywords(jobDescription: string): string[] {
 
 function getRoleBasedSuggestions(role: string): string[] {
   const lower = role.toLowerCase();
-  if (lower.includes("engineer") || lower.includes("developer")) {
+  if (
+    lower.includes("engineer") || lower.includes("developer") ||
+    lower.includes("dasturchi") || lower.includes("ishlab")
+  ) {
     return [
-      "Optimized key flows and reduced response time by 30%.",
-      "Implemented automated tests and reduced production bugs by 20%.",
-      "Led cross-team delivery of a core feature used by daily active users.",
+      "Asosiy jarayonlarni optimallashtirdim va javob vaqtini 30% ga kamaytirdim.",
+      "Avtomatlashtirilgan testlar joriy etib, ishlab chiqarishdagi xatolarni 20% ga kamaytirdim.",
+      "Kundalik foydalanuvchilar tomonidan ishlatiladigan asosiy funksiyani jamoalar bilan birgalikda topshirdim.",
     ];
   }
-  if (lower.includes("sales") || lower.includes("manager")) {
+  if (
+    lower.includes("sales") || lower.includes("manager") ||
+    lower.includes("menejer") || lower.includes("savdo")
+  ) {
     return [
-      "Exceeded quarterly targets by 18% through focused pipeline management.",
-      "Built client relationships that improved retention by 15%.",
-      "Mentored team members and improved close rate across the team.",
+      "Choraklik maqsadlarni 18% ga oshirib bajarilishiga erishdim.",
+      "Mijozlar bilan munosabatlarni mustahkamlab, ushlanib qolish darajasini 15% ga oshirdim.",
+      "Jamoa a'zolarini yo'naltirdim va yopish ko'rsatkichini yaxshiladim.",
+    ];
+  }
+  if (lower.includes("dizayner") || lower.includes("designer") || lower.includes("ux")) {
+    return [
+      "Foydalanuvchi tajribasini tahlil qilib, konversiya darajasini 25% ga oshirdim.",
+      "Mobil va web platformalar uchun responsive interfeys prototiplari ishlab chiqdim.",
+      "Foydalanuvchi intervyu va testlari asosida mahsulot dizaynini yaxshiladim.",
     ];
   }
   return [
-    "Improved team workflows and delivered measurable business results.",
-    "Collaborated with stakeholders to ship high-priority initiatives on time.",
-    "Tracked KPIs and improved process quality with clear ownership.",
+    "Jamoa ish jarayonlarini takomillashtirdim va o'lchanadigan biznes natijalarga erishdim.",
+    "Manfaatdor tomonlar bilan hamkorlikda muhim loyihalarni o'z vaqtida topshirdim.",
+    "KPI ko'rsatkichlarini kuzatib, ish sifatini aniq javobgarlik bilan yaxshiladim.",
   ];
 }
 
@@ -657,6 +662,10 @@ export default function ResumeStudioPage() {
   const serverUpdatedAtRef = useRef<number>(0);
   const localDirtyRef = useRef(false);
   const conflictRef = useRef(false);
+  // Refs to track mutation pending state without stale closures in setInterval
+  const savePendingRef = useRef(false);
+  const sendPendingRef = useRef(false);
+  const autoSavePendingRef = useRef(false);
 
   const [profile, setProfile] = useState<ResumeProfileData>(EMPTY_PROFILE);
   const [selectedTemplate, setSelectedTemplate] = useState("clean");
@@ -669,6 +678,18 @@ export default function ResumeStudioPage() {
   const [hasConflict, setHasConflict] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPreview, setShowPreview] = useState(false);
+  // Stable keys for experience/education list items (avoids React key flicker on delete)
+  const [expKeys, setExpKeys] = useState<string[]>([]);
+  const [eduKeys, setEduKeys] = useState<string[]>([]);
+
+  const genKey = () => `k_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  // Auto-dismiss info messages after 4 s
+  useEffect(() => {
+    if (!info) return;
+    const t = setTimeout(() => setInfo(""), 4000);
+    return () => clearTimeout(t);
+  }, [info]);
 
   const trackEvent = (payload: ResumeEventPayload) => {
     void client.post("/resume/events", payload).catch(() => undefined);
@@ -679,8 +700,14 @@ export default function ResumeStudioPage() {
     return `${action}:${Date.now()}:${rand}`;
   };
 
-  const authHintAvailable = Boolean(
-    localStorage.getItem("session_token") || window.Telegram?.WebApp?.initData || window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
+  // Evaluated once on mount — avoids reading localStorage on every render
+  const authHintAvailable = useMemo(
+    () => Boolean(
+      localStorage.getItem("session_token") ||
+      window.Telegram?.WebApp?.initData ||
+      window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
+    ),
+    [],
   );
 
   useEffect(() => {
@@ -731,6 +758,8 @@ export default function ResumeStudioPage() {
   const applyServerPayload = (server: ResumeProfileResponse) => {
     const normalized = normalizeProfile(server.profile);
     setProfile(normalized);
+    setExpKeys(normalized.experiences.map(() => genKey()));
+    setEduKeys(normalized.educations.map(() => genKey()));
     setSelectedTemplate(server.selected_template || "clean");
     setAccentColor(server.accent_color || "#0f766e");
     serverUpdatedAtRef.current = Number(server.updated_at || 0);
@@ -744,7 +773,10 @@ export default function ResumeStudioPage() {
     if (hydratedRef.current) return;
     const localDraft = loadLocalDraft();
     if (!localDraft) return;
-    setProfile(normalizeProfile(localDraft.profile));
+    const normalized = normalizeProfile(localDraft.profile);
+    setProfile(normalized);
+    setExpKeys(normalized.experiences.map(() => genKey()));
+    setEduKeys(normalized.educations.map(() => genKey()));
     setSelectedTemplate(localDraft.selected_template || "clean");
     setAccentColor(localDraft.accent_color || "#0f766e");
     setJobDescription(localDraft.job_description || "");
@@ -765,7 +797,10 @@ export default function ResumeStudioPage() {
       const localUpdatedAt = Number(localDraft?.updated_at || 0);
       const serverUpdatedAt = Number(profileQuery.data.updated_at || 0);
       if (localDraft && localUpdatedAt > serverUpdatedAt) {
-        setProfile(normalizeProfile(localDraft.profile));
+        const normalized = normalizeProfile(localDraft.profile);
+        setProfile(normalized);
+        setExpKeys(normalized.experiences.map(() => genKey()));
+        setEduKeys(normalized.educations.map(() => genKey()));
         setSelectedTemplate(localDraft.selected_template || "clean");
         setAccentColor(localDraft.accent_color || "#0f766e");
         setJobDescription(localDraft.job_description || "");
@@ -843,7 +878,12 @@ export default function ResumeStudioPage() {
   useEffect(() => {
     if (!hydratedRef.current || !authHintAvailable) return;
     const interval = setInterval(() => {
-      if (localDirtyRef.current && !saveMutation.isPending && !sendMutation.isPending && !autoSaveMutation.isPending) {
+      if (
+        localDirtyRef.current &&
+        !savePendingRef.current &&
+        !sendPendingRef.current &&
+        !autoSavePendingRef.current
+      ) {
         autoSaveMutation.mutate();
       }
     }, 15000);
@@ -853,6 +893,7 @@ export default function ResumeStudioPage() {
   const saveMutation = useMutation({
     retry: false,
     onMutate: () => {
+      savePendingRef.current = true;
       saveStartMsRef.current = typeof performance !== "undefined" ? performance.now() : Date.now();
     },
     mutationFn: async () => {
@@ -884,11 +925,13 @@ export default function ResumeStudioPage() {
       );
       trackEvent({ event_name: "save_error", step: "basic", meta_json: JSON.stringify({ latency_ms: latencyMs }) });
     },
+    onSettled: () => { savePendingRef.current = false; },
   });
 
   const autoSaveMutation = useMutation({
     retry: false,
     onMutate: () => {
+      autoSavePendingRef.current = true;
       setSyncStatus("saving");
     },
     mutationFn: async () => {
@@ -913,11 +956,13 @@ export default function ResumeStudioPage() {
       setSyncStatus("error");
       trackEvent({ event_name: "autosave_error", step: STEP_ITEMS[step]?.id || "basic" });
     },
+    onSettled: () => { autoSavePendingRef.current = false; },
   });
 
   const sendMutation = useMutation({
     retry: false,
     onMutate: () => {
+      sendPendingRef.current = true;
       sendStartMsRef.current = typeof performance !== "undefined" ? performance.now() : Date.now();
     },
     mutationFn: async () => {
@@ -944,6 +989,7 @@ export default function ResumeStudioPage() {
       );
       trackEvent({ event_name: "send_error", step: "final", meta_json: JSON.stringify({ latency_ms: latencyMs }) });
     },
+    onSettled: () => { sendPendingRef.current = false; },
   });
 
   const exportMutation = useMutation({
@@ -1247,7 +1293,7 @@ export default function ResumeStudioPage() {
                 </div>
               )}
               {profile.experiences.map((exp, idx) => (
-                <div key={idx} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                <div key={expKeys[idx] ?? String(idx)} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
                   <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-slate-800 truncate">
@@ -1259,7 +1305,11 @@ export default function ResumeStudioPage() {
                     </div>
                     <button
                       className="p-2 rounded-xl border border-red-200 text-red-400 hover:bg-red-50 shrink-0 transition-colors"
-                      onClick={() => { setProfile((p) => ({ ...p, experiences: p.experiences.filter((_, i) => i !== idx) })); markDirty(); }}
+                      onClick={() => {
+                        setProfile((p) => ({ ...p, experiences: p.experiences.filter((_, i) => i !== idx) }));
+                        setExpKeys((k) => k.filter((_, i) => i !== idx));
+                        markDirty();
+                      }}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -1323,7 +1373,7 @@ export default function ResumeStudioPage() {
                 className="tap-target w-full flex items-center justify-center gap-2 rounded-2xl
                            border-2 border-dashed border-brand-300 bg-brand-50 py-3.5
                            text-sm font-semibold text-brand-600 hover:bg-brand-100 transition-colors"
-                onClick={() => { setProfile((p) => ({ ...p, experiences: [...p.experiences, { ...EMPTY_EXPERIENCE }] })); markDirty(); }}
+                onClick={() => { setProfile((p) => ({ ...p, experiences: [...p.experiences, { ...EMPTY_EXPERIENCE }] })); setExpKeys((k) => [...k, genKey()]); markDirty(); }}
               >
                 <Plus size={16} /> Tajriba qo'shish
               </button>
@@ -1340,7 +1390,7 @@ export default function ResumeStudioPage() {
                 </div>
               )}
               {profile.educations.map((edu, idx) => (
-                <div key={idx} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                <div key={eduKeys[idx] ?? String(idx)} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
                   <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-slate-800 truncate">
@@ -1352,7 +1402,11 @@ export default function ResumeStudioPage() {
                     </div>
                     <button
                       className="p-2 rounded-xl border border-red-200 text-red-400 hover:bg-red-50 shrink-0 transition-colors"
-                      onClick={() => { setProfile((p) => ({ ...p, educations: p.educations.filter((_, i) => i !== idx) })); markDirty(); }}
+                      onClick={() => {
+                        setProfile((p) => ({ ...p, educations: p.educations.filter((_, i) => i !== idx) }));
+                        setEduKeys((k) => k.filter((_, i) => i !== idx));
+                        markDirty();
+                      }}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -1408,7 +1462,7 @@ export default function ResumeStudioPage() {
                 className="tap-target w-full flex items-center justify-center gap-2 rounded-2xl
                            border-2 border-dashed border-brand-300 bg-brand-50 py-3.5
                            text-sm font-semibold text-brand-600 hover:bg-brand-100 transition-colors"
-                onClick={() => { setProfile((p) => ({ ...p, educations: [...p.educations, { ...EMPTY_EDUCATION }] })); markDirty(); }}
+                onClick={() => { setProfile((p) => ({ ...p, educations: [...p.educations, { ...EMPTY_EDUCATION }] })); setEduKeys((k) => [...k, genKey()]); markDirty(); }}
               >
                 <Plus size={16} /> Ta'lim qo'shish
               </button>
