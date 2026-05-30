@@ -5,7 +5,7 @@ import BottomNav from "./BottomNav";
 
 export default function Layout({ children }: PropsWithChildren) {
   return (
-    <div className="min-h-[var(--app-viewport-height)] pb-[calc(5rem+var(--tg-content-safe-area-bottom))] md:pb-8">
+    <div className="min-h-[var(--app-viewport-height)] pb-[calc(4.5rem+var(--bottom-safe,0px))] md:pb-8">
       {/* sticky top-0 so header covers the notch/status-bar area in fullscreen.
           pt-[var(--tg-content-safe-area-top)] pushes content below the notch
           while the bg fills the transparent status bar region. */}

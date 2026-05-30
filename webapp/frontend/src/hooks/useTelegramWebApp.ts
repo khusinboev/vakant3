@@ -27,6 +27,17 @@ function setInsetVariables(webApp: TelegramWebApp) {
   root.style.setProperty("--tg-content-safe-area-inset-bottom", px(contentSafe?.bottom));
   root.style.setProperty("--tg-content-safe-area-inset-left",   px(contentSafe?.left));
   root.style.setProperty("--tg-content-safe-area-inset-right",  px(contentSafe?.right));
+
+  // --bottom-safe: the real bottom safe area for the BottomNav padding.
+  // In fullscreen, contentSafeAreaInset.bottom = 0 but safeAreaInset.bottom
+  // holds the system home-indicator / gesture-bar height. Take the max.
+  const bottomSafe = Math.max(
+    Math.max(0, Number(safe?.bottom ?? 0)),
+    Math.max(0, Number(contentSafe?.bottom ?? 0)),
+  );
+  if (bottomSafe > 0) {
+    root.style.setProperty("--bottom-safe", `${bottomSafe}px`);
+  }
 }
 
 function setViewportVariables(webApp: TelegramWebApp) {
