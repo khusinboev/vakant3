@@ -49,11 +49,11 @@ export default function BottomNav({ fixed = true }: { fixed?: boolean }) {
   if (fixed && keyboardOpen) return null;
 
   const navCls = fixed
-    ? "fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 pb-[var(--tg-content-safe-area-bottom)] backdrop-blur"
-    : "border-t border-slate-200 bg-white/95 pb-[var(--tg-content-safe-area-bottom)] backdrop-blur shrink-0";
+    ? "fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur"
+    : "border-t border-slate-200 bg-white/95 backdrop-blur shrink-0";
 
   return (
-    <nav className={navCls}>
+    <nav className={navCls} style={{ paddingBottom: "var(--bottom-safe, 0px)" }}>
       <ul
         className="mx-auto grid max-w-2xl px-[var(--tg-content-safe-area-left)] pr-[var(--tg-content-safe-area-right)]"
         style={{ gridTemplateColumns: `repeat(${navLinks.length}, minmax(0, 1fr))` }}

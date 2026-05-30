@@ -26,6 +26,7 @@ import {
 
 import client from "../api/client";
 import BottomNav from "../components/Layout/BottomNav";
+import { setBackInterceptor, clearBackInterceptor } from "../hooks/useBackInterceptor";
 
 type ResumeExperienceItem = {
   role: string;
@@ -1102,6 +1103,30 @@ export default function ResumeStudioPage() {
 
   const goPrev = () => setStep((prev) => Math.max(prev - 1, 0));
 
+  // Register back-interceptor: step > 0 → go to previous step instead of leaving page
+  useEffect(() => {
+    if (step > 0) {
+      setBackInterceptor(() => {
+        // First close keyboard if open
+        const active = document.activeElement as HTMLElement | null;
+        if (
+          active &&
+          (active.tagName === "INPUT" ||
+            active.tagName === "TEXTAREA" ||
+            active.tagName === "SELECT")
+        ) {
+          active.blur();
+          return true;
+        }
+        setStep((prev) => Math.max(prev - 1, 0));
+        return true;
+      });
+    } else {
+      clearBackInterceptor();
+    }
+    return () => clearBackInterceptor();
+  }, [step]);
+
   const updateExperience = (idx: number, key: keyof ResumeExperienceItem, value: string) => {
     setProfile((prev) => {
       const next = [...prev.experiences];
@@ -1154,7 +1179,7 @@ export default function ResumeStudioPage() {
     syncStatus === "error"  ? "Xatolik"        : "Kutish";
 
   return (
-    <div className="flex flex-col bg-slate-50 overflow-hidden" style={{ height: "var(--tg-viewport-height, var(--app-viewport-height, 100dvh))" }}>
+    <div className="flex flex-col bg-slate-50 overflow-x-hidden" style={{ height: "var(--tg-viewport-height, var(--app-viewport-height, 100dvh))" }}>
 
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 shrink-0 bg-white border-b border-slate-200 shadow-sm">
@@ -1228,7 +1253,7 @@ export default function ResumeStudioPage() {
       )}
 
       {/* ── CONTENT ──────────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto pb-2">
+      <div className="flex-1 overflow-y-auto min-h-0 pb-2">
 
         {/* Step header */}
         <div className="flex items-center gap-3 px-4 pt-4 pb-3">
@@ -1703,64 +1728,62 @@ export default function ResumeStudioPage() {
         </div>
       </div>
 
-      {/* ── BOTTOM NAV ───────────────────────────────────────────────────── */}
-      <div className="shrink-0 bg-white/95 backdrop-blur-sm border-t border-slate-200 px-4 py-3">
+      {/* ── STEP ACTION BAR ──────────────────────────────────────────────── */}
+      <div className="shrink-0 bg-white border-t border-slate-100 px-3 py-2">
         <div className="flex items-center gap-2">
 
           {/* Back */}
           <button
-            className={`tap-target flex items-center justify-center w-12 h-12 rounded-2xl border border-slate-300 transition-all ${
-              step === 0 ? "opacity-25 cursor-default" : "text-slate-700"
+            className={`flex items-center justify-center w-10 h-10 rounded-xl border transition-colors shrink-0 ${
+              step === 0
+                ? "border-slate-100 text-slate-300 cursor-default"
+                : "border-slate-200 text-slate-600 active:bg-slate-100"
             }`}
             onClick={goPrev}
             disabled={step === 0 || isBusy}
           >
-            <ChevronLeft size={20} />
+            <ChevronLeft size={18} />
           </button>
 
-          {/* Save */}
+          {/* Save status pill */}
           <button
-            className={`flex-1 h-12 rounded-2xl border text-sm font-semibold transition-all ${
-              localDirty
-                ? "border-brand-300 bg-brand-50 text-brand-700"
-                : "border-slate-200 bg-slate-50 text-slate-400"
+            className={`flex flex-1 items-center justify-center gap-1.5 h-10 rounded-xl border text-xs font-semibold transition-all ${
+              saveMutation.isPending
+                ? "border-amber-200 bg-amber-50 text-amber-600"
+                : localDirty
+                  ? "border-brand-200 bg-brand-50 text-brand-700"
+                  : "border-slate-100 bg-slate-50 text-slate-400"
             }`}
             onClick={() => saveMutation.mutate()}
             disabled={isBusy}
           >
             {saveMutation.isPending ? (
-              <span className="flex items-center justify-center gap-1.5">
-                <Loader2 size={13} className="animate-spin" /> Saqlanmoqda...
-              </span>
+              <><Loader2 size={12} className="animate-spin" /> Saqlanmoqda</>
             ) : localDirty ? (
               "Saqlash"
             ) : (
-              <span className="flex items-center justify-center gap-1">
-                <Check size={13} /> Saqlandi
-              </span>
+              <><Check size={12} /> Saqlandi</>
             )}
           </button>
 
           {/* Next / Finish */}
           {!isLastStep ? (
             <button
-              className="tap-target flex items-center gap-1.5 h-12 px-5 rounded-2xl
-                         bg-brand-600 text-white text-sm font-bold
-                         shadow-md shadow-brand-200 disabled:opacity-60"
+              className="flex items-center gap-1.5 h-10 px-4 rounded-xl bg-brand-600 text-white
+                         text-sm font-bold shadow shadow-brand-200 disabled:opacity-50 shrink-0"
               onClick={goNext}
               disabled={isBusy}
             >
-              Keyingi <ChevronRight size={18} />
+              Keyingi <ChevronRight size={16} />
             </button>
           ) : (
             <button
-              className="tap-target flex items-center gap-1.5 h-12 px-5 rounded-2xl
-                         bg-emerald-600 text-white text-sm font-bold
-                         shadow-md shadow-emerald-200 disabled:opacity-60"
+              className="flex items-center gap-1.5 h-10 px-4 rounded-xl bg-emerald-600 text-white
+                         text-sm font-bold shadow shadow-emerald-200 disabled:opacity-50 shrink-0"
               onClick={() => sendMutation.mutate()}
               disabled={isBusy}
             >
-              <Send size={15} /> Yuborish
+              <Send size={14} /> Yuborish
             </button>
           )}
         </div>
