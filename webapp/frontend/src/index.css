@@ -13,6 +13,10 @@
   --tg-content-safe-area-left: var(--tg-content-safe-area-inset-left, var(--tg-safe-area-left));
   --tg-content-safe-area-right: var(--tg-content-safe-area-inset-right, var(--tg-safe-area-right));
   --app-viewport-height: var(--tg-viewport-stable-height, 100dvh);
+  /* Keyboard-aware height: shrinks when on-screen keyboard opens.
+     Updated via visualViewport resize + Telegram viewportChanged events.
+     Falls back to --app-viewport-height (stable) if not yet set by JS. */
+  --tg-viewport-height: var(--app-viewport-height);
 
   /* Unified interaction tokens for all buttons/tap targets. */
   --ui-motion-fast: 140ms;

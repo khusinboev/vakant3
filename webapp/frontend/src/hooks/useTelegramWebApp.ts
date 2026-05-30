@@ -35,6 +35,12 @@ function setViewportVariables(webApp: TelegramWebApp) {
   if (stableHeight && Number.isFinite(stableHeight) && stableHeight > 0) {
     root.style.setProperty("--tg-viewport-stable-height", `${stableHeight}px`);
   }
+  // Track the CURRENT (keyboard-aware) viewport height so layouts that need
+  // to respond to the on-screen keyboard can bind to --tg-viewport-height.
+  const currentHeight = webApp.viewportHeight;
+  if (currentHeight && Number.isFinite(currentHeight) && currentHeight > 0) {
+    root.style.setProperty("--tg-viewport-height", `${currentHeight}px`);
+  }
 }
 
 /**
@@ -99,6 +105,18 @@ export default function useTelegramWebApp() {
     webApp.onEvent("fullscreenFailed",       onFullscreenFailed);
     webApp.onEvent("activated",              onActivated);
 
+    // Visual Viewport API: updates --tg-viewport-height on every keyboard
+    // animation frame — works in Telegram WebView and regular browsers alike.
+    const onVisualResize = () => {
+      const h = window.visualViewport?.height;
+      if (h && h > 0) {
+        document.documentElement.style.setProperty("--tg-viewport-height", `${Math.round(h)}px`);
+      }
+    };
+    window.visualViewport?.addEventListener("resize", onVisualResize);
+    // Initialise immediately in case the hook mounts after the keyboard is already open.
+    onVisualResize();
+
     return () => {
       webApp.offEvent("viewportChanged",        onViewportChanged);
       webApp.offEvent("safeAreaChanged",        onSafeAreaChanged);
@@ -106,6 +124,7 @@ export default function useTelegramWebApp() {
       webApp.offEvent("fullscreenChanged",      onFullscreenChanged);
       webApp.offEvent("fullscreenFailed",       onFullscreenFailed);
       webApp.offEvent("activated",              onActivated);
+      window.visualViewport?.removeEventListener("resize", onVisualResize);
     };
   }, []);
 }

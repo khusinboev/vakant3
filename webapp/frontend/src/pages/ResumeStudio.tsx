@@ -1154,7 +1154,7 @@ export default function ResumeStudioPage() {
     syncStatus === "error"  ? "Xatolik"        : "Kutish";
 
   return (
-    <div className="flex flex-col bg-slate-50 overflow-hidden" style={{ height: "var(--app-viewport-height, 100dvh)" }}>
+    <div className="flex flex-col bg-slate-50 overflow-hidden" style={{ height: "var(--tg-viewport-height, var(--app-viewport-height, 100dvh))" }}>
 
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 shrink-0 bg-white border-b border-slate-200 shadow-sm">
