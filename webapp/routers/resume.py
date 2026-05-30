@@ -304,31 +304,38 @@ def _build_resume_document(profile: ResumeProfileData) -> dict:
     contacts = [x for x in [profile.phone, profile.email, profile.location, profile.website] if (x or "").strip()]
     experiences = [
         {
+            # Keep legacy "title" key for backward compat with _document_to_lines
             "title": " / ".join([x for x in [item.role, item.company] if x]) or "Lavozim",
+            # Separate fields for rich PDF/DOCX rendering
+            "role": item.role or "",
+            "company": item.company or "",
             "period": _fmt_period(item.start_date, item.end_date),
-            "location": item.location,
-            "description": item.description,
+            "location": item.location or "",
+            "description": item.description or "",
         }
         for item in profile.experiences
     ]
     educations = [
         {
             "title": " / ".join([x for x in [item.school, item.degree] if x]) or "Ta'lim",
+            "school": item.school or "",
+            "degree": item.degree or "",
             "period": _fmt_period(item.start_date, item.end_date),
-            "description": item.description,
+            "description": item.description or "",
         }
         for item in profile.educations
     ]
     return {
         "name": profile.full_name or "Nomsiz nomzod",
-        "position": profile.position or "Lavozim ko'rsatilmagan",
+        "position": profile.position or "",
         "contacts": contacts,
-        "summary": profile.summary or "Qisqacha ma'lumot kiritilmagan",
+        "summary": profile.summary or "",
         "experiences": experiences,
         "educations": educations,
         "skills": profile.skills,
         "languages": profile.languages,
     }
+
 
 
 def _document_to_lines(doc: dict) -> list[str]:
@@ -415,291 +422,793 @@ def _generate_pdf_legacy(doc: dict, title: str) -> bytes:
     return bytes(result)
 
 
-def _generate_pdf_fpdf2(doc: dict, accent_hex: str) -> bytes:
+# ---------------------------------------------------------------------------
+# Bullet-point parser: converts description text lines into display strings.
+# Lines starting with  -, –, •, or *  become bullet items.
+# ---------------------------------------------------------------------------
+
+def _parse_bullets(text: str) -> list[str]:
+    result: list[str] = []
+    for raw in (text or "").splitlines():
+        s = raw.strip()
+        if not s:
+            continue
+        if s[0] in ("-", "–", "•", "*"):
+            result.append("• " + s.lstrip("-–•* ").strip())
+        else:
+            result.append(s)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# PDF generators — three distinct professional layouts.
+# ---------------------------------------------------------------------------
+
+def _generate_pdf_fpdf2(doc: dict, accent_hex: str, template_id: str = "clean") -> bytes:  # noqa: C901
+    """Render a polished A4 PDF with fpdf2.
+
+    template_id one of: "clean" (default), "modern" (sidebar), "compact" (dense mono).
+    """
     from fpdf import FPDF  # type: ignore[import]
 
     ar, ag, ab = _hex_to_rgb(accent_hex)
-    page_margin = 18.0
 
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_margins(page_margin, 0, page_margin)
+    has_reg = os.path.exists(_DEJAVU_REGULAR)
+    has_bld = os.path.exists(_DEJAVU_BOLD)
+    fam = "DejaVu" if has_reg else "Helvetica"
 
-    has_regular = os.path.exists(_DEJAVU_REGULAR)
-    has_bold = os.path.exists(_DEJAVU_BOLD)
-    fam = "DejaVu" if has_regular else "Helvetica"
+    # ── Shared font helpers ──────────────────────────────────────────────────
+    def _make_pdf(margin_l: float = 18.0, auto_break_margin: float = 15.0) -> FPDF:
+        p = FPDF(orientation="P", unit="mm", format="A4")
+        p.set_margins(margin_l, 0, margin_l)
+        p.set_auto_page_break(auto=True, margin=auto_break_margin)
+        if has_reg:
+            p.add_font("DejaVu", fname=_DEJAVU_REGULAR)
+        if has_bld:
+            p.add_font("DejaVu", style="B", fname=_DEJAVU_BOLD)
+        return p
 
-    if has_regular:
+    def sf(p: FPDF, bold: bool = False, size: float = 10.0) -> None:
+        p.set_font(fam, style="B" if (bold and has_bld) else "", size=size)
+
+    # ── CLEAN / COMPACT ──────────────────────────────────────────────────────
+    if template_id in ("clean", "compact"):
+        LM = 18.0
+        is_compact = template_id == "compact"
+        HDR_H = 40.0 if not is_compact else 0.0   # compact has no colored header
+        BODY_BREAK = 12.0 if is_compact else 15.0
+        BODY_SZ = 9.0 if is_compact else 9.5
+        TITLE_SZ = 8.5 if is_compact else 9.0
+
+        pdf = _make_pdf(LM, BODY_BREAK)
+        pdf.add_page()
+        UW = pdf.w - 2 * LM  # usable width
+
+        # ── Header block ──────────────────────────────────────────────────
+        if not is_compact:
+            pdf.set_fill_color(ar, ag, ab)
+            pdf.rect(0, 0, pdf.w, HDR_H, "F")
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_xy(LM, 7)
+            sf(pdf, bold=True, size=20)
+            pdf.cell(0, 8, str(doc.get("name") or "Nomzod"), new_x="LMARGIN", new_y="NEXT")
+            pos_text = str(doc.get("position") or "").strip()
+            if pos_text:
+                pdf.set_x(LM)
+                sf(pdf, size=11)
+                pdf.set_text_color(235, 255, 252)
+                pdf.cell(0, 5, pos_text, new_x="LMARGIN", new_y="NEXT")
+            contacts: list[str] = doc.get("contacts") or []
+            if contacts:
+                pdf.set_x(LM)
+                sf(pdf, size=8.5)
+                pdf.set_text_color(200, 240, 235)
+                pdf.cell(0, 4, " | ".join(str(c) for c in contacts), new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(15, 23, 42)
+            pdf.set_y(HDR_H + 5)
+        else:
+            # Compact: plain text header block
+            pdf.set_text_color(15, 23, 42)
+            name_text = str(doc.get("name") or "Nomzod")
+            pos_text = str(doc.get("position") or "").strip()
+            contacts = doc.get("contacts") or []
+            pdf.set_xy(LM, 8)
+            sf(pdf, bold=True, size=16)
+            if pos_text:
+                # Name left, position right
+                pdf.cell(UW * 0.58, 7, name_text, new_x="RIGHT")
+                sf(pdf, size=10)
+                pdf.set_text_color(60, 70, 90)
+                pdf.cell(UW * 0.42, 7, pos_text, align="R", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(15, 23, 42)
+            else:
+                pdf.cell(0, 7, name_text, new_x="LMARGIN", new_y="NEXT")
+            if contacts:
+                pdf.set_x(LM)
+                sf(pdf, size=8)
+                pdf.set_text_color(90, 100, 120)
+                pdf.cell(0, 4, " · ".join(str(c) for c in contacts), new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(15, 23, 42)
+            # Hairline separator
+            pdf.set_draw_color(150, 150, 150)
+            pdf.set_line_width(0.2)
+            pdf.line(LM, pdf.get_y() + 2, pdf.w - LM, pdf.get_y() + 2)
+            pdf.set_y(pdf.get_y() + 5)
+
+        # ── Section title helper ──────────────────────────────────────────
+        def section(title: str) -> None:
+            pdf.set_x(LM)
+            sf(pdf, bold=True, size=TITLE_SZ)
+            if is_compact:
+                pdf.set_text_color(30, 30, 30)
+                pdf.set_draw_color(120, 120, 120)
+                pdf.set_line_width(0.15)
+            else:
+                pdf.set_text_color(ar, ag, ab)
+                pdf.set_draw_color(ar, ag, ab)
+                pdf.set_line_width(0.3)
+            pdf.cell(0, 5, title.upper(), new_x="LMARGIN", new_y="NEXT")
+            pdf.line(LM, pdf.get_y(), pdf.w - LM, pdf.get_y())
+            pdf.set_text_color(15, 23, 42)
+            pdf.ln(2)
+
+        # ── Multi-cell body helper ────────────────────────────────────────
+        def body(text: str, bold: bool = False, size: float = BODY_SZ, indent: float = 0) -> None:
+            if not text:
+                return
+            pdf.set_x(LM + indent)
+            sf(pdf, bold=bold, size=size)
+            pdf.multi_cell(UW - indent, 4.8, str(text), new_x="LMARGIN", new_y="NEXT")
+
+        # ── Description with bullet lines ─────────────────────────────────
+        def desc_block(text: str) -> None:
+            indent = 3.0 if not is_compact else 2.0
+            for line in _parse_bullets(text):
+                pdf.set_x(LM + indent)
+                sf(pdf, size=BODY_SZ)
+                pdf.multi_cell(UW - indent, 4.5 if is_compact else 4.8, line,
+                               new_x="LMARGIN", new_y="NEXT")
+
+        # ── Summary ───────────────────────────────────────────────────────
+        summary = str(doc.get("summary") or "").strip()
+        if summary:
+            section("Qisqacha")
+            body(summary)
+            pdf.ln(3 if not is_compact else 2)
+
+        # ── Experience ────────────────────────────────────────────────────
+        experiences: list[dict] = doc.get("experiences") or []
+        if experiences:
+            section("Ish Tajribasi")
+            for i, item in enumerate(experiences):
+                role = str(item.get("role") or "").strip()
+                company = str(item.get("company") or "").strip()
+                period = str(item.get("period") or "").strip()
+                loc = str(item.get("location") or "").strip()
+                desc = str(item.get("description") or "").strip()
+
+                # Role (bold) + Period (right-aligned, muted)
+                pdf.set_x(LM)
+                sf(pdf, bold=True, size=10.5 if not is_compact else 9.5)
+                role_label = role or company or "Lavozim"
+                if period:
+                    pdf.cell(UW * 0.65, 5.5, role_label, new_x="RIGHT")
+                    sf(pdf, size=8)
+                    pdf.set_text_color(100, 116, 139)
+                    pdf.cell(UW * 0.35, 5.5, period, align="R", new_x="LMARGIN", new_y="NEXT")
+                    pdf.set_text_color(15, 23, 42)
+                else:
+                    pdf.cell(0, 5.5, role_label, new_x="LMARGIN", new_y="NEXT")
+
+                # Company (italic-style smaller text)
+                if company and role:
+                    pdf.set_x(LM)
+                    sf(pdf, size=9)
+                    pdf.set_text_color(55, 80, 115)
+                    pdf.cell(0, 4.5, company, new_x="LMARGIN", new_y="NEXT")
+                    pdf.set_text_color(15, 23, 42)
+
+                # Location
+                if loc:
+                    pdf.set_x(LM)
+                    sf(pdf, size=8)
+                    pdf.set_text_color(100, 116, 139)
+                    pdf.cell(0, 4, loc, new_x="LMARGIN", new_y="NEXT")
+                    pdf.set_text_color(15, 23, 42)
+
+                # Description
+                if desc:
+                    pdf.ln(0.8)
+                    desc_block(desc)
+
+                if i < len(experiences) - 1:
+                    pdf.ln(2.5 if not is_compact else 1.5)
+            pdf.ln(2)
+
+        # ── Education ─────────────────────────────────────────────────────
+        educations: list[dict] = doc.get("educations") or []
+        if educations:
+            section("Ta'lim")
+            for i, item in enumerate(educations):
+                school = str(item.get("school") or "").strip()
+                degree = str(item.get("degree") or "").strip()
+                period = str(item.get("period") or "").strip()
+                desc = str(item.get("description") or "").strip()
+                title_label = school or degree or "Ta'lim"
+
+                pdf.set_x(LM)
+                sf(pdf, bold=True, size=10.5 if not is_compact else 9.5)
+                if period:
+                    pdf.cell(UW * 0.65, 5.5, title_label, new_x="RIGHT")
+                    sf(pdf, size=8)
+                    pdf.set_text_color(100, 116, 139)
+                    pdf.cell(UW * 0.35, 5.5, period, align="R", new_x="LMARGIN", new_y="NEXT")
+                    pdf.set_text_color(15, 23, 42)
+                else:
+                    pdf.cell(0, 5.5, title_label, new_x="LMARGIN", new_y="NEXT")
+
+                if degree and school:
+                    pdf.set_x(LM)
+                    sf(pdf, size=9)
+                    pdf.set_text_color(55, 80, 115)
+                    pdf.cell(0, 4.5, degree, new_x="LMARGIN", new_y="NEXT")
+                    pdf.set_text_color(15, 23, 42)
+
+                if desc:
+                    pdf.ln(0.8)
+                    desc_block(desc)
+
+                if i < len(educations) - 1:
+                    pdf.ln(2 if not is_compact else 1.5)
+            pdf.ln(2)
+
+        # ── Skills ────────────────────────────────────────────────────────
+        skills: list[str] = doc.get("skills") or []
+        if skills:
+            section("Ko'nikmalar")
+            if is_compact:
+                body(", ".join(str(s) for s in skills), size=9)
+            else:
+                # Render skills as tinted chips in rows
+                CHIP_PAD_H, CHIP_PAD_V, CHIP_GAP = 3.0, 1.2, 2.0
+                CHIP_H = 5.5
+                x_pos = LM
+                chip_y = pdf.get_y()
+                lr = min(255, ar + 195)
+                lg = min(255, ag + 195)
+                lb = min(255, ab + 195)
+                for skill in skills:
+                    sf(pdf, size=8.5)
+                    tw = pdf.get_string_width(str(skill)) + CHIP_PAD_H * 2
+                    if x_pos + tw > pdf.w - LM:
+                        chip_y += CHIP_H + CHIP_GAP
+                        x_pos = LM
+                    pdf.set_fill_color(lr, lg, lb)
+                    pdf.set_draw_color(ar, ag, ab)
+                    pdf.set_line_width(0.2)
+                    pdf.rect(x_pos, chip_y + CHIP_PAD_V, tw, CHIP_H, "FD")
+                    pdf.set_text_color(ar, ag, ab)
+                    pdf.set_xy(x_pos + CHIP_PAD_H, chip_y + CHIP_PAD_V + 0.5)
+                    pdf.cell(tw - CHIP_PAD_H * 2, CHIP_H - 1, str(skill))
+                    pdf.set_text_color(15, 23, 42)
+                    x_pos += tw + CHIP_GAP
+                pdf.set_y(chip_y + CHIP_H + CHIP_GAP + 2)
+            pdf.ln(1)
+
+        # ── Languages ─────────────────────────────────────────────────────
+        langs: list[str] = doc.get("languages") or []
+        if langs:
+            section("Tillar")
+            body(", ".join(str(ll) for ll in langs))
+
+        return bytes(pdf.output())
+
+    # ── MODERN (sidebar layout) ──────────────────────────────────────────────
+    SB_W = 62.0          # sidebar width mm
+    SB_M = 7.0           # sidebar inner margin
+    SB_UW = SB_W - SB_M * 2
+    MAIN_X = SB_W + 6.0  # main column starts here
+    MAIN_W = 210.0 - MAIN_X - 10.0  # right margin 10mm
+    MAIN_BRK = 15.0
+
+    # Sidebar background uses header() so it redraws on every page
+    class _ModernPDF(FPDF):  # type: ignore[misc]
+        _sb_w: float = SB_W
+        _sb_rgb: tuple[int, int, int] = (ar, ag, ab)
+
+        def header(self) -> None:  # type: ignore[override]
+            self.set_fill_color(*self._sb_rgb)
+            self.rect(0, 0, self._sb_w, self.h, "F")
+
+    pdf = _ModernPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=MAIN_BRK)
+    pdf.set_margins(SB_W + 6.0, 0, 10.0)
+    if has_reg:
         pdf.add_font("DejaVu", fname=_DEJAVU_REGULAR)
-    if has_bold:
+    if has_bld:
         pdf.add_font("DejaVu", style="B", fname=_DEJAVU_BOLD)
 
-    def sf(bold: bool = False, size: float = 10.0) -> None:
-        pdf.set_font(fam, style="B" if (bold and has_bold) else "", size=size)
-
     pdf.add_page()
-    usable_w = pdf.w - 2 * page_margin
 
-    # ── Header block ──────────────────────────────────────────────────────────
-    header_h = 30.0
-    pdf.set_fill_color(ar, ag, ab)
-    pdf.rect(0, 0, pdf.w, header_h, "F")
+    # ── Sidebar helper: track sb_y manually (no auto-break in sidebar) ────
+    sb_y = 12.0
+
+    def sb_sf(bold: bool = False, size: float = 8.5) -> None:
+        pdf.set_font(fam, style="B" if (bold and has_bld) else "", size=size)
+
+    def sb_set(y: float) -> None:
+        pdf.set_xy(SB_M, y)
+
+    def sb_text(text: str, bold: bool = False, size: float = 8.5) -> None:
+        nonlocal sb_y
+        if sb_y > 270:
+            return  # silently clip near bottom
+        sb_set(sb_y)
+        sb_sf(bold=bold, size=size)
+        pdf.set_text_color(230, 245, 242)
+        pdf.multi_cell(SB_UW, 4.8, str(text), new_x="LMARGIN", new_y="NEXT")
+        sb_y = pdf.get_y() + 0.8
+
+    def sb_section_title(title: str) -> None:
+        nonlocal sb_y
+        sb_y += 4
+        sb_set(sb_y)
+        sb_sf(bold=True, size=7.5)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(SB_UW, 4.5, title.upper(), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_draw_color(255, 255, 255)
+        pdf.set_line_width(0.15)
+        pdf.line(SB_M, pdf.get_y(), SB_W - SB_M, pdf.get_y())
+        sb_y = pdf.get_y() + 2.5
+        pdf.set_text_color(225, 242, 240)
+
+    # Sidebar: name + position header
+    sb_set(sb_y)
+    sb_sf(bold=True, size=14)
     pdf.set_text_color(255, 255, 255)
+    pdf.multi_cell(SB_UW, 6.5, str(doc.get("name") or "Nomzod"), new_x="LMARGIN", new_y="NEXT")
+    sb_y = pdf.get_y() + 1
+    pos_text = str(doc.get("position") or "").strip()
+    if pos_text:
+        sb_set(sb_y)
+        sb_sf(size=9)
+        pdf.set_text_color(210, 238, 234)
+        pdf.multi_cell(SB_UW, 4.8, pos_text, new_x="LMARGIN", new_y="NEXT")
+        sb_y = pdf.get_y() + 3
 
-    pdf.set_xy(page_margin, 6)
-    sf(bold=True, size=17)
-    pdf.cell(0, 7, str(doc.get("name") or "Nomzod"), new_x="LMARGIN", new_y="NEXT")
+    # Sidebar: contacts
+    contacts_sb: list[str] = doc.get("contacts") or []
+    if contacts_sb:
+        sb_section_title("Aloqa")
+        for c in contacts_sb:
+            sb_text(str(c))
 
-    pdf.set_x(page_margin)
-    sf(size=10)
-    pdf.cell(0, 5, str(doc.get("position") or ""), new_x="LMARGIN", new_y="NEXT")
+    # Sidebar: skills
+    skills_sb: list[str] = doc.get("skills") or []
+    if skills_sb:
+        sb_section_title("Ko'nikmalar")
+        for sk in skills_sb[:20]:
+            sb_text("• " + str(sk))
 
-    contacts: list[str] = doc.get("contacts") or []
-    if contacts:
-        pdf.set_x(page_margin)
-        sf(size=8)
-        pdf.cell(0, 4, " | ".join(str(c) for c in contacts), new_x="LMARGIN", new_y="NEXT")
+    # Sidebar: languages
+    langs_sb: list[str] = doc.get("languages") or []
+    if langs_sb:
+        sb_section_title("Tillar")
+        for ll in langs_sb:
+            sb_text("• " + str(ll))
 
+    # ── Main column helpers ───────────────────────────────────────────────
     pdf.set_text_color(15, 23, 42)
-    pdf.set_y(header_h + 5)
+    main_y = 10.0
 
-    # ── Helper: section title with coloured underline ─────────────────────────
-    def section(title: str) -> None:
-        pdf.set_x(page_margin)
-        sf(bold=True, size=8)
+    def main_set(y: float) -> None:
+        pdf.set_xy(MAIN_X, y)
+
+    def main_section(title: str) -> None:
+        nonlocal main_y
+        main_y += 4
+        main_set(main_y)
+        sf(pdf, bold=True, size=9)
         pdf.set_text_color(ar, ag, ab)
-        pdf.cell(0, 5, title.upper(), new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(MAIN_W, 5, title.upper(), new_x="LEFT", new_y="NEXT")
         pdf.set_draw_color(ar, ag, ab)
         pdf.set_line_width(0.3)
-        pdf.line(page_margin, pdf.get_y(), pdf.w - page_margin, pdf.get_y())
+        pdf.line(MAIN_X, pdf.get_y(), MAIN_X + MAIN_W, pdf.get_y())
         pdf.set_text_color(15, 23, 42)
-        pdf.ln(1.5)
+        pdf.ln(2)
+        main_y = pdf.get_y()
 
-    # ── Helper: body paragraph ────────────────────────────────────────────────
-    def body(text: str, bold: bool = False, size: float = 9.5) -> None:
+    def main_body(text: str, bold: bool = False, size: float = 9.5) -> None:
+        nonlocal main_y
         if not text:
             return
-        pdf.set_x(page_margin)
-        sf(bold=bold, size=size)
-        pdf.multi_cell(usable_w, 4.8, str(text), new_x="LMARGIN", new_y="NEXT")
+        main_set(main_y)
+        sf(pdf, bold=bold, size=size)
+        pdf.multi_cell(MAIN_W, 4.8, str(text), new_x="LEFT", new_y="NEXT")
+        main_y = pdf.get_y()
 
-    # ── Summary ───────────────────────────────────────────────────────────────
-    summary = str(doc.get("summary") or "").strip()
-    if summary:
-        section("Qisqacha")
-        body(summary)
-        pdf.ln(3)
+    def main_desc(text: str) -> None:
+        nonlocal main_y
+        for line in _parse_bullets(text):
+            main_set(main_y)
+            sf(pdf, size=9)
+            pdf.multi_cell(MAIN_W - 2, 4.6, line, new_x="LEFT", new_y="NEXT")
+            main_y = pdf.get_y()
 
-    # ── Experience ────────────────────────────────────────────────────────────
-    experiences: list[dict] = doc.get("experiences") or []
-    if experiences:
-        section("Tajriba")
-        for item in experiences:
-            left = str(item.get("title") or "")
-            period = str(item.get("period") or "")
+    # Main: summary
+    summary_m = str(doc.get("summary") or "").strip()
+    if summary_m:
+        main_section("Qisqacha")
+        main_body(summary_m)
+        main_y += 2
+
+    # Main: experience
+    experiences_m: list[dict] = doc.get("experiences") or []
+    if experiences_m:
+        main_section("Ish Tajribasi")
+        for i, item in enumerate(experiences_m):
+            role = str(item.get("role") or "").strip()
+            company = str(item.get("company") or "").strip()
+            period = str(item.get("period") or "").strip()
             loc = str(item.get("location") or "").strip()
             desc = str(item.get("description") or "").strip()
 
-            pdf.set_x(page_margin)
-            sf(bold=True, size=10)
+            main_set(main_y)
+            sf(pdf, bold=True, size=10)
+            role_label = role or company or "Lavozim"
             if period:
-                pdf.cell(usable_w * 0.62, 5, left, new_x="RIGHT")
-                sf(size=8)
+                pdf.cell(MAIN_W * 0.65, 5.5, role_label, new_x="RIGHT")
+                sf(pdf, size=8)
                 pdf.set_text_color(100, 116, 139)
-                pdf.cell(usable_w * 0.38, 5, period, align="R", new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(MAIN_W * 0.35, 5.5, period, align="R", new_x="LEFT", new_y="NEXT")
                 pdf.set_text_color(15, 23, 42)
             else:
-                pdf.cell(0, 5, left, new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(MAIN_W, 5.5, role_label, new_x="LEFT", new_y="NEXT")
+            main_y = pdf.get_y()
+
+            if company and role:
+                main_set(main_y)
+                sf(pdf, size=9)
+                pdf.set_text_color(55, 80, 115)
+                pdf.cell(MAIN_W, 4.5, company, new_x="LEFT", new_y="NEXT")
+                pdf.set_text_color(15, 23, 42)
+                main_y = pdf.get_y()
 
             if loc:
-                pdf.set_x(page_margin)
-                sf(size=8)
+                main_set(main_y)
+                sf(pdf, size=8)
                 pdf.set_text_color(100, 116, 139)
-                pdf.cell(0, 4, loc, new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(MAIN_W, 4, loc, new_x="LEFT", new_y="NEXT")
                 pdf.set_text_color(15, 23, 42)
+                main_y = pdf.get_y()
 
             if desc:
-                body(desc, size=9)
-            pdf.ln(2)
-        pdf.ln(1)
+                main_y += 0.8
+                main_desc(desc)
 
-    # ── Education ─────────────────────────────────────────────────────────────
-    educations: list[dict] = doc.get("educations") or []
-    if educations:
-        section("Ta'lim")
-        for item in educations:
-            left = str(item.get("title") or "")
-            period = str(item.get("period") or "")
+            if i < len(experiences_m) - 1:
+                main_y += 3
+        main_y += 2
+
+    # Main: education
+    educations_m: list[dict] = doc.get("educations") or []
+    if educations_m:
+        main_section("Ta'lim")
+        for i, item in enumerate(educations_m):
+            school = str(item.get("school") or "").strip()
+            degree = str(item.get("degree") or "").strip()
+            period = str(item.get("period") or "").strip()
             desc = str(item.get("description") or "").strip()
+            title_label = school or degree or "Ta'lim"
 
-            pdf.set_x(page_margin)
-            sf(bold=True, size=10)
+            main_set(main_y)
+            sf(pdf, bold=True, size=10)
             if period:
-                pdf.cell(usable_w * 0.62, 5, left, new_x="RIGHT")
-                sf(size=8)
+                pdf.cell(MAIN_W * 0.65, 5.5, title_label, new_x="RIGHT")
+                sf(pdf, size=8)
                 pdf.set_text_color(100, 116, 139)
-                pdf.cell(usable_w * 0.38, 5, period, align="R", new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(MAIN_W * 0.35, 5.5, period, align="R", new_x="LEFT", new_y="NEXT")
                 pdf.set_text_color(15, 23, 42)
             else:
-                pdf.cell(0, 5, left, new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(MAIN_W, 5.5, title_label, new_x="LEFT", new_y="NEXT")
+            main_y = pdf.get_y()
+
+            if degree and school:
+                main_set(main_y)
+                sf(pdf, size=9)
+                pdf.set_text_color(55, 80, 115)
+                pdf.cell(MAIN_W, 4.5, degree, new_x="LEFT", new_y="NEXT")
+                pdf.set_text_color(15, 23, 42)
+                main_y = pdf.get_y()
 
             if desc:
-                body(desc, size=9)
-            pdf.ln(2)
-        pdf.ln(1)
+                main_y += 0.8
+                main_desc(desc)
 
-    # ── Skills ────────────────────────────────────────────────────────────────
-    skills: list[str] = doc.get("skills") or []
-    if skills:
-        section("Ko'nikmalar")
-        body(", ".join(str(s) for s in skills))
-        pdf.ln(3)
-
-    # ── Languages ─────────────────────────────────────────────────────────────
-    langs: list[str] = doc.get("languages") or []
-    if langs:
-        section("Tillar")
-        body(", ".join(str(l) for l in langs))
+            if i < len(educations_m) - 1:
+                main_y += 2
 
     return bytes(pdf.output())
 
 
-def _generate_pdf_bytes(doc: dict, title: str, accent_hex: str = "#0f766e") -> bytes:
+def _generate_pdf_bytes(doc: dict, title: str, accent_hex: str = "#0f766e",
+                        template_id: str = "clean") -> bytes:
     """Generate PDF with Unicode support via fpdf2; falls back to legacy ASCII on error."""
     try:
-        return _generate_pdf_fpdf2(doc, accent_hex)
+        return _generate_pdf_fpdf2(doc, accent_hex, template_id=template_id)
     except Exception:
         return _generate_pdf_legacy(doc, title)
 
 
-def _generate_docx_bytes(doc: dict, title: str) -> bytes:
+# ---------------------------------------------------------------------------
+# DOCX generator — fully inline-styled, no external style references.
+# ---------------------------------------------------------------------------
+
+def _generate_docx_bytes(doc: dict, title: str, accent_hex: str = "#0f766e") -> bytes:  # noqa: C901
+    ar, ag, ab = _hex_to_rgb(accent_hex)
+    accent_word = f"{ar:02x}{ag:02x}{ab:02x}"  # e.g. "0f766e"
     _WNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-    _REL_DOC = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
-    _REL_CORE = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
-    _REL_APP = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties"
 
-    def p(text: str, bold: bool = False) -> str:
-        rpr = "<w:rPr><w:b/></w:rPr>" if bold else ""
+    # ── XML building helpers ─────────────────────────────────────────────────
+    def _rpr(bold: bool = False, size: int = 20, color: str | None = None,
+             italic: bool = False) -> str:
+        """Run properties. `size` in half-points (20 = 10 pt)."""
+        parts = [
+            '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Arial"/>',
+            f'<w:sz w:val="{size}"/>',
+            f'<w:szCs w:val="{size}"/>',
+        ]
+        if bold:
+            parts.append("<w:b/><w:bCs/>")
+        if italic:
+            parts.append("<w:i/><w:iCs/>")
+        if color:
+            parts.append(f'<w:color w:val="{color}"/>')
+        return "<w:rPr>" + "".join(parts) + "</w:rPr>"
+
+    def _run(text: str, bold: bool = False, size: int = 20,
+             color: str | None = None, italic: bool = False) -> str:
         return (
-            f"<w:p><w:r>{rpr}"
-            f"<w:t xml:space='preserve'>{html.escape(text)}</w:t>"
-            "</w:r></w:p>"
+            f"<w:r>{_rpr(bold=bold, size=size, color=color, italic=italic)}"
+            f"<w:t xml:space='preserve'>{html.escape(str(text))}</w:t></w:r>"
         )
 
-    def section_p(text: str) -> str:
-        return (
-            "<w:p><w:pPr><w:pStyle w:val='Heading2'/></w:pPr>"
-            f"<w:r><w:t>{html.escape(text)}</w:t></w:r></w:p>"
+    def _para(*runs: str, before: int = 0, after: int = 60,
+              indent_l: int = 0, indent_h: int = 0,
+              border_bottom: bool = False, shade: str | None = None) -> str:
+        spacing = f'<w:spacing w:before="{before}" w:after="{after}"/>'
+        ind = f'<w:ind w:left="{indent_l}" w:hanging="{indent_h}"/>' if indent_l or indent_h else ""
+        bdr = (
+            f'<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="1" w:color="{accent_word}"/></w:pBdr>'
+            if border_bottom else ""
+        )
+        shd = f'<w:shd w:val="clear" w:color="auto" w:fill="{shade}"/>' if shade else ""
+        ppr = f"<w:pPr>{spacing}{ind}{bdr}{shd}</w:pPr>"
+        return f"<w:p>{ppr}{''.join(runs)}</w:p>"
+
+    def _heading(text: str) -> str:
+        """Section heading: bold, accent color, bottom border rule."""
+        return _para(
+            _run(text.upper(), bold=True, size=18, color=accent_word),
+            before=160, after=40, border_bottom=True,
         )
 
-    body_parts: list[str] = []
-    body_parts.append(p(str(doc.get("name") or "Nomzod"), bold=True))
-    body_parts.append(p(str(doc.get("position") or "")))
-    contacts: list[str] = doc.get("contacts") or []
-    if contacts:
-        body_parts.append(p(" | ".join(str(c) for c in contacts)))
-    body_parts.append(p(""))
+    # ── Document body ────────────────────────────────────────────────────────
+    parts: list[str] = []
 
-    summary = str(doc.get("summary") or "").strip()
-    if summary:
-        body_parts.append(section_p("QISQACHA"))
-        for line in summary.splitlines():
-            body_parts.append(p(line))
-        body_parts.append(p(""))
+    # Name (large bold)
+    parts.append(_para(
+        _run(str(doc.get("name") or "Nomzod"), bold=True, size=36, color="0f172a"),
+        before=0, after=40,
+    ))
 
-    experiences: list[dict] = doc.get("experiences") or []
-    if experiences:
-        body_parts.append(section_p("TAJRIBA"))
-        for item in experiences:
-            title_text = str(item.get("title") or "")
-            period = str(item.get("period") or "")
+    # Position
+    pos = str(doc.get("position") or "").strip()
+    if pos:
+        parts.append(_para(
+            _run(pos, size=24, color="334155", italic=True),
+            before=0, after=60,
+        ))
+
+    # Contacts
+    contacts_d: list[str] = doc.get("contacts") or []
+    if contacts_d:
+        parts.append(_para(
+            _run(" | ".join(str(c) for c in contacts_d), size=18, color="64748b"),
+            before=0, after=120,
+        ))
+
+    # Accent separator
+    parts.append(
+        f"<w:p><w:pPr>"
+        f"<w:pBdr><w:bottom w:val='single' w:sz='8' w:space='1' w:color='{accent_word}'/></w:pBdr>"
+        f"<w:spacing w:before='0' w:after='0'/></w:pPr></w:p>"
+    )
+
+    # Summary
+    summary_d = str(doc.get("summary") or "").strip()
+    if summary_d:
+        parts.append(_heading("Qisqacha"))
+        for line in summary_d.splitlines():
+            if line.strip():
+                parts.append(_para(_run(line.strip(), size=20), before=0, after=40))
+
+    # Experience
+    experiences_d: list[dict] = doc.get("experiences") or []
+    if experiences_d:
+        parts.append(_heading("Ish Tajribasi"))
+        for item in experiences_d:
+            role = str(item.get("role") or "").strip()
+            company = str(item.get("company") or "").strip()
+            period = str(item.get("period") or "").strip()
             loc = str(item.get("location") or "").strip()
             desc = str(item.get("description") or "").strip()
-            header = f"{title_text}   {period}".strip() if period else title_text
-            body_parts.append(p(header, bold=True))
+
+            # Role + period
+            role_label = role or company or "Lavozim"
+            period_part = _run(f"    {period}", size=18, color="64748b") if period else ""
+            parts.append(_para(
+                _run(role_label, bold=True, size=22),
+                period_part,
+                before=100, after=20,
+            ))
+            if company and role:
+                parts.append(_para(_run(company, size=20, color="374151", italic=True),
+                                   before=0, after=20))
             if loc:
-                body_parts.append(p(loc))
-            for line in desc.splitlines():
-                if line.strip():
-                    body_parts.append(p(line))
-            body_parts.append(p(""))
+                parts.append(_para(_run(loc, size=18, color="64748b"), before=0, after=20))
+            for bline in _parse_bullets(desc):
+                is_blt = bline.startswith("• ")
+                text_b = bline[2:] if is_blt else bline
+                bullet_run = _run("• ", size=20, color="64748b") if is_blt else ""
+                parts.append(_para(
+                    bullet_run, _run(text_b, size=20),
+                    before=0, after=20,
+                    indent_l=360 if is_blt else 0, indent_h=200 if is_blt else 0,
+                ))
 
-    educations: list[dict] = doc.get("educations") or []
-    if educations:
-        body_parts.append(section_p("TA'LIM"))
-        for item in educations:
-            title_text = str(item.get("title") or "")
-            period = str(item.get("period") or "")
+    # Education
+    educations_d: list[dict] = doc.get("educations") or []
+    if educations_d:
+        parts.append(_heading("Ta'lim"))
+        for item in educations_d:
+            school = str(item.get("school") or "").strip()
+            degree = str(item.get("degree") or "").strip()
+            period = str(item.get("period") or "").strip()
             desc = str(item.get("description") or "").strip()
-            header = f"{title_text}   {period}".strip() if period else title_text
-            body_parts.append(p(header, bold=True))
-            for line in desc.splitlines():
-                if line.strip():
-                    body_parts.append(p(line))
-            body_parts.append(p(""))
+            title_d = school or degree or "Ta'lim"
+            period_part = _run(f"    {period}", size=18, color="64748b") if period else ""
+            parts.append(_para(
+                _run(title_d, bold=True, size=22),
+                period_part,
+                before=100, after=20,
+            ))
+            if degree and school:
+                parts.append(_para(_run(degree, size=20, color="374151", italic=True),
+                                   before=0, after=20))
+            for bline in _parse_bullets(desc):
+                parts.append(_para(_run(bline, size=20), before=0, after=20))
 
-    skills: list[str] = doc.get("skills") or []
-    if skills:
-        body_parts.append(section_p("KO'NIKMALAR"))
-        body_parts.append(p(", ".join(str(s) for s in skills)))
-        body_parts.append(p(""))
+    # Skills
+    skills_d: list[str] = doc.get("skills") or []
+    if skills_d:
+        parts.append(_heading("Ko'nikmalar"))
+        parts.append(_para(_run(", ".join(str(s) for s in skills_d), size=20),
+                           before=0, after=60))
 
-    langs: list[str] = doc.get("languages") or []
-    if langs:
-        body_parts.append(section_p("TILLAR"))
-        body_parts.append(p(", ".join(str(l) for l in langs)))
+    # Languages
+    langs_d: list[str] = doc.get("languages") or []
+    if langs_d:
+        parts.append(_heading("Tillar"))
+        parts.append(_para(_run(", ".join(str(ll) for ll in langs_d), size=20),
+                           before=0, after=60))
 
+    # ── DOCX ZIP structure ───────────────────────────────────────────────────
     document_xml = (
         "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>"
         f"<w:document xmlns:w='{_WNS}'>"
-        f"<w:body>{''.join(body_parts)}<w:sectPr/></w:body></w:document>"
+        "<w:body>"
+        + "".join(parts)
+        + "<w:sectPr>"
+        "<w:pgSz w:w='12240' w:h='15840'/>"
+        "<w:pgMar w:top='1134' w:right='1134' w:bottom='1134' w:left='1134'/>"
+        "</w:sectPr></w:body></w:document>"
     )
+
+    # Minimal styles (Calibri default, ensures clean render in all Word versions)
+    styles_xml = (
+        "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>"
+        f"<w:styles xmlns:w='{_WNS}'>"
+        "<w:docDefaults><w:rPrDefault><w:rPr>"
+        "<w:rFonts w:ascii='Calibri' w:hAnsi='Calibri'/>"
+        "<w:sz w:val='20'/><w:lang w:val='uz-UZ' w:eastAsia='uz-UZ' w:bidi='ar-SA'/>"
+        "</w:rPr></w:rPrDefault></w:docDefaults>"
+        "<w:style w:type='paragraph' w:default='1' w:styleId='Normal'>"
+        "<w:name w:val='Normal'/>"
+        "<w:rPr><w:rFonts w:ascii='Calibri' w:hAnsi='Calibri'/><w:sz w:val='20'/></w:rPr>"
+        "</w:style>"
+        "</w:styles>"
+    )
+
+    settings_xml = (
+        "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>"
+        f"<w:settings xmlns:w='{_WNS}'>"
+        "<w:compat>"
+        "<w:compatSetting w:name='compatibilityMode'"
+        " w:uri='http://schemas.microsoft.com/office/word' w:val='15'/>"
+        "</w:compat>"
+        "</w:settings>"
+    )
+
     content_types = (
         "<?xml version='1.0' encoding='UTF-8'?>"
         "<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'>"
         "<Default Extension='rels' ContentType='application/vnd.openxmlformats-package.relationships+xml'/>"
         "<Default Extension='xml' ContentType='application/xml'/>"
-        "<Override PartName='/word/document.xml' ContentType='application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml'/>"
-        "<Override PartName='/docProps/core.xml' ContentType='application/vnd.openxmlformats-package.core-properties+xml'/>"
-        "<Override PartName='/docProps/app.xml' ContentType='application/vnd.openxmlformats-officedocument.extended-properties+xml'/>"
+        "<Override PartName='/word/document.xml'"
+        " ContentType='application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml'/>"
+        "<Override PartName='/word/styles.xml'"
+        " ContentType='application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml'/>"
+        "<Override PartName='/word/settings.xml'"
+        " ContentType='application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml'/>"
+        "<Override PartName='/docProps/core.xml'"
+        " ContentType='application/vnd.openxmlformats-package.core-properties+xml'/>"
+        "<Override PartName='/docProps/app.xml'"
+        " ContentType='application/vnd.openxmlformats-officedocument.extended-properties+xml'/>"
         "</Types>"
     )
     root_rels = (
         "<?xml version='1.0' encoding='UTF-8'?>"
         "<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'>"
-        f"<Relationship Id='rId1' Type='{_REL_DOC}' Target='word/document.xml'/>"
-        f"<Relationship Id='rId2' Type='{_REL_CORE}' Target='docProps/core.xml'/>"
-        f"<Relationship Id='rId3' Type='{_REL_APP}' Target='docProps/app.xml'/>"
+        "<Relationship Id='rId1'"
+        " Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument'"
+        " Target='word/document.xml'/>"
+        "<Relationship Id='rId2'"
+        " Type='http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties'"
+        " Target='docProps/core.xml'/>"
+        "<Relationship Id='rId3'"
+        " Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties'"
+        " Target='docProps/app.xml'/>"
         "</Relationships>"
     )
-    # Required by OOXML spec — word-level relationship file
     word_rels = (
         "<?xml version='1.0' encoding='UTF-8'?>"
-        "<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'/>"
+        "<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'>"
+        "<Relationship Id='rId1'"
+        " Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles'"
+        " Target='styles.xml'/>"
+        "<Relationship Id='rId2'"
+        " Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings'"
+        " Target='settings.xml'/>"
+        "</Relationships>"
     )
     core_xml = (
         "<?xml version='1.0' encoding='UTF-8'?>"
-        "<cp:coreProperties xmlns:cp='http://schemas.openxmlformats.org/package/2006/metadata/core-properties' "
-        "xmlns:dc='http://purl.org/dc/elements/1.1/' xmlns:dcterms='http://purl.org/dc/terms/' "
-        "xmlns:dcmitype='http://purl.org/dc/dcmitype/' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'>"
-        f"<dc:title>{html.escape(title)}</dc:title><dc:creator>Vakant3</dc:creator></cp:coreProperties>"
+        "<cp:coreProperties"
+        " xmlns:cp='http://schemas.openxmlformats.org/package/2006/metadata/core-properties'"
+        " xmlns:dc='http://purl.org/dc/elements/1.1/'>"
+        f"<dc:title>{html.escape(title)}</dc:title>"
+        "<dc:creator>Bandlik.uz</dc:creator>"
+        "</cp:coreProperties>"
     )
     app_xml = (
         "<?xml version='1.0' encoding='UTF-8'?>"
-        "<Properties xmlns='http://schemas.openxmlformats.org/officeDocument/2006/extended-properties' "
-        "xmlns:vt='http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes'>"
-        "<Application>Vakant3</Application></Properties>"
+        "<Properties xmlns='http://schemas.openxmlformats.org/officeDocument/2006/extended-properties'>"
+        "<Application>Bandlik.uz Resume Builder</Application>"
+        "</Properties>"
     )
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", content_types)
         zf.writestr("_rels/.rels", root_rels)
         zf.writestr("word/_rels/document.xml.rels", word_rels)
         zf.writestr("word/document.xml", document_xml)
+        zf.writestr("word/styles.xml", styles_xml)
+        zf.writestr("word/settings.xml", settings_xml)
         zf.writestr("docProps/core.xml", core_xml)
         zf.writestr("docProps/app.xml", app_xml)
-    return buffer.getvalue()
+    return buf.getvalue()
 
 
 async def _create_export_row(db, user_id: int, fmt: str, template_id: str, status: str = "pending") -> int:
@@ -1067,7 +1576,8 @@ async def send_resume_to_telegram(payload: ResumeSendRequest, request: Request, 
 
     endpoint = f"https://api.telegram.org/bot{settings.TOKEN}/sendDocument"
     caption = "Resume tayyor. Faylni yuklab olib ishlatishingiz mumkin."
-    file_bytes = _generate_pdf_bytes(doc, str(doc.get("name") or "Resume"), accent_hex=accent_hex)
+    file_bytes = _generate_pdf_bytes(doc, str(doc.get("name") or "Resume"),
+                                      accent_hex=accent_hex, template_id=template_id)
 
     response = None
     for _ in range(2):
@@ -1128,11 +1638,13 @@ async def export_resume(payload: ResumeExportRequest, request: Request, db=Depen
 
     try:
         if payload.format == "pdf":
-            file_bytes = _generate_pdf_bytes(doc, str(doc.get("name") or "Resume"), accent_hex=accent_hex)
+            file_bytes = _generate_pdf_bytes(doc, str(doc.get("name") or "Resume"),
+                                              accent_hex=accent_hex, template_id=template_id)
             filename = f"resume_{template_id}_{user_id}.pdf"
             content_type = "application/pdf"
         else:
-            file_bytes = _generate_docx_bytes(doc, str(doc.get("name") or "Resume"))
+            file_bytes = _generate_docx_bytes(doc, str(doc.get("name") or "Resume"),
+                                               accent_hex=accent_hex)
             filename = f"resume_{template_id}_{user_id}.docx"
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     except Exception:
