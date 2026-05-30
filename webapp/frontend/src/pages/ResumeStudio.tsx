@@ -653,6 +653,8 @@ function ResumePreview({
 
 export default function ResumeStudioPage() {
   const queryClient = useQueryClient();
+  // Must be called here (before any conditional returns) — Rules of Hooks
+  const keyboardOpen = useKeyboardOpen();
   const openedTrackedRef = useRef(false);
   const hydratedRef = useRef(false);
   const readyTrackedRef = useRef(false);
@@ -1179,7 +1181,6 @@ export default function ResumeStudioPage() {
     syncStatus === "synced" ? "Saqlandi"       :
     syncStatus === "error"  ? "Xatolik"        : "Kutish";
 
-  const keyboardOpen = useKeyboardOpen();
   // When keyboard is closed, reserve space at the bottom so the fixed BottomNav
   // doesn't overlap the action bar.  When keyboard is open BottomNav auto-hides
   // so no reservation is needed.
