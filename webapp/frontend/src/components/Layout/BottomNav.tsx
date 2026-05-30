@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Grid2x2, Home, UserCircle2 } from "lucide-react";
 import { ShieldCheck } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
 
 import client from "../../api/client";
+import { useKeyboardOpen } from "../../hooks/useKeyboardOpen";
 
 const links = [
   { to: "/app", label: "Bosh sahifa", icon: Home },
@@ -13,21 +13,7 @@ const links = [
 ];
 
 export default function BottomNav({ fixed = true }: { fixed?: boolean }) {
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-
-  useEffect(() => {
-    const onFocusIn = (e: FocusEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === "input" || tag === "textarea") setKeyboardOpen(true);
-    };
-    const onFocusOut = () => setTimeout(() => setKeyboardOpen(false), 150);
-    document.addEventListener("focusin", onFocusIn);
-    document.addEventListener("focusout", onFocusOut);
-    return () => {
-      document.removeEventListener("focusin", onFocusIn);
-      document.removeEventListener("focusout", onFocusOut);
-    };
-  }, []);
+  const keyboardOpen = useKeyboardOpen();
 
   const adminState = useQuery({
     queryKey: ["admin", "state", "nav"],
@@ -39,14 +25,14 @@ export default function BottomNav({ fixed = true }: { fixed?: boolean }) {
     staleTime: 60_000,
   });
 
+  // Hide on keyboard open in BOTH modes:
+  //  • fixed=true  → prevents nav from floating above the keyboard
+  //  • fixed=false → frees up space so the action bar stays reachable
+  if (keyboardOpen) return null;
+
   const navLinks = adminState.data?.is_admin
     ? [...links, { to: "/admin", label: "Admin", icon: ShieldCheck }]
     : links;
-
-  // In inline (non-fixed) mode the nav is inside a stable-height flex column —
-  // the keyboard overlays it from below without pushing it up, so we never hide it.
-  // In fixed mode (Layout pages) we hide on keyboard open to prevent floating above keyboard.
-  if (fixed && keyboardOpen) return null;
 
   const navCls = fixed
     ? "fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur"

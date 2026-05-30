@@ -27,6 +27,7 @@ import {
 import client from "../api/client";
 import BottomNav from "../components/Layout/BottomNav";
 import { setBackInterceptor, clearBackInterceptor } from "../hooks/useBackInterceptor";
+import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
 
 type ResumeExperienceItem = {
   role: string;
@@ -1178,8 +1179,22 @@ export default function ResumeStudioPage() {
     syncStatus === "synced" ? "Saqlandi"       :
     syncStatus === "error"  ? "Xatolik"        : "Kutish";
 
+  const keyboardOpen = useKeyboardOpen();
+  // When keyboard is closed, reserve space at the bottom so the fixed BottomNav
+  // doesn't overlap the action bar.  When keyboard is open BottomNav auto-hides
+  // so no reservation is needed.
+  const bottomClearance = keyboardOpen
+    ? "0px"
+    : "calc(3.5rem + var(--bottom-safe, 0px))";
+
   return (
-    <div className="flex flex-col bg-slate-50 overflow-x-hidden" style={{ height: "var(--tg-viewport-height, var(--app-viewport-height, 100dvh))" }}>
+    <div
+      className="flex flex-col bg-slate-50 overflow-x-hidden"
+      style={{
+        height: "var(--tg-viewport-height, var(--app-viewport-height, 100dvh))",
+        paddingBottom: bottomClearance,
+      }}
+    >
 
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 shrink-0 bg-white border-b border-slate-200 shadow-sm">
@@ -1789,8 +1804,8 @@ export default function ResumeStudioPage() {
         </div>
       </div>
 
-      {/* ── BOTTOM NAV ───────────────────────────────────────────────────── */}
-      <BottomNav fixed={false} />
+      {/* ── BOTTOM NAV (fixed – auto-hides on keyboard open) ─────────────── */}
+      <BottomNav fixed={true} />
     </div>
   );
 }
