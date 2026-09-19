@@ -1,159 +1,172 @@
 # ============================================
 # src/handlers/start.py - Aiogram 3.x
 # ============================================
-import aiosqlite
-import time
-from aiogram import Router, F
-from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-from config import BASE_DIR, bot, ADMIN_IDS
+import html
+import logging
+
+from aiogram import F, Router
+from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    WebAppInfo,
+)
+
+from config import WEBAPP_URL, bot
+from src.buttons.buttuns import user_menu_btn
+from src.db.connection import connect
+from src.filters.admin import IsAdmin
 from src.functions.functions import functions
 from src.functions.referral_gate import get_referral_gate_state, referral_gate_message
-from src.functions.vacancy_format import format_vacancy_message_html
 from src.functions.scraping import fetch_osonish_detail
+from src.functions.vacancy_format import format_vacancy_message_html
+from src.i18n import DEFAULT_LANG, LANGS, normalize_lang, t
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
 
-def build_main_webapp_keyboard() -> InlineKeyboardMarkup:
+def _esc(value) -> str:
+    return html.escape(str(value or ""), quote=False)
+
+
+def build_main_webapp_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="💼 Ish qidirish", web_app=WebAppInfo(url="https://abitur24.uz/app")),
-                InlineKeyboardButton(text="👤 Profil", web_app=WebAppInfo(url="https://abitur24.uz/app?go=profile")),
+                InlineKeyboardButton(
+                    text=t(lang, "start.btn.jobs"),
+                    web_app=WebAppInfo(url=WEBAPP_URL),
+                ),
+                InlineKeyboardButton(
+                    text=t(lang, "start.btn.profile"),
+                    web_app=WebAppInfo(url=f"{WEBAPP_URL}?go=profile"),
+                ),
             ],
             [
-                InlineKeyboardButton(text="🗂 Saqlanganlar", web_app=WebAppInfo(url="https://abitur24.uz/app?go=saves")),
+                InlineKeyboardButton(
+                    text=t(lang, "start.btn.saves"),
+                    web_app=WebAppInfo(url=f"{WEBAPP_URL}?go=saves"),
+                ),
             ],
         ]
     )
 
 
+def build_lang_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t(code, f"lang.name.{code}"), callback_data=f"lang:{code}"
+                )
+                for code in LANGS
+            ]
+        ]
+    )
+
+
+async def _send_main_menu(message: Message, lang: str) -> None:
+    await message.answer(t(lang, "start.extra_sections"), reply_markup=user_menu_btn(lang))
+    await message.answer(
+        t(lang, "start.greeting", name=_esc(message.from_user.first_name)),
+        reply_markup=build_main_webapp_keyboard(lang),
+    )
+
+
 @router.message(CommandStart())
-async def welcome(message: Message):
-    """Start handler"""
+async def welcome(
+    message: Message,
+    state: FSMContext,
+    lang: str = DEFAULT_LANG,
+    is_new_user: bool = False,
+):
+    """Start handler. Referralni middleware ushlaydi."""
+    await state.clear()
     user_id = message.from_user.id
 
     args = (message.text or "").split()
     start_param = args[1] if len(args) > 1 else ""
 
-    # ── Vacancy deeplink: /start vacancy_osonish_12345 ──────────────────
+    # Referral gate hamma tarmoqlardan oldin tekshiriladi (deeplink ham bypass qilmaydi).
+    gate_state = await get_referral_gate_state(user_id)
+    if not bool(gate_state.get("unlocked")):
+        await message.answer(referral_gate_message(gate_state, lang))
+        return
+
+    # ── Vakansiya deeplink: /start vacancy_osonish_12345 ────────────────
     if start_param.startswith("vacancy_osonish_"):
         uid = start_param[len("vacancy_"):]   # "osonish_12345"
         try:
             raw_id = int(uid.split("_", 1)[1])
         except (IndexError, ValueError):
-            await message.answer("❌ Noto'g'ri vakansiya havolasi.")
+            await message.answer(t(lang, "start.bad_vacancy_link"))
             return
 
-        await message.answer("⏳ Vakansiya ma'lumotlari yuklanmoqda...")
+        await message.answer(t(lang, "start.loading_vacancy"))
         detail = await fetch_osonish_detail(raw_id)
         if not isinstance(detail, dict):
-            await message.answer("❌ Vakansiya topilmadi yoki ma'lumot olishda xato.")
+            await message.answer(t(lang, "start.vacancy_not_found"))
             return
 
-        text = format_vacancy_message_html(uid, detail)
+        text = format_vacancy_message_html(uid, detail, lang)
         await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
         return
     # ────────────────────────────────────────────────────────────────────
 
-    if start_param.startswith("ref_"):
-        try:
-            inviter_id = int(start_param[4:])
-        except ValueError:
-            inviter_id = 0
-
-        if inviter_id and inviter_id != user_id:
-            async with aiosqlite.connect(BASE_DIR) as conn:
-                # Only reward if this user is TRULY NEW (not in DB before)
-                cursor = await conn.execute(
-                    "SELECT user_id FROM users WHERE user_id = ?", (user_id,)
-                )
-                existing = await cursor.fetchone()
-                
-                # If user doesn't exist yet, they're new - give referral reward
-                if existing is None:
-                    # Set ref_by for new user
-                    now_ts = int(time.time())
-                    await conn.execute(
-                        "INSERT INTO users (user_id, date, lang, ref_by) VALUES (?, ?, ?, ?)",
-                        (user_id, now_ts, "uz", inviter_id),
-                    )
-                    
-                    # Fetch referral_reward from webapp_admin_settings
-                    try:
-                        from webapp.core.config import get_settings as _get_settings
-                        import aiosqlite as _aiosqlite
-                        _settings = _get_settings()
-                        cur2 = await conn.execute(
-                            "SELECT referral_reward FROM webapp_admin_settings WHERE singleton = 1"
-                        )
-                        reward_row = await cur2.fetchone()
-                        reward = int(reward_row[0] or 2000) if reward_row else 2000
-                    except Exception:
-                        reward = 2000
-
-                    # Add reward to inviter
-                    await conn.execute(
-                        "UPDATE users SET user_balance = COALESCE(user_balance, 0) + ? WHERE user_id = ?",
-                        (reward, inviter_id),
-                    )
-                    await conn.commit()
-
-                    # Notify inviter
-                    try:
-                        await bot.send_message(
-                            chat_id=inviter_id,
-                            text=f"🎉 Yangi foydalanuvchi sizning havolangiz orqali qo'shildi!\n"
-                                 f"Hisobingizga <b>{reward:,} so'm</b> qo'shildi.".replace(",", " "),
-                            parse_mode="HTML",
-                        )
-                    except Exception:
-                        pass
-                else:
-                    # Pre-existing user - don't give reward
-                    await conn.commit()
+    if is_new_user:
+        await message.answer(t(lang, "lang.choose"), reply_markup=build_lang_keyboard())
 
     is_subscribed = await functions.check_on_start(user_id, bot)
 
-    gate_state = await get_referral_gate_state(user_id)
-    if not bool(gate_state.get("unlocked")):
-        await message.answer(referral_gate_message(gate_state))
+    if is_subscribed:
+        await _send_main_menu(message, lang)
         return
 
-    if is_subscribed:
-        now_ts = int(time.time())
-        async with aiosqlite.connect(BASE_DIR) as conn:
-            await conn.execute(
-                "INSERT OR IGNORE INTO users (user_id, date, lang) VALUES (?, ?, ?)",
-                (user_id, now_ts, "uz"),
-            )
-            await conn.commit()
-
-        await message.answer(
-            f"Assalomu alaykum, {message.from_user.first_name}!\n"
-            f"Botimizga xush kelibsiz. Kerakli bo'limni tanlang!",
-            reply_markup=build_main_webapp_keyboard(),
-        )
+    join_keyboard = await build_channel_keyboard(lang)
+    if join_keyboard:
+        await message.answer(t(lang, "start.subscribe_prompt"), reply_markup=join_keyboard)
     else:
-        join_keyboard = await build_channel_keyboard()
-
-        if join_keyboard:
-            await message.answer(
-                "Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:",
-                reply_markup=join_keyboard
-            )
-        else:
-            await message.answer(
-                f"Assalomu alaykum, {message.from_user.first_name}!\n"
-                f"Botimizga xush kelibsiz. Kerakli bo'limni tanlang!",
-                reply_markup=build_main_webapp_keyboard()
-            )
+        await _send_main_menu(message, lang)
 
 
-async def build_channel_keyboard() -> InlineKeyboardMarkup:
+# ── Til tanlash ─────────────────────────────────────────────────────────
+
+@router.message(Command("lang", "til", "language"))
+async def choose_language(message: Message, lang: str = DEFAULT_LANG):
+    await message.answer(t(lang, "lang.choose"), reply_markup=build_lang_keyboard())
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def set_language(call: CallbackQuery):
+    new_lang = normalize_lang(call.data.split(":", 1)[1])
+
+    async with connect() as conn:
+        await conn.execute(
+            "UPDATE users SET lang = ? WHERE user_id = ?", (new_lang, call.from_user.id)
+        )
+        await conn.commit()
+
+    await call.answer()
+    try:
+        await call.message.edit_text(t(new_lang, "lang.saved"))
+    except Exception:
+        await call.message.answer(t(new_lang, "lang.saved"))
+
+    await call.message.answer(
+        t(new_lang, "start.extra_sections"), reply_markup=user_menu_btn(new_lang)
+    )
+
+
+# ── Kanal obunasi ───────────────────────────────────────────────────────
+
+async def build_channel_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup | None:
     """Kanallar keyboard"""
-    async with aiosqlite.connect(BASE_DIR) as conn:
+    async with connect() as conn:
         cursor = await conn.execute("SELECT id FROM channels")
         channels = await cursor.fetchall()
 
@@ -161,9 +174,8 @@ async def build_channel_keyboard() -> InlineKeyboardMarkup:
         return None
 
     buttons = []
-    added_count = 0
-
-    for idx, (channel_id,) in enumerate(channels, 1):
+    for idx, row in enumerate(channels, 1):
+        channel_id = row[0]
         try:
             chat = await bot.get_chat(chat_id=channel_id)
             invite_link = chat.invite_link
@@ -171,90 +183,87 @@ async def build_channel_keyboard() -> InlineKeyboardMarkup:
             if not invite_link:
                 try:
                     invite_link = await bot.export_chat_invite_link(channel_id)
-                except:
+                except Exception:
                     continue
 
-            buttons.append([InlineKeyboardButton(
-                text=f"{idx}. {chat.title or 'Kanal'}",
-                url=invite_link
-            )])
-            added_count += 1
-        except:
+            title = chat.title or t(lang, "start.channel_fallback")
+            buttons.append(
+                [InlineKeyboardButton(text=f"{idx}. {title}", url=invite_link)]
+            )
+        except Exception as exc:
+            logger.debug("kanal tugmasi qurilmadi id=%s: %s", channel_id, exc)
             continue
 
-    if added_count == 0:
+    if not buttons:
         return None
 
-    buttons.append([InlineKeyboardButton(
-        text="✅ Obuna bo'ldim",
-        callback_data="check"
-    )])
-
+    buttons.append(
+        [InlineKeyboardButton(text=t(lang, "start.btn.subscribed"), callback_data="check")]
+    )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 @router.callback_query(F.data == "check")
-async def check_subscription(call: CallbackQuery):
+async def check_subscription(call: CallbackQuery, lang: str = DEFAULT_LANG):
     """Obuna tekshirish"""
-    user_id = call.from_user.id
-    is_subscribed = await functions.check_on_start(user_id, bot)
+    is_subscribed = await functions.check_on_start(call.from_user.id, bot)
 
-    if is_subscribed:
-        await call.answer("✅ Tasdiqlandi!", show_alert=False)
-
-        try:
-            await call.message.delete()
-        except:
-            pass
-
-        await call.message.answer(
-            f"Xush kelibsiz, {call.from_user.first_name}!\n"
-            f"Endi botdan to'liq foydalanishingiz mumkin.",
-            reply_markup=build_main_webapp_keyboard()
-        )
-    else:
-        await call.answer(
-            "❌ Siz hali barcha kanallarga obuna bo'lmadingiz!\n"
-            "Iltimos, barcha kanallarga obuna bo'ling.",
-            show_alert=True
-        )
-
-
-@router.message(Command("check_channels"))
-async def diagnose_channels(message: Message):
-    """Kanallar diagnostikasi"""
-    if message.from_user.id not in ADMIN_IDS:
+    if not is_subscribed:
+        await call.answer(t(lang, "start.check.fail"), show_alert=True)
         return
 
-    async with aiosqlite.connect(BASE_DIR) as conn:
+    await call.answer(t(lang, "start.check.ok"), show_alert=False)
+
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+
+    await call.message.answer(
+        t(lang, "start.check.welcome", name=_esc(call.from_user.first_name)),
+        reply_markup=build_main_webapp_keyboard(lang),
+    )
+
+
+# ── Admin diagnostikasi ─────────────────────────────────────────────────
+
+@router.message(Command("check_channels"), IsAdmin())
+async def diagnose_channels(message: Message, lang: str = DEFAULT_LANG):
+    """Kanallar diagnostikasi"""
+    async with connect() as conn:
         cursor = await conn.execute("SELECT id FROM channels")
         channels = await cursor.fetchall()
 
     if not channels:
-        await message.answer("❌ Bazada kanallar yo'q")
+        await message.answer(t(lang, "admin.channels_db_empty"))
         return
 
-    report = "📊 Kanallar holati:\n\n"
+    lines = [t(lang, "admin.channels_status_header"), ""]
 
-    for idx, (channel_id,) in enumerate(channels, 1):
+    for idx, row in enumerate(channels, 1):
+        channel_id = row[0]
         try:
             chat = await bot.get_chat(chat_id=channel_id)
             bot_member = await bot.get_chat_member(chat_id=channel_id, user_id=bot.id)
-            is_admin = bot_member.status in ['administrator', 'creator']
+            is_admin = bot_member.status in ("administrator", "creator")
 
-            report += f"{idx}. ✅ {chat.title}\n"
-            report += f"   ID: {channel_id}\n"
-            report += f"   Admin: {'Ha' if is_admin else 'Yo`q'}\n"
-            report += f"   Link: {'Bor' if chat.invite_link else 'Yo`q'}\n\n"
-        except Exception as e:
-            report += f"{idx}. ❌ {channel_id}\n"
-            report += f"   Xato: {str(e)[:50]}\n\n"
+            yes, no = t(lang, "common.yes"), t(lang, "common.no")
+            lines.append(f"{idx}. ✅ {_esc(chat.title)}")
+            lines.append(f"   {t(lang, 'admin.diag.id')}: {_esc(channel_id)}")
+            lines.append(f"   {t(lang, 'admin.diag.admin')}: {yes if is_admin else no}")
+            lines.append(
+                f"   {t(lang, 'admin.diag.link')}: "
+                f"{t(lang, 'common.available') if chat.invite_link else t(lang, 'common.unavailable')}"
+            )
+            lines.append("")
+        except Exception as exc:
+            lines.append(f"{idx}. ❌ {_esc(channel_id)}")
+            lines.append(f"   {t(lang, 'admin.diag.error')}: {_esc(str(exc)[:50])}")
+            lines.append("")
 
-    await message.answer(report)
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("developer", "coder", "programmer"))
-async def coder(message: Message):
-    await message.reply(
-        "Bot dasturchisi @coder_admin_py\n\nPowered by @coder_admin_py"
-    )
+async def coder(message: Message, lang: str = DEFAULT_LANG):
+    await message.reply(t(lang, "start.developer"))

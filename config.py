@@ -23,7 +23,8 @@ if not TOKEN:
 
 BOT_USERNAME = os.getenv("BOT_USERNAME", "bandlikuzbot")
 
-WEBAPP_URL = os.getenv("WEBAPP_URL", "http://localhost:5174")
+# Mini App manzili. Prod .env da o'zgartirilmasa ham ishlashi uchun default prod URL.
+WEBAPP_URL = (os.getenv("WEBAPP_URL") or "https://abitur24.uz/app").rstrip("/")
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())

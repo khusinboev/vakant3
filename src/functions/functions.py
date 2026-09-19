@@ -1,11 +1,13 @@
 # ============================================
 # src/functions/functions.py - Aiogram 3.x
 # ============================================
-import aiosqlite
+import html
 import logging
 
-from config import BASE_DIR
-from src.functions.scraping import fetch_osonish_list
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+
+from src.db.connection import connect
+from src.i18n import DEFAULT_LANG, t
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,14 @@ LEGACY_SPEC_TO_OSONISH_FIELD: dict[str, int] = {
     "23,33": 42,
     "83": 36,
 }
+
+# "chat not found" turidagi xatolar = obuna yo'q; qolganlari tranzient.
+_NOT_SUBSCRIBED_MARKERS = (
+    "user not found",
+    "chat not found",
+    "member list is inaccessible",
+    "participant_id_invalid",
+)
 
 
 def normalize_osonish_field_id(raw_spec: str) -> int | None:
@@ -40,34 +50,45 @@ def normalize_osonish_field_id(raw_spec: str) -> int | None:
     return None
 
 
-async def search_vakant(page: int, money: int, yurt: str, specs: str) -> tuple[list, int]:
-    """Backward-compatible search entrypoint used by legacy tests and handlers."""
-    field_id = normalize_osonish_field_id(specs)
-    return await fetch_osonish_list(
-        page=page,
-        salary=money,
-        soato_region=yurt,
-        mmk_group_field_id=field_id,
-    )
+def _esc(value) -> str:
+    return html.escape(str(value or ""), quote=False)
 
 
 class functions:
     @staticmethod
-    async def check_on_start(user_id: int, bot):
-        """Kanalga obuna tekshiruvi"""
-        async with aiosqlite.connect(BASE_DIR) as conn:
-            cursor = await conn.execute("SELECT id FROM channels")
-            rows = await cursor.fetchall()
+    async def check_on_start(user_id: int, bot) -> bool:
+        """Kanalga obuna tekshiruvi. Tranzient xatolarda fail-open (obuna deb hisoblaydi)."""
+        try:
+            async with connect() as conn:
+                cursor = await conn.execute("SELECT id FROM channels")
+                rows = await cursor.fetchall()
+        except Exception as exc:
+            logger.error("check_on_start: kanallarni o'qib bo'lmadi: %s", exc)
+            return True
 
         if not rows:
             return True
 
-        for (channel_id,) in rows:
+        for row in rows:
+            channel_id = row[0]
             try:
                 member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
-                if member.status not in ["member", "creator", "administrator"]:
+            except TelegramForbiddenError:
+                # Bot kanaldan chiqarilgan — foydalanuvchini bloklamaymiz.
+                logger.warning("check_on_start: botga kanal yopiq id=%s", channel_id)
+                continue
+            except TelegramBadRequest as exc:
+                text = str(exc).lower()
+                if any(marker in text for marker in _NOT_SUBSCRIBED_MARKERS):
                     return False
-            except Exception:
+                logger.warning("check_on_start: bad request id=%s: %s", channel_id, exc)
+                continue
+            except Exception as exc:
+                # Telegram 5xx / tarmoq — hammani obuna devoriga tashlamaymiz.
+                logger.warning("check_on_start: tranzient xato id=%s: %s", channel_id, exc)
+                continue
+
+            if member.status not in ("member", "creator", "administrator"):
                 return False
 
         return True
@@ -77,46 +98,49 @@ class panel_func:
     @staticmethod
     async def channel_add(channel_id: str):
         """Kanal qo'shish"""
-        async with aiosqlite.connect(BASE_DIR) as conn:
+        async with connect() as conn:
             try:
                 await conn.execute(
                     "INSERT OR IGNORE INTO channels (id) VALUES (?)",
                     (channel_id,),
                 )
                 await conn.commit()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.error("channel_add xato id=%s: %s", channel_id, exc)
 
     @staticmethod
     async def channel_delete(channel_id: str):
         """Kanal o'chirish"""
-        async with aiosqlite.connect(BASE_DIR) as conn:
-            await conn.execute(
-                "DELETE FROM channels WHERE id = ?",
-                (channel_id,),
-            )
+        async with connect() as conn:
+            await conn.execute("DELETE FROM channels WHERE id = ?", (channel_id,))
             await conn.commit()
 
     @staticmethod
-    async def channel_list(bot):
-        """Kanallar ro'yxati"""
-        async with aiosqlite.connect(BASE_DIR) as conn:
+    async def channel_list(bot, lang: str = DEFAULT_LANG) -> str:
+        """Kanallar ro'yxati (HTML-safe)."""
+        async with connect() as conn:
             cursor = await conn.execute("SELECT id FROM channels")
             rows = await cursor.fetchall()
 
-        result = ""
+        blocks: list[str] = []
         for row in rows:
+            channel_id = row[0]
             try:
-                chat = await bot.get_chat(chat_id=row[0])
-                result += (
+                chat = await bot.get_chat(chat_id=channel_id)
+                blocks.append(
                     "------------------------------------------------\n"
-                    f"Kanal useri: {row[0]}\n"
-                    f"Kanal nomi: {chat.title}\n"
-                    f"Kanal ID: {chat.id}\n"
-                    f"Haqida: {chat.description or 'Mavjud emas'}\n"
+                    + t(
+                        lang,
+                        "admin.channel_info",
+                        username=_esc(channel_id),
+                        title=_esc(chat.title),
+                        chat_id=_esc(chat.id),
+                        about=_esc(chat.description) or t(lang, "common.not_available"),
+                    )
                 )
             except Exception:
-                result += f"Kanal {row[0]} - botni admin qiling\n"
+                blocks.append(
+                    t(lang, "admin.channel_no_admin", username=_esc(channel_id))
+                )
 
-        return result or "Kanallar mavjud emas"
-
+        return "\n".join(blocks) if blocks else t(lang, "admin.channels_none")

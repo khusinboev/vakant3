@@ -1,24 +1,35 @@
 # ============================================
-# src/handlers/admin.py - Aiogram 3.x (1-qism)
+# src/handlers/admin.py - Aiogram 3.x
+# Admin tekshiruvi router filtri orqali (IsAdmin), matn routing i18n kaliti bo'yicha.
 # ============================================
-import aiosqlite
-import pytz
-import datetime
 import asyncio
+import datetime
 import logging
-from aiogram import Router, F
+from typing import Awaitable, Callable
+
+from aiogram import Router
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message, ContentType
-from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError, TelegramBadRequest
-from config import BASE_DIR, bot, ADMIN_IDS
-from src.buttons.buttuns import main_btn, channel_btn, reklama_btn, back_btn
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import Message
+
+from config import bot
+from src.buttons.buttuns import back_btn, channel_btn, main_btn, reklama_btn
+from src.core.timeutil import month_end, month_step_back, now_tz
+from src.db.connection import connect
+from src.filters.admin import IsAdmin
+from src.filters.text_key import TextKey
 from src.functions.functions import panel_func
+from src.i18n import DEFAULT_LANG, key_for_text, t
 
 logger = logging.getLogger(__name__)
 
-router = Router()
+router = Router(name="admin")
+router.message.filter(IsAdmin())
+
+PROGRESS_EVERY = 50
+SEND_DELAY_SECONDS = 0.05
 
 
 class AdminStates(StatesGroup):
@@ -29,337 +40,293 @@ class AdminStates(StatesGroup):
 
 
 @router.message(Command("admin", "panel"))
-async def admin_panel(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    await message.answer("Assalomu alaykum admin", reply_markup=main_btn)
-
-
-@router.message(F.text == "🔙Orqaga qaytish")
-async def back_handler(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        return
+async def admin_panel(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
     await state.clear()
-    await message.reply("Bosh menyu", reply_markup=main_btn)
+    await message.answer(t(lang, "admin.hello"), reply_markup=main_btn(lang))
 
 
-@router.message(F.text == "📊Statistika")
-async def statistics_handler(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
+@router.message(TextKey("btn.admin.back"))
+async def back_handler(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    await state.clear()
+    await message.reply(t(lang, "admin.main_menu"), reply_markup=main_btn(lang))
 
-    tz_uzbekistan = pytz.timezone("Asia/Tashkent")
-    now = datetime.datetime.now(tz_uzbekistan)
 
-    async with aiosqlite.connect(BASE_DIR) as conn:
+# ── Statistika ──────────────────────────────────────────────────────────
+
+@router.message(TextKey("btn.admin.stats"))
+async def statistics_handler(message: Message, lang: str = DEFAULT_LANG):
+    now = now_tz()
+
+    async with connect() as conn:
         cursor = await conn.execute("SELECT COUNT(*) FROM users")
         total_users = (await cursor.fetchone())[0]
 
-        three_months_ago = now - datetime.timedelta(days=90)
-        three_months_ago_ts = int(three_months_ago.timestamp())
-
+        three_months_ago_ts = int((now - datetime.timedelta(days=90)).timestamp())
         cursor = await conn.execute(
-            "SELECT COUNT(*) FROM users WHERE date >= ?",
-            (three_months_ago_ts,)
+            "SELECT COUNT(*) FROM users WHERE date >= ?", (three_months_ago_ts,)
         )
         last_3_months_users = (await cursor.fetchone())[0]
 
-        months_stats = {}
+        months_stats: list[tuple[str, int]] = []
         for i in range(3):
-            first_day = (now.replace(day=1) - datetime.timedelta(days=30 * i)).replace(day=1)
-            last_day = (first_day + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(seconds=1)
-            month_name = first_day.strftime("%B")
+            first_day = month_step_back(now, i)
+            last_day = month_end(first_day)
+            month_name = t(lang, f"month.{first_day.month}")
 
             cursor = await conn.execute(
                 "SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?",
-                (int(first_day.timestamp()), int(last_day.timestamp()))
+                (int(first_day.timestamp()), int(last_day.timestamp())),
             )
-            months_stats[month_name] = (await cursor.fetchone())[0]
+            months_stats.append((month_name, (await cursor.fetchone())[0]))
 
-        last_7_days = {}
+        last_7_days: list[tuple[str, int]] = []
         for i in range(7):
             date = now - datetime.timedelta(days=i)
             date_str = date.strftime("%d-%m-%Y")
 
-            start_ts = int(date.replace(hour=0, minute=0, second=0).timestamp())
-            end_ts = int(date.replace(hour=23, minute=59, second=59).timestamp())
+            start_ts = int(date.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+            end_ts = int(date.replace(hour=23, minute=59, second=59, microsecond=0).timestamp())
 
             cursor = await conn.execute(
-                "SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?",
-                (start_ts, end_ts)
+                "SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?", (start_ts, end_ts)
             )
-            last_7_days[date_str] = (await cursor.fetchone())[0]
+            last_7_days.append((date_str, (await cursor.fetchone())[0]))
 
-    stat_text = f"""📊 **Foydalanuvchilar statistikasi** 📊
+    lines = [
+        t(lang, "admin.stats.header"),
+        "",
+        t(lang, "admin.stats.total", count=total_users),
+        t(lang, "admin.stats.last3m", count=last_3_months_users),
+    ]
+    lines += [t(lang, "admin.stats.row", label=name, count=count) for name, count in months_stats]
+    lines += ["", t(lang, "admin.stats.last7d", count=sum(c for _, c in last_7_days))]
+    lines += [t(lang, "admin.stats.row", label=day, count=count) for day, count in last_7_days]
 
-Jami: {total_users} ta
-So'nggi 3 oy (Jami: {last_3_months_users} ta):
-""" + "\n".join([f"🔹 {month}: {count} ta" for month, count in months_stats.items()]) + f"""
-
-So'nggi 7 kun ({sum(last_7_days.values())} ta):
-""" + "\n".join([f"🔹 {date}: {count} ta" for date, count in last_7_days.items()])
-
-    await message.answer(stat_text)
-
-
-@router.message(F.text == '🔧Kanallar')
-async def channels_menu(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    await message.answer("Tanlang", reply_markup=channel_btn)
+    await message.answer("\n".join(lines))
 
 
-@router.message(F.text == "➕Kanal qo'shish")
-async def channel_add_start(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        return
+# ── Kanallar ────────────────────────────────────────────────────────────
 
-    await message.reply(
-        "Kanal qo'shish uchun kanalning userini yuboring.\n"
-        "Misol: @coder_admin",
-        reply_markup=back_btn
-    )
+@router.message(TextKey("btn.admin.channels"))
+async def channels_menu(message: Message, lang: str = DEFAULT_LANG):
+    await message.answer(t(lang, "admin.choose"), reply_markup=channel_btn(lang))
+
+
+@router.message(TextKey("btn.admin.channel_add"))
+async def channel_add_start(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    await message.reply(t(lang, "admin.channel_add_prompt"), reply_markup=back_btn(lang))
     await state.set_state(AdminStates.channel_add)
 
 
+def _channel_username(message: Message) -> str | None:
+    text = message.text
+    if not isinstance(text, str):
+        return None
+    return text.strip().upper()
+
+
 @router.message(AdminStates.channel_add)
-async def channel_add_process(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
+async def channel_add_process(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    channel_username = _channel_username(message)
+    if channel_username is None:
+        await message.reply(t(lang, "admin.text_required"), reply_markup=back_btn(lang))
         return
 
-    if message.text == "🔙Orqaga qaytish":
+    if key_for_text(message.text) == "btn.admin.back":
         await state.clear()
-        await message.reply("Bekor qilindi", reply_markup=main_btn)
+        await message.reply(t(lang, "admin.cancelled"), reply_markup=main_btn(lang))
         return
 
-    channel_username = message.text.strip().upper()
-
-    if not channel_username.startswith('@'):
+    if not channel_username.startswith("@"):
         await message.reply(
-            "Kanal useri xato! @coder_admin formatida kiriting",
-            reply_markup=channel_btn
+            t(lang, "admin.channel_bad_format"), reply_markup=channel_btn(lang)
         )
         await state.clear()
         return
 
-    async with aiosqlite.connect(BASE_DIR) as conn:
+    async with connect() as conn:
         cursor = await conn.execute(
-            "SELECT id FROM channels WHERE id = ?",
-            (channel_username,)
+            "SELECT id FROM channels WHERE id = ?", (channel_username,)
         )
         exists = await cursor.fetchone()
 
     if exists:
-        await message.reply("Bu kanal allaqachon qo'shilgan", reply_markup=channel_btn)
+        await message.reply(t(lang, "admin.channel_exists"), reply_markup=channel_btn(lang))
     else:
         await panel_func.channel_add(channel_username)
-        await message.reply("Kanal qo'shildi 🎉", reply_markup=channel_btn)
+        await message.reply(t(lang, "admin.channel_added"), reply_markup=channel_btn(lang))
 
     await state.clear()
 
 
-@router.message(F.text == "❌Kanalni olib tashlash")
-async def channel_delete_start(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-
-    await message.reply(
-        "O'chiriladigan kanalning userini yuboring.\n"
-        "Misol: @coder_admin",
-        reply_markup=back_btn
-    )
+@router.message(TextKey("btn.admin.channel_del"))
+async def channel_delete_start(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    await message.reply(t(lang, "admin.channel_del_prompt"), reply_markup=back_btn(lang))
     await state.set_state(AdminStates.channel_delete)
 
 
 @router.message(AdminStates.channel_delete)
-async def channel_delete_process(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
+async def channel_delete_process(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    channel_username = _channel_username(message)
+    if channel_username is None:
+        await message.reply(t(lang, "admin.text_required"), reply_markup=back_btn(lang))
         return
 
-    if message.text == "🔙Orqaga qaytish":
+    if key_for_text(message.text) == "btn.admin.back":
         await state.clear()
-        await message.reply("Bekor qilindi", reply_markup=main_btn)
+        await message.reply(t(lang, "admin.cancelled"), reply_markup=main_btn(lang))
         return
 
-    channel_username = message.text.strip().upper()
-
-    if not channel_username.startswith('@'):
+    if not channel_username.startswith("@"):
         await message.reply(
-            "Kanal useri xato! @coder_admin formatida kiriting",
-            reply_markup=channel_btn
+            t(lang, "admin.channel_bad_format"), reply_markup=channel_btn(lang)
         )
         await state.clear()
         return
 
-    async with aiosqlite.connect(BASE_DIR) as conn:
+    async with connect() as conn:
         cursor = await conn.execute(
-            "SELECT id FROM channels WHERE id = ?",
-            (channel_username,)
+            "SELECT id FROM channels WHERE id = ?", (channel_username,)
         )
         exists = await cursor.fetchone()
 
     if not exists:
-        await message.reply("Bunday kanal yo'q", reply_markup=channel_btn)
+        await message.reply(t(lang, "admin.channel_missing"), reply_markup=channel_btn(lang))
     else:
         await panel_func.channel_delete(channel_username)
-        await message.reply("Kanal o'chirildi", reply_markup=channel_btn)
+        await message.reply(t(lang, "admin.channel_deleted"), reply_markup=channel_btn(lang))
 
     await state.clear()
 
 
-@router.message(F.text == "📋 Kanallar ro'yxati")
-async def channel_list_handler(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
+@router.message(TextKey("btn.admin.channel_list"))
+async def channel_list_handler(message: Message, lang: str = DEFAULT_LANG):
+    channels_info = await panel_func.channel_list(bot, lang)
 
-    channels_info = await panel_func.channel_list(bot)
-
-    if len(channels_info) > 3:
+    if channels_info.strip() and channels_info != t(lang, "admin.channels_none"):
         await message.reply(channels_info)
     else:
-        await message.reply("Hozircha kanallar yo'q")
+        await message.reply(t(lang, "admin.channels_empty"))
 
 
-@router.message(F.text == "📤Reklama")
-async def broadcast_menu(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
+# ── Reklama (broadcast) ─────────────────────────────────────────────────
 
-    await message.reply(
-        "Foydalanuvchilarga xabar yuborish bo'limi",
-        reply_markup=reklama_btn
-    )
+@router.message(TextKey("btn.admin.ads"))
+async def broadcast_menu(message: Message, lang: str = DEFAULT_LANG):
+    await message.reply(t(lang, "admin.broadcast_menu"), reply_markup=reklama_btn(lang))
 
 
-@router.message(F.text == "📨Forward xabar yuborish")
-async def forward_broadcast_start(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-
-    await message.answer(
-        "Forward yuboriladigan xabarni yuboring",
-        reply_markup=back_btn
-    )
+@router.message(TextKey("btn.admin.forward"))
+async def forward_broadcast_start(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    await message.answer(t(lang, "admin.forward_prompt"), reply_markup=back_btn(lang))
     await state.set_state(AdminStates.forward_msg)
 
 
-@router.message(AdminStates.forward_msg)
-async def forward_broadcast_send(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-
-    if message.text == "🔙Orqaga qaytish":
-        await state.clear()
-        await message.reply("Bekor qilindi", reply_markup=main_btn)
-        return
-
-    await state.clear()
-
-    async with aiosqlite.connect(BASE_DIR) as conn:
-        cursor = await conn.execute("SELECT user_id FROM users")
-        users = await cursor.fetchall()
-
-    success_count = 0
-    failed_count = 0
-
-    status_msg = await message.answer(f"Yuborilmoqda... 0/{len(users)}")
-
-    for idx, (user_id,) in enumerate(users, 1):
-        try:
-            await bot.forward_message(user_id, message.chat.id, message.message_id)
-            success_count += 1
-        except TelegramRetryAfter as e:
-            logger.warning("Broadcast forward: flood wait %ss", e.retry_after)
-            await asyncio.sleep(e.retry_after)
-            failed_count += 1
-        except TelegramForbiddenError:
-            failed_count += 1
-        except Exception as e:
-            logger.error("Broadcast forward: user_id=%s xato: %s", user_id, e)
-            failed_count += 1
-
-        if idx % 50 == 0:
-            try:
-                await status_msg.edit_text(
-                    f"Yuborilmoqda... {idx}/{len(users)}\n"
-                    f"✅ Muvaffaqiyatli: {success_count}\n"
-                    f"❌ Xato: {failed_count}"
-                )
-            except TelegramBadRequest:
-                pass
-
-        await asyncio.sleep(0.05)
-
-    await status_msg.edit_text(
-        f"✅ Yuborish yakunlandi!\n\n"
-        f"📊 Jami: {len(users)} ta\n"
-        f"✅ Yuborildi: {success_count} ta\n"
-        f"❌ Yuborilmadi: {failed_count} ta"
-    )
-
-
-@router.message(F.text == "📬Oddiy xabar yuborish")
-async def copy_broadcast_start(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-
-    await message.answer(
-        "Yuborilishi kerak bo'lgan xabarni yuboring",
-        reply_markup=back_btn
-    )
+@router.message(TextKey("btn.admin.copy"))
+async def copy_broadcast_start(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    await message.answer(t(lang, "admin.copy_prompt"), reply_markup=back_btn(lang))
     await state.set_state(AdminStates.send_msg)
 
 
-@router.message(AdminStates.send_msg)
-async def copy_broadcast_send(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        return
+async def _deliver(send: Callable[[int], Awaitable[object]], user_id: int) -> bool:
+    """Bitta foydalanuvchiga yuborish. Flood wait bo'lsa kutib, BIR marta qayta uriladi."""
+    try:
+        await send(user_id)
+        return True
+    except TelegramRetryAfter as exc:
+        logger.warning("Broadcast: flood wait %ss", exc.retry_after)
+        await asyncio.sleep(exc.retry_after)
+        try:
+            await send(user_id)
+            return True
+        except Exception as retry_exc:
+            logger.error("Broadcast retry xato user_id=%s: %s", user_id, retry_exc)
+            return False
+    except TelegramForbiddenError:
+        return False
+    except Exception as exc:
+        logger.error("Broadcast xato user_id=%s: %s", user_id, exc)
+        return False
 
-    if message.text == "🔙Orqaga qaytish":
-        await state.clear()
-        await message.reply("Bekor qilindi", reply_markup=main_btn)
-        return
 
+async def _run_broadcast(
+    message: Message,
+    state: FSMContext,
+    lang: str,
+    send: Callable[[int], Awaitable[object]],
+) -> None:
     await state.clear()
 
-    async with aiosqlite.connect(BASE_DIR) as conn:
+    async with connect() as conn:
         cursor = await conn.execute("SELECT user_id FROM users")
-        users = await cursor.fetchall()
+        users = [int(row[0]) for row in await cursor.fetchall()]
 
+    total = len(users)
     success_count = 0
     failed_count = 0
 
-    status_msg = await message.answer(f"Yuborilmoqda... 0/{len(users)}")
+    status_msg = await message.answer(t(lang, "admin.sending", done=0, total=total))
 
-    for idx, (user_id,) in enumerate(users, 1):
-        try:
-            await bot.copy_message(user_id, message.chat.id, message.message_id)
+    for idx, user_id in enumerate(users, 1):
+        if await _deliver(send, user_id):
             success_count += 1
-        except TelegramRetryAfter as e:
-            logger.warning("Broadcast copy: flood wait %ss", e.retry_after)
-            await asyncio.sleep(e.retry_after)
-            failed_count += 1
-        except TelegramForbiddenError:
-            failed_count += 1
-        except Exception as e:
-            logger.error("Broadcast copy: user_id=%s xato: %s", user_id, e)
+        else:
             failed_count += 1
 
-        if idx % 50 == 0:
+        if idx % PROGRESS_EVERY == 0:
             try:
                 await status_msg.edit_text(
-                    f"Yuborilmoqda... {idx}/{len(users)}\n"
-                    f"✅ Muvaffaqiyatli: {success_count}\n"
-                    f"❌ Xato: {failed_count}"
+                    t(
+                        lang,
+                        "admin.progress",
+                        done=idx,
+                        total=total,
+                        ok=success_count,
+                        fail=failed_count,
+                    )
                 )
             except TelegramBadRequest:
                 pass
 
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(SEND_DELAY_SECONDS)
 
     await status_msg.edit_text(
-        f"✅ Yuborish yakunlandi!\n\n"
-        f"📊 Jami: {len(users)} ta\n"
-        f"✅ Yuborildi: {success_count} ta\n"
-        f"❌ Yuborilmadi: {failed_count} ta"
+        t(lang, "admin.finished", total=total, ok=success_count, fail=failed_count)
     )
+
+
+def _is_back(message: Message) -> bool:
+    """Har qanday tildagi «Orqaga» tugmasi."""
+    return key_for_text(message.text) == "btn.admin.back"
+
+
+@router.message(AdminStates.forward_msg)
+async def forward_broadcast_send(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    if _is_back(message):
+        await state.clear()
+        await message.reply(t(lang, "admin.cancelled"), reply_markup=main_btn(lang))
+        return
+
+    chat_id = message.chat.id
+    message_id = message.message_id
+
+    async def send(user_id: int):
+        return await bot.forward_message(user_id, chat_id, message_id)
+
+    await _run_broadcast(message, state, lang, send)
+
+
+@router.message(AdminStates.send_msg)
+async def copy_broadcast_send(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    if _is_back(message):
+        await state.clear()
+        await message.reply(t(lang, "admin.cancelled"), reply_markup=main_btn(lang))
+        return
+
+    chat_id = message.chat.id
+    message_id = message.message_id
+
+    async def send(user_id: int):
+        return await bot.copy_message(user_id, chat_id, message_id)
+
+    await _run_broadcast(message, state, lang, send)
