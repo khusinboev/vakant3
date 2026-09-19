@@ -33,6 +33,9 @@ ssh "$SERVER" "grep -q '^DB_PATH=' $REMOTE_ROOT/.env && sed -i 's|^DB_PATH=.*|DB
 echo "[4b] Ensure WEBAPP_SECRET exists on server (API refuses to start without it)"
 ssh "$SERVER" "grep -q '^WEBAPP_SECRET=' $REMOTE_ROOT/.env || echo \"WEBAPP_SECRET=\$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')\" >> $REMOTE_ROOT/.env"
 
+echo "[4c] Install Python deps (requirements.txt may have changed)"
+ssh "$SERVER" "cd $REMOTE_ROOT && .venv/bin/pip install -q -r requirements.txt"
+
 echo "[5/5] Restart services & health check"
 ssh "$SERVER" "systemctl restart vakant-api vakant-bot && sleep 3 && systemctl is-active vakant-api && systemctl is-active vakant-bot && curl -s http://localhost:8001/api/health"
 
