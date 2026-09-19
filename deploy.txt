@@ -189,3 +189,20 @@ pip install xatosi bo'lsa:
 Git pull bilan serverdan yangilash (to'g'ridan-to'g'ri):
   ssh root@194.163.136.239 "cd /home/vakant && git pull origin master"
   # Lekin deploy_safe.sh rsync ishlatadi — bu usul faqat qo'shimcha sifatida
+
+
+========================================================
+  9. BACKUP VA LOG ROTATSIYA (2026-09-19 dan)
+========================================================
+
+DB backup:  har kuni 03:20 da /home/vakant/backup_db.sh (cron, root)
+            -> /home/vakant/data/backups/database_YYYYMMDD.sqlite3.gz, 14 kun saqlanadi
+            log: /var/log/vakant-backup.log
+            manba nusxasi repo'da: ops/backup_db.sh
+
+Bot logi:   /etc/logrotate.d/vakant-bot (haftalik yoki 20M, 8 ta arxiv, copytruncate)
+            manba nusxasi repo'da: ops/logrotate-vakant-bot
+
+Qo'lda backup:  ssh root@194.163.136.239 /home/vakant/backup_db.sh
+Tiklash:        gunzip -c data/backups/database_YYYYMMDD.sqlite3.gz > data/database.sqlite3
+                (avval systemctl stop vakant-api vakant-bot)
