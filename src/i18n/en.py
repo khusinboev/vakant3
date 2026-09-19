@@ -177,6 +177,7 @@ STRINGS: dict[str, str] = {
     ),
     "admin.stats.header": "📊 <b>User statistics</b> 📊",
     "admin.stats.total": "Total: {count}",
+    "admin.stats.blocked": "🚫 Blocked the bot: {count}",
     "admin.stats.last3m": "Last 3 months (total: {count}):",
     "admin.stats.last7d": "Last 7 days ({count}):",
     "admin.stats.row": "🔹 {label}: {count}",

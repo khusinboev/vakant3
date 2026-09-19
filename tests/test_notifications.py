@@ -222,7 +222,7 @@ async def full_db():
         conn.row_factory = aiosqlite.Row
         await conn.execute(
             "CREATE TABLE users (user_id INTEGER PRIMARY KEY, user_pro INTEGER DEFAULT 0, "
-            "pref_filters_json TEXT, lang TEXT)"
+            "pref_filters_json TEXT, lang TEXT, blocked INTEGER NOT NULL DEFAULT 0)"
         )
         await conn.execute(
             """CREATE TABLE notification_settings (
@@ -259,7 +259,10 @@ def _before_first_slot(user_id: int) -> datetime:
 
 async def _seed_user(conn, user_id: int, pro: int = 1, lang: str = "uz"):
     now = int(time.time())
-    await conn.execute("INSERT INTO users VALUES (?, ?, NULL, ?)", (user_id, pro, lang))
+    await conn.execute(
+        "INSERT INTO users (user_id, user_pro, pref_filters_json, lang) VALUES (?, ?, NULL, ?)",
+        (user_id, pro, lang),
+    )
     await conn.execute(
         "INSERT INTO notification_settings VALUES (?, 1, ?, ?)", (user_id, now, now)
     )
@@ -372,7 +375,10 @@ async def test_run_uses_user_language(full_db):
 async def test_notification_text_escapes_html(full_db):
     user_id = 606
     now = int(time.time())
-    await full_db.execute("INSERT INTO users VALUES (?, 1, NULL, 'uz')", (user_id,))
+    await full_db.execute(
+        "INSERT INTO users (user_id, user_pro, pref_filters_json, lang) VALUES (?, 1, NULL, 'uz')",
+        (user_id,),
+    )
     await full_db.execute(
         "INSERT INTO notification_settings VALUES (?, 1, ?, ?)", (user_id, now, now)
     )

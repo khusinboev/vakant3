@@ -25,6 +25,7 @@ _USER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("user_balance", "INTEGER DEFAULT 0"),
     ("user_pro", "INTEGER DEFAULT 0"),
     ("pref_filters_json", "TEXT"),
+    ("blocked", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
@@ -345,7 +346,7 @@ class StatsMiddleware(BaseMiddleware):
         """(lang, is_new) — foydalanuvchini kerak bo'lsa yozadi va tilini qaytaradi."""
         async with connect(self.db_path) as conn:
             cursor = await conn.execute(
-                "SELECT lang FROM users WHERE user_id = ?", (user_id,)
+                "SELECT lang, blocked FROM users WHERE user_id = ?", (user_id,)
             )
             row = await cursor.fetchone()
 
@@ -384,6 +385,20 @@ class StatsMiddleware(BaseMiddleware):
                     await conn.commit()
                 except Exception:
                     pass
+
+            try:
+                blocked = row[1]
+            except (IndexError, KeyError):
+                blocked = 0
+            if blocked:
+                try:
+                    await conn.execute(
+                        "UPDATE users SET blocked = 0 WHERE user_id = ?", (user_id,)
+                    )
+                    await conn.commit()
+                except Exception:
+                    pass
+
             return lang, False
 
     async def __call__(

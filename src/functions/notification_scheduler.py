@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timedelta
 
 import aiosqlite
+from aiogram.exceptions import TelegramForbiddenError
 
 from config import bot
 from src.core.timeutil import now_tz, today_start_ts
@@ -156,7 +157,7 @@ async def _run_notifications(conn: aiosqlite.Connection) -> None:
         SELECT ns.user_id, u.pref_filters_json, u.lang
         FROM notification_settings ns
         JOIN users u ON u.user_id = ns.user_id
-        WHERE ns.enabled = 1 AND u.user_pro = 1
+        WHERE ns.enabled = 1 AND u.user_pro = 1 AND u.blocked = 0
         """
     )
     users = await cursor.fetchall()
@@ -206,6 +207,13 @@ async def _run_notifications(conn: aiosqlite.Connection) -> None:
             )
             await conn.commit()
             logger.info("notification_sent user_id=%s uid=%s", user_id, uid)
+        except TelegramForbiddenError:
+            await conn.execute(
+                "UPDATE users SET blocked = 1 WHERE user_id = ? AND blocked != 1",
+                (user_id,),
+            )
+            await conn.commit()
+            logger.info("notification_blocked user_id=%s", user_id)
         except Exception as e:
             logger.warning("notification_failed user_id=%s error=%s", user_id, e)
 

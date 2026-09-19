@@ -20,6 +20,7 @@ USER_EXTRA_COLUMNS = {
     "user_balance": "INTEGER",
     "user_pro": "INTEGER",
     "pref_filters_json": "TEXT",
+    "blocked": "INTEGER NOT NULL DEFAULT 0",
 }
 
 
@@ -30,6 +31,7 @@ async def _ensure_performance_indexes(conn: aiosqlite.Connection) -> None:
     if "users" in tables:
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_ref_by ON users(ref_by)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_user_pro ON users(user_pro)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_blocked ON users(blocked)")
 
     if "saves" in tables:
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_saves_user_id_save_id ON saves(user_id, save_id)")

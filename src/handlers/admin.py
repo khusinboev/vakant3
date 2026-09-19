@@ -61,6 +61,9 @@ async def statistics_handler(message: Message, lang: str = DEFAULT_LANG):
         cursor = await conn.execute("SELECT COUNT(*) FROM users")
         total_users = (await cursor.fetchone())[0]
 
+        cursor = await conn.execute("SELECT COUNT(*) FROM users WHERE blocked = 1")
+        blocked_users = (await cursor.fetchone())[0]
+
         three_months_ago_ts = int((now - datetime.timedelta(days=90)).timestamp())
         cursor = await conn.execute(
             "SELECT COUNT(*) FROM users WHERE date >= ?", (three_months_ago_ts,)
@@ -96,6 +99,7 @@ async def statistics_handler(message: Message, lang: str = DEFAULT_LANG):
         t(lang, "admin.stats.header"),
         "",
         t(lang, "admin.stats.total", count=total_users),
+        t(lang, "admin.stats.blocked", count=blocked_users),
         t(lang, "admin.stats.last3m", count=last_3_months_users),
     ]
     lines += [t(lang, "admin.stats.row", label=name, count=count) for name, count in months_stats]
@@ -228,21 +232,40 @@ async def copy_broadcast_start(message: Message, state: FSMContext, lang: str = 
     await state.set_state(AdminStates.send_msg)
 
 
-async def _deliver(send: Callable[[int], Awaitable[object]], user_id: int) -> bool:
+async def _mark_blocked(conn, user_id: int, blocked: bool) -> None:
+    """users.blocked ni yangilaydi (faqat qiymat o'zgarganda yozadi)."""
+    value = 1 if blocked else 0
+    cursor = await conn.execute(
+        "UPDATE users SET blocked = ? WHERE user_id = ? AND blocked != ?",
+        (value, user_id, value),
+    )
+    if cursor.rowcount:
+        await conn.commit()
+
+
+async def _deliver(
+    conn, send: Callable[[int], Awaitable[object]], user_id: int
+) -> bool:
     """Bitta foydalanuvchiga yuborish. Flood wait bo'lsa kutib, BIR marta qayta uriladi."""
     try:
         await send(user_id)
+        await _mark_blocked(conn, user_id, False)
         return True
     except TelegramRetryAfter as exc:
         logger.warning("Broadcast: flood wait %ss", exc.retry_after)
         await asyncio.sleep(exc.retry_after)
         try:
             await send(user_id)
+            await _mark_blocked(conn, user_id, False)
             return True
+        except TelegramForbiddenError:
+            await _mark_blocked(conn, user_id, True)
+            return False
         except Exception as retry_exc:
             logger.error("Broadcast retry xato user_id=%s: %s", user_id, retry_exc)
             return False
     except TelegramForbiddenError:
+        await _mark_blocked(conn, user_id, True)
         return False
     except Exception as exc:
         logger.error("Broadcast xato user_id=%s: %s", user_id, exc)
@@ -258,37 +281,37 @@ async def _run_broadcast(
     await state.clear()
 
     async with connect() as conn:
-        cursor = await conn.execute("SELECT user_id FROM users")
+        cursor = await conn.execute("SELECT user_id FROM users WHERE blocked = 0")
         users = [int(row[0]) for row in await cursor.fetchall()]
 
-    total = len(users)
-    success_count = 0
-    failed_count = 0
+        total = len(users)
+        success_count = 0
+        failed_count = 0
 
-    status_msg = await message.answer(t(lang, "admin.sending", done=0, total=total))
+        status_msg = await message.answer(t(lang, "admin.sending", done=0, total=total))
 
-    for idx, user_id in enumerate(users, 1):
-        if await _deliver(send, user_id):
-            success_count += 1
-        else:
-            failed_count += 1
+        for idx, user_id in enumerate(users, 1):
+            if await _deliver(conn, send, user_id):
+                success_count += 1
+            else:
+                failed_count += 1
 
-        if idx % PROGRESS_EVERY == 0:
-            try:
-                await status_msg.edit_text(
-                    t(
-                        lang,
-                        "admin.progress",
-                        done=idx,
-                        total=total,
-                        ok=success_count,
-                        fail=failed_count,
+            if idx % PROGRESS_EVERY == 0:
+                try:
+                    await status_msg.edit_text(
+                        t(
+                            lang,
+                            "admin.progress",
+                            done=idx,
+                            total=total,
+                            ok=success_count,
+                            fail=failed_count,
+                        )
                     )
-                )
-            except TelegramBadRequest:
-                pass
+                except TelegramBadRequest:
+                    pass
 
-        await asyncio.sleep(SEND_DELAY_SECONDS)
+            await asyncio.sleep(SEND_DELAY_SECONDS)
 
     await status_msg.edit_text(
         t(lang, "admin.finished", total=total, ok=success_count, fail=failed_count)
