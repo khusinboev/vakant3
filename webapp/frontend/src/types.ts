@@ -10,15 +10,32 @@ export type VacancyItem = {
   uid: string;
   title: string;
   company: string;
-  salary_text: string;
-  location: string;
-  district: string;
-  posted_at: string;
+  /** Localized by the API; null when the source has no salary information. */
+  salary_text: string | null;
+  location: string | null;
+  district: string | null;
+  posted_at: string | null;
   is_saved: boolean;
   is_pro_locked: boolean;
 };
 
-export type VacancyDetail = {
+/** Raw integer codes from osonish.uz — render them with `useVacancyCodeLabel`. */
+export type VacancyCodes = {
+  gender?: number | null;
+  work_type?: number | null;
+  busyness_type?: number | null;
+  payment_type?: number | null;
+  education?: number | null;
+  experience?: number | null;
+};
+
+/** `data.normalized` of `GET /jobs/{uid}`: localized labels plus raw `codes`. */
+export type VacancyNormalized = Record<string, unknown> & {
+  codes?: VacancyCodes;
+};
+
+/** `GET /jobs/{uid}` response. */
+export type VacancyDetailResponse = {
   uid: string;
-  data: Record<string, unknown>;
+  data: Record<string, unknown> & { normalized?: VacancyNormalized };
 };

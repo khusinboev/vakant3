@@ -1,0 +1,218 @@
+import type { CommonDict } from "../uz/common";
+
+const common: Record<keyof CommonDict, string> = {
+  // ── Generic ────────────────────────────────────────────────────────────────
+  "common.loading": "Загрузка...",
+  "common.retry": "Повторить",
+  "common.close": "Закрыть",
+  "common.cancel": "Отмена",
+  "common.apply": "Применить",
+  "common.save": "Сохранить",
+  "common.saving": "Сохраняем...",
+  "common.copy": "Копировать",
+  "common.share": "Поделиться",
+  "common.shareShort": "Отправить",
+  "common.details": "Подробнее",
+  "common.delete": "Удалить",
+  "common.statistics": "Статистика",
+  "common.all": "Все",
+  "common.optional": "необязательно",
+  "common.sum": "сум",
+  "common.notSpecified": "Не указано",
+  "common.itemsCount": "{n} шт.",
+  "common.empty": "Нет данных",
+
+  // ── App shell / errors ─────────────────────────────────────────────────────
+  "app.name": "Bandlik.uz",
+  "app.errorTitle": "Что-то пошло не так",
+  "app.errorBody": "Не удалось загрузить страницу. Попробуйте ещё раз.",
+  "app.reload": "Обновить страницу",
+  "app.referralLockTitle": "Включено условие по рефералам",
+  "app.referralLockBody": "Чтобы пользоваться приложением, сначала выполните условие по рефералам.",
+  "app.referralLockStatus": "Статус: {current}/{required}",
+  "app.referralLockShare": "Поделиться реферальной ссылкой",
+
+  // ── Bottom navigation ──────────────────────────────────────────────────────
+  "nav.home": "Главная",
+  "nav.profile": "Профиль",
+  "nav.hub": "Центр",
+  "nav.admin": "Админ",
+
+  // ── Login prompt ───────────────────────────────────────────────────────────
+  "login.title": "Нужен вход",
+  "login.body": "Чтобы пользоваться этой функцией, нужен аккаунт в боте.",
+  "login.toBot": "Вернуться в бот",
+
+  // ── Home / job list ────────────────────────────────────────────────────────
+  "home.errorLoad": "Не удалось загрузить результаты. Попробуйте ещё раз.",
+  "home.count": "{n} вакансий",
+  "home.page": "{page} / {total}",
+  "home.empty": "Ничего не найдено. Попробуйте другое слово или фильтр.",
+  "home.allShown": "Показаны все результаты",
+  "home.saveLimitTitle": "Лимит сохранений ({current}/{limit})",
+  "home.saveLimitBody":
+    "На бесплатном тарифе можно сохранить до {limit} вакансий. Для безлимита перейдите на Pro.",
+  "home.goPro": "Перейти на Pro",
+
+  // ── Search filters ─────────────────────────────────────────────────────────
+  "filters.searchPlaceholder": "Профессия или должность",
+  "filters.open": "Открыть фильтры",
+  "filters.sectors": "Сферы",
+  "filters.allFilters": "Все фильтры",
+  "filters.sort": "Сортировка",
+  "filters.sortNew": "Новые",
+  "filters.sortSalary": "Высокая зарплата",
+  "filters.sortOld": "Старые",
+  "filters.allRegions": "Все области",
+  "filters.allDistricts": "Все районы",
+  "filters.salary": "Зарплата",
+  "filters.salaryFrom": "от {n} млн",
+  "filters.clear": "Сбросить дополнительные фильтры",
+  "filters.sector.all": "Все",
+  "filters.sector.industry": "Промышленность",
+  "filters.sector.services": "Услуги",
+  "filters.sector.education": "Образование",
+  "filters.sector.health": "Здравоохранение",
+  "filters.sector.construction": "Строительство",
+  "filters.sector.it": "IT",
+  "filters.sector.trade": "Торговля",
+
+  // ── Saves ──────────────────────────────────────────────────────────────────
+  "saves.title": "Сохранённые вакансии",
+  "saves.tgOnly": "Этот раздел работает только при открытии из Telegram.",
+  "saves.login": "Войти",
+  "saves.error": "Не удалось загрузить сохранённые вакансии.",
+  "saves.empty": "Сохранённых вакансий нет. Нажмите на сердечко, чтобы сохранить вакансию.",
+
+  // ── Hub ────────────────────────────────────────────────────────────────────
+  "hub.title": "Центр",
+  "hub.subtitle": "Зайдите в раздел резюме и заполните свои данные.",
+  "hub.resume": "Резюме",
+  "hub.resumeDesc": "Заполните простую форму, сохраните или отправьте в Telegram.",
+  "hub.resumeCta": "Перейти к резюме",
+  "hub.laws": "Законодательство",
+  "hub.lawsDesc": "Узнайте свои права по Трудовому кодексу Узбекистана.",
+  "hub.lawsCta": "Смотреть статьи",
+
+  // ── Landing (outside Telegram) ─────────────────────────────────────────────
+  "landing.badge": "Платформа поиска работы",
+  "landing.body":
+    "Находите самые свежие вакансии быстро и удобно — прямо в Telegram-боте. Все возможности собраны в одном месте.",
+  "landing.cta": "Перейти в Telegram-бот",
+
+  // ── Referral ───────────────────────────────────────────────────────────────
+  "referral.perInvite": "За каждое приглашение",
+  "referral.rewardAmount": "+{amount} сум",
+  "referral.autoCredit": "Зачисляется на баланс автоматически",
+  "referral.yourLink": "Ваша ссылка",
+  "referral.invitedWithCount": "Приглашено: {n}",
+  "referral.income": "Доход с рефералов",
+  "referral.invited": "Приглашено",
+  "referral.totalEarned": "Всего заработано (сум)",
+  "referral.emptyList": "Пока никто не присоединился. Поделитесь своей ссылкой.",
+  "referral.shareText":
+    "Bandlik.uz — самый удобный способ найти работу через Telegram! Присоединяйтесь:",
+  "referral.anonymous": "Пользователь",
+  "referral.copied": "Ссылка скопирована",
+  "referral.loadError": "Не удалось загрузить реферальные данные.",
+
+  // ── Wallet ─────────────────────────────────────────────────────────────────
+  "wallet.balance": "Баланс кошелька",
+  "wallet.proActive": "Тариф PRO активен",
+  "wallet.freePlan": "Базовый тариф",
+  "wallet.notFound": "Данные кошелька не найдены. Войдите через Telegram.",
+  "wallet.proTitle": "Тариф Pro",
+  "wallet.proDesc": "С тарифом Pro открываются контакты по высокооплачиваемым вакансиям.",
+  "wallet.price": "Цена",
+  "wallet.balanceLabel": "Баланс",
+  "wallet.activate": "Активировать Pro",
+  "wallet.activating": "Активируем...",
+  "wallet.activated": "Тариф Pro активирован",
+  "wallet.needMore": "Для Pro не хватает ещё {amount} сум.",
+  "wallet.referralWayTitle": "Самый простой способ — рефералы",
+  "wallet.referralWayBody":
+    "Приглашайте друзей. За каждого друга, который зайдёт в бота, на ваш баланс поступит {amount} сум.",
+  "wallet.autoPro": "Когда накопится {amount} сум, тариф Pro включится автоматически",
+  "wallet.adminTitle": "Пополнение через администратора",
+  "wallet.adminBody":
+    "Если хотите получить Pro сразу, попросите администратора пополнить ваш баланс на {amount} сум.",
+  "wallet.adminCta": "Связаться с админом",
+  "wallet.adminMessage":
+    "Здравствуйте! Для перехода на тариф Pro нужно пополнить мой баланс на {amount} сум.\n\nTelegram ID: {userId}\n\nСпасибо!",
+  "wallet.proActiveBody": "Все вакансии с высокой зарплатой открыты для вас.",
+  "wallet.inviteTitle": "Приглашайте друзей",
+  "wallet.inviteBody": "За каждого приглашённого друга вы получаете {amount} сум.",
+  "wallet.refStats": "Статистика рефералов",
+
+  // ── Laws ───────────────────────────────────────────────────────────────────
+  "laws.title": "Законодательство",
+  "laws.subtitle": "Статьи на основе Трудового кодекса Узбекистана",
+  "laws.error": "Не удалось загрузить данные. Проверьте интернет-соединение.",
+  "laws.empty": "В этом разделе статей нет.",
+  "laws.readFull": "Читать полностью на lex.uz",
+
+  // ── Profile ────────────────────────────────────────────────────────────────
+  "profile.title": "Профиль",
+  "profile.tgOnly": "Данные профиля видны при открытии из Telegram.",
+  "profile.userNotFound":
+    "Данные пользователя Telegram не найдены. Откройте приложение через кнопку WebApp.",
+  "profile.tgUser": "Пользователь Telegram",
+  "profile.pro": "PRO",
+  "profile.free": "Базовый",
+  "profile.statSaved": "Сохранено",
+  "profile.statReferrals": "Рефералы",
+  "profile.statBalance": "Баланс (сум)",
+  "profile.savedJobs": "Сохранённые вакансии",
+  "profile.wallet": "Кошелёк",
+  "profile.inviteTitle": "Приглашайте друзей",
+  "profile.inviteBody": "За каждого приглашённого друга на ваш баланс поступают деньги.",
+  "profile.gateTitle": "Условие доступа",
+  "profile.gateReferrals": "Рефералы",
+  "profile.notifications": "Уведомления",
+  "profile.notifToggleAria": "Включить или выключить уведомления",
+  "profile.notifOn": "Вы будете получать ежедневную подборку вакансий по вашим фильтрам.",
+  "profile.notifOffPro": "Включите — и получайте вакансии, подходящие под ваши фильтры.",
+  "profile.notifOffFree": "Только для тарифа Pro. Перейдите на Pro и включите уведомления.",
+  "profile.notifSettings": "Настройки уведомлений",
+  "profile.notifSettingsBody": "Вы будете получать ежедневную подборку подходящих вакансий.",
+  "profile.region": "Регион",
+  "profile.sector": "Сфера",
+  "profile.minSalary": "Минимальная зарплата",
+  "profile.minSalaryPlaceholder": "Например: 3 000 000",
+  "profile.enableNotif": "Включить уведомления",
+  "profile.proNotifTitle": "Уведомления доступны на тарифе Pro",
+  "profile.proNotifBody": "Чтобы получать ежедневные подборки вакансий, перейдите на Pro.",
+
+  // ── Settings card (language + theme) ───────────────────────────────────────
+  "settings.title": "Настройки",
+  "settings.language": "Язык",
+  "settings.theme": "Тема",
+  "settings.theme.telegram": "Telegram",
+  "settings.theme.light": "Светлая",
+  "settings.theme.dark": "Тёмная",
+  "settings.theme.system": "Системная",
+  "settings.langSaved": "Язык изменён",
+
+  // ── API error codes ────────────────────────────────────────────────────────
+  "error.AUTH_REQUIRED": "Сначала войдите в аккаунт.",
+  "error.INVALID_INIT_DATA": "Данные Telegram недействительны. Откройте приложение заново.",
+  "error.SESSION_EXPIRED": "Сессия истекла. Откройте приложение заново.",
+  "error.ADMIN_REQUIRED": "Действие доступно только администраторам.",
+  "error.REFERRAL_LOCKED": "Условие по рефералам не выполнено ({count}/{required}).",
+  "error.PRO_REQUIRED": "Эта возможность доступна на тарифе Pro.",
+  "error.SAVE_LIMIT_REACHED": "Достигнут лимит сохранений ({current}/{limit}).",
+  "error.PREMIUM_TEMPLATE": "Этот шаблон доступен на тарифе Pro.",
+  "error.INSUFFICIENT_BALANCE": "Недостаточно средств: нужно {required} сум, на балансе {balance} сум.",
+  "error.ALREADY_PRO": "Тариф Pro уже активен.",
+  "error.NOT_FOUND": "Данные не найдены.",
+  "error.INVALID_UID": "Неверный идентификатор вакансии.",
+  "error.VALIDATION_ERROR": "Введённые данные некорректны.",
+  "error.PAYLOAD_TOO_LARGE": "Файл слишком большой.",
+  "error.TELEGRAM_SEND_FAILED": "Не удалось отправить в Telegram. Запустите бота и повторите.",
+  "error.UPSTREAM_ERROR": "Внешний сервис не отвечает. Попробуйте чуть позже.",
+  "error.RATE_LIMITED": "Слишком много запросов. Попробуйте чуть позже.",
+  "error.NETWORK_ERROR": "Нет соединения с интернетом. Проверьте связь.",
+  "error.UNKNOWN": "Произошла ошибка. Попробуйте ещё раз.",
+};
+
+export default common;

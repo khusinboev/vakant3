@@ -3,7 +3,22 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  /* Let the UA pick form-control / scrollbar colors from the active theme. */
+  color-scheme: light dark;
+
+  /* ── Semantic color tokens (RGB triples, consumed by tailwind.config.js) ── */
+  --color-bg: 244 247 249;
+  --color-surface: 255 255 255;
+  --color-surface-alt: 248 250 252;
+  --color-text: 15 23 42;
+  --color-muted: 100 116 139;
+  --color-border: 226 232 240;
+  --color-primary: 15 118 110;
+  --color-primary-fg: 255 255 255;
+  --color-success: 5 150 105;
+  --color-warning: 180 83 9;
+  --color-danger: 220 38 38;
+
   --tg-safe-area-top: var(--tg-safe-area-inset-top, 0px);
   --tg-safe-area-bottom: var(--tg-safe-area-inset-bottom, 0px);
   --tg-safe-area-left: var(--tg-safe-area-inset-left, 0px);
@@ -24,11 +39,28 @@
 
   /* Unified interaction tokens for all buttons/tap targets. */
   --ui-motion-fast: 140ms;
-  --ui-motion-medium: 220ms;
   --ui-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --ui-ring-color: rgba(14, 165, 164, 0.35);
+  --ui-ring-color: rgb(var(--color-primary) / 0.4);
   --ui-shadow-rest: 0 1px 2px rgba(2, 6, 23, 0.08);
   --ui-shadow-hover: 0 8px 20px rgba(2, 6, 23, 0.12);
+}
+
+/* Dark palette. `useTheme()` toggles the `.dark` class on <html>. */
+:root.dark {
+  --color-bg: 13 17 23;
+  --color-surface: 22 27 34;
+  --color-surface-alt: 32 39 48;
+  --color-text: 230 237 243;
+  --color-muted: 145 155 168;
+  --color-border: 48 54 61;
+  --color-primary: 67 168 156;
+  --color-primary-fg: 6 30 27;
+  --color-success: 52 211 153;
+  --color-warning: 251 191 36;
+  --color-danger: 248 113 113;
+
+  --ui-shadow-rest: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --ui-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.6);
 }
 
 html,
@@ -40,15 +72,30 @@ body,
 body {
   margin: 0;
   font-family: "Public Sans", sans-serif;
-  background:
-    radial-gradient(80rem 40rem at -10% -10%, rgba(15, 118, 110, 0.12), transparent),
-    radial-gradient(70rem 40rem at 120% 0%, rgba(245, 158, 11, 0.12), transparent),
-    #f4f7f9;
-  color: #0f172a;
+  background-color: rgb(var(--color-bg));
+  color: rgb(var(--color-text));
 }
 
-.card {
-  @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+@layer components {
+  .card {
+    @apply rounded-2xl border border-border bg-surface shadow-sm;
+  }
+}
+
+@layer utilities {
+  /* Bottom padding that clears the device home-indicator / gesture bar. */
+  .pb-safe-bottom {
+    padding-bottom: var(--bottom-safe, 0px);
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 .tap-target {
@@ -95,6 +142,13 @@ a.tap-target:active,
   animation: stepSlideIn 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.toast-enter {
+  animation: toastIn 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
 
 button:focus-visible,
 .tap-target:focus-visible,

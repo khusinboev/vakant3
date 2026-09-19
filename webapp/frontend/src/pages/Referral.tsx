@@ -2,23 +2,30 @@ import { useQuery } from "@tanstack/react-query";
 
 import client from "../api/client";
 import ReferralCard from "../components/Referral/ReferralCard";
+import { useT } from "../i18n/useT";
+import { useLocale } from "../i18n/useLocale";
 
 type WalletData = { balance: number; is_pro: boolean; pro_price: number; referral_reward: number };
 
+type ReferralData = {
+  ref_link: string;
+  ref_count: number;
+  referrals: Array<{ first_name: string | null; date: number; username: string | null }>;
+};
+
 export default function Referral() {
-  const referral = useQuery({
+  const t = useT();
+  const { formatNumber, formatDate } = useLocale();
+
+  const referral = useQuery<ReferralData>({
     queryKey: ["referral"],
     queryFn: async () => {
-      const { data } = await client.get<{
-        ref_link: string;
-        ref_count: number;
-        referrals: Array<{ first_name: string; date: number; username: string | null }>;
-      }>("/referral");
+      const { data } = await client.get<ReferralData>("/referral");
       return data;
-    }
+    },
   });
 
-  const wallet = useQuery({
+  const wallet = useQuery<WalletData>({
     queryKey: ["wallet"],
     queryFn: async () => {
       const { data } = await client.get<WalletData>("/wallet");
@@ -27,8 +34,12 @@ export default function Referral() {
     retry: false,
   });
 
-  if (!referral.data) {
-    return <div className="card p-4 text-sm">Yuklanmoqda...</div>;
+  if (referral.isLoading) {
+    return <div className="card p-4 text-sm text-muted">{t("common.loading")}</div>;
+  }
+
+  if (referral.isError || !referral.data) {
+    return <div className="card p-4 text-sm text-danger">{t("referral.loadError")}</div>;
   }
 
   const reward = wallet.data?.referral_reward ?? 2000;
@@ -38,31 +49,36 @@ export default function Referral() {
     <div className="space-y-4">
       <ReferralCard refLink={referral.data.ref_link} count={referral.data.ref_count} reward={reward} />
 
-      {/* Stats */}
       <section className="card p-4">
-        <h3 className="text-sm font-semibold text-slate-800">Referral daromad</h3>
+        <h3 className="text-sm font-semibold text-text">{t("referral.income")}</h3>
         <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-xl bg-emerald-50 p-3 text-center">
-            <p className="text-2xl font-bold text-emerald-700">{referral.data.ref_count}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Taklif qilinganlar</p>
+          <div className="rounded-xl bg-success/10 p-3 text-center">
+            <p className="text-2xl font-bold text-success">{referral.data.ref_count}</p>
+            <p className="mt-0.5 text-xs text-muted">{t("referral.invited")}</p>
           </div>
-          <div className="rounded-xl bg-amber-50 p-3 text-center">
-            <p className="text-2xl font-bold text-amber-700">{totalEarned.toLocaleString("uz-UZ")}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Jami daromad (so'm)</p>
+          <div className="rounded-xl bg-warning/10 p-3 text-center">
+            <p className="text-2xl font-bold text-warning">{formatNumber(totalEarned)}</p>
+            <p className="mt-0.5 text-xs text-muted">{t("referral.totalEarned")}</p>
           </div>
         </div>
       </section>
 
       <section className="card p-4">
-        <h3 className="font-semibold text-sm text-slate-800">Taklif qilinganlar</h3>
+        <h3 className="text-sm font-semibold text-text">{t("referral.invited")}</h3>
         {referral.data.referrals.length === 0 && (
-          <p className="mt-2 text-sm text-slate-500">Hali hech kim qo'shilmagan. Havolangizni ulashing.</p>
+          <p className="mt-2 text-sm text-muted">{t("referral.emptyList")}</p>
         )}
         <ul className="mt-2 space-y-2">
           {referral.data.referrals.map((user, idx) => (
-            <li key={`${user.first_name}-${idx}`} className="flex items-center justify-between rounded-xl bg-slate-50 p-2 text-sm">
-              <span>{user.first_name}{user.username ? ` (@${user.username})` : ""}</span>
-              <span className="text-slate-500">{new Date(user.date * 1000).toLocaleDateString("ru-RU")}</span>
+            <li
+              key={`${user.username ?? user.first_name ?? "user"}-${idx}`}
+              className="flex items-center justify-between gap-3 rounded-xl bg-surfaceAlt p-2 text-sm text-text"
+            >
+              <span className="min-w-0 truncate">
+                {user.first_name || t("referral.anonymous")}
+                {user.username ? ` (@${user.username})` : ""}
+              </span>
+              <span className="shrink-0 text-muted">{formatDate(user.date)}</span>
             </li>
           ))}
         </ul>
@@ -70,4 +86,3 @@ export default function Referral() {
     </div>
   );
 }
-

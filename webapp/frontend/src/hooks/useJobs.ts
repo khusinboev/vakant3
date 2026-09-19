@@ -1,7 +1,8 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import client from "../api/client";
-import type { VacancyDetail, VacancyItem } from "../types";
+import { JOBS_LIST_KEY } from "./useSaves";
+import type { VacancyDetailResponse, VacancyItem } from "../types";
 
 export type JobsParams = {
   q: string;
@@ -15,9 +16,14 @@ export type JobsParams = {
 
 type JobsPage = { vacancies: VacancyItem[]; page: number; last_page: number; total_estimate: number };
 
+/**
+ * Infinite vacancy list.
+ * Key: ["jobs","list",params] — namespaced so optimistic save patches never
+ * touch ["jobs","detail",uid], which holds a completely different shape.
+ */
 export function useJobs(params: JobsParams) {
   return useInfiniteQuery<JobsPage>({
-    queryKey: ["jobs", params],
+    queryKey: [...JOBS_LIST_KEY, params],
     queryFn: async ({ pageParam = 1 }) => {
       const { data } = await client.get<JobsPage>("/jobs/search", {
         params: { ...params, page: pageParam },
@@ -32,11 +38,12 @@ export function useJobs(params: JobsParams) {
   });
 }
 
+/** Single vacancy. Key: ["jobs","detail",uid]. */
 export function useJobDetail(uid: string) {
   return useQuery({
     queryKey: ["jobs", "detail", uid],
     queryFn: async () => {
-      const { data } = await client.get<VacancyDetail>(`/jobs/${uid}`);
+      const { data } = await client.get<VacancyDetailResponse>(`/jobs/${uid}`);
       return data;
     },
     enabled: Boolean(uid)

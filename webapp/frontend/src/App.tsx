@@ -3,10 +3,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Route, Routes, Navigate, useLocation } from "react-router-dom";
 
 import client from "./api/client";
-import Layout from "./components/Layout/Navbar";
+import ErrorBoundary from "./components/ErrorBoundary";
+import Layout from "./components/Layout/Layout";
+import { ToastHost } from "./hooks/useToast";
 import useTelegramWebApp from "./hooks/useTelegramWebApp";
 import useTelegramAuth, { isTelegramWebApp } from "./hooks/useTelegramAuth";
 import useTelegramBackButton from "./hooks/useTelegramBackButton";
+import useTheme from "./hooks/useTheme";
+import { useT } from "./i18n/useT";
+import { shareRefLink } from "./lib/share";
+import { useAuthStore } from "./store/auth";
 import Home from "./pages/Home";
 
 // Lazy-load secondary pages — they are NOT needed on first paint
@@ -18,12 +24,18 @@ const Admin    = lazy(() => import("./pages/Admin"));
 const Wallet   = lazy(() => import("./pages/Wallet"));
 const Hub      = lazy(() => import("./pages/Hub"));
 const ResumeStudio = lazy(() => import("./pages/ResumeStudio"));
+const Laws         = lazy(() => import("./pages/Laws"));
 
 function PageFallback() {
-  return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Yuklanmoqda...</div>;
+  const t = useT();
+  return (
+    <div className="flex h-40 items-center justify-center text-sm text-muted">
+      {t("common.loading")}
+    </div>
+  );
 }
 
-function resolveEntryTarget(pathname: string, search: string): "home" | "profile" | "saves" {
+function resolveEntryTarget(search: string): "home" | "profile" | "saves" {
   const go = (new URLSearchParams(search).get("go") || "").toLowerCase();
   if (go === "profile") return "profile";
   if (go === "saves") return "saves";
@@ -38,7 +50,7 @@ function resolveEntryTarget(pathname: string, search: string): "home" | "profile
 
 function AppHomeEntry() {
   const location = useLocation();
-  const target = resolveEntryTarget(location.pathname, location.search);
+  const target = resolveEntryTarget(location.search);
 
   if (target === "profile") {
     return <Navigate to="/profile" replace />;
@@ -52,67 +64,101 @@ function AppHomeEntry() {
 }
 
 function ReferralLockScreen({ current, required, refLink }: { current: number; required: number; refLink: string }) {
+  const t = useT();
   return (
     <div className="mx-auto mt-6 max-w-xl space-y-3 px-4">
       <div className="card p-5 text-center">
-        <p className="text-base font-semibold text-slate-800">🔒 Referral sharti yoqilgan</p>
-        <p className="mt-2 text-sm text-slate-500">
-          Webappdan foydalanish uchun avval referral shartini bajaring.
+        <p className="text-base font-semibold text-text">🔒 {t("app.referralLockTitle")}</p>
+        <p className="mt-2 text-sm text-muted">{t("app.referralLockBody")}</p>
+        <p className="mt-3 text-sm font-semibold text-warning">
+          {t("app.referralLockStatus", { current, required })}
         </p>
-        <p className="mt-3 text-sm font-semibold text-amber-600">Holat: {current}/{required}</p>
-        <a href={refLink} className="mt-4 inline-block rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
-          Referral havolani ulashish
-        </a>
+        <button
+          type="button"
+          onClick={() => shareRefLink(refLink, t("referral.shareText"))}
+          className="tap-target mt-4 inline-block rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primaryFg"
+        >
+          {t("app.referralLockShare")}
+        </button>
       </div>
     </div>
   );
 }
 
+type GateData = {
+  enabled: boolean;
+  unlocked: boolean;
+  current: number;
+  required: number;
+  ref_link: string;
+};
+
 export default function App() {
+  useTheme();
   useTelegramWebApp();
   useTelegramBackButton();
   useTelegramAuth();
 
-  const gate = useQuery({
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  const gate = useQuery<GateData>({
     queryKey: ["referral", "stats", "gate"],
     queryFn: async () => {
-      const { data } = await client.get<{ enabled: boolean; unlocked: boolean; current: number; required: number; ref_link: string }>(
-        "/referral/stats"
-      );
+      const { data } = await client.get<GateData>("/referral/stats");
       return data;
     },
     retry: false,
-    enabled: isTelegramWebApp(),
+    // The gate is a per-user check: asking before auth resolves always 401s.
+    enabled: isTelegramWebApp() && isAuthenticated,
   });
 
   // External browser — always show landing page
   if (!isTelegramWebApp()) {
     return (
-      <Suspense fallback={<PageFallback />}>
-        <Landing />
-      </Suspense>
+      <>
+        <ErrorBoundary>
+          <Suspense fallback={<PageFallback />}>
+            <Landing />
+          </Suspense>
+        </ErrorBoundary>
+        <ToastHost />
+      </>
     );
   }
 
   if (gate.data?.enabled && !gate.data.unlocked) {
-    return <ReferralLockScreen current={gate.data.current} required={gate.data.required} refLink={gate.data.ref_link} />;
+    return (
+      <>
+        <ReferralLockScreen
+          current={gate.data.current}
+          required={gate.data.required}
+          refLink={gate.data.ref_link}
+        />
+        <ToastHost />
+      </>
+    );
   }
 
   return (
-    <Suspense fallback={<PageFallback />}>
-      <Routes>
-        <Route path="/" element={<Navigate to="/app" replace />} />
-        <Route path="/app" element={<AppHomeEntry />} />
-        <Route path="/saves" element={<Layout><Saves /></Layout>} />
-        <Route path="/profile" element={<Layout><Profile /></Layout>} />
-        <Route path="/hub" element={<Layout><Hub /></Layout>} />
-        <Route path="/hub/resume" element={<ResumeStudio />} />
-        <Route path="/wallet" element={<Layout><Wallet /></Layout>} />
-        <Route path="/admin" element={<Layout><Admin /></Layout>} />
-        <Route path="/referral" element={<Layout><Referral /></Layout>} />
-        <Route path="*" element={<Navigate to="/app" replace />} />
-      </Routes>
-    </Suspense>
+    <>
+      <ErrorBoundary>
+        <Suspense fallback={<PageFallback />}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/app" replace />} />
+            <Route path="/app" element={<AppHomeEntry />} />
+            <Route path="/saves" element={<Layout><ErrorBoundary><Saves /></ErrorBoundary></Layout>} />
+            <Route path="/profile" element={<Layout><ErrorBoundary><Profile /></ErrorBoundary></Layout>} />
+            <Route path="/hub" element={<Layout><ErrorBoundary><Hub /></ErrorBoundary></Layout>} />
+            <Route path="/hub/resume" element={<ErrorBoundary><ResumeStudio /></ErrorBoundary>} />
+            <Route path="/hub/laws" element={<Layout><ErrorBoundary><Laws /></ErrorBoundary></Layout>} />
+            <Route path="/wallet" element={<Layout><ErrorBoundary><Wallet /></ErrorBoundary></Layout>} />
+            <Route path="/admin" element={<Layout><ErrorBoundary><Admin /></ErrorBoundary></Layout>} />
+            <Route path="/referral" element={<Layout><ErrorBoundary><Referral /></ErrorBoundary></Layout>} />
+            <Route path="*" element={<Navigate to="/app" replace />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
+      <ToastHost />
+    </>
   );
 }
-

@@ -8,8 +8,27 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      // Apply the persisted theme before first paint (no flash of light UI).
+      (function () {
+        try {
+          var raw = localStorage.getItem("vakant-theme");
+          var mode = raw ? (JSON.parse(raw).state || {}).mode : null;
+          if (!mode) mode = window.Telegram && window.Telegram.WebApp ? "telegram" : "system";
+          var dark;
+          if (mode === "dark") dark = true;
+          else if (mode === "light") dark = false;
+          else if (mode === "telegram" && window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.colorScheme)
+            dark = window.Telegram.WebApp.colorScheme === "dark";
+          else dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (dark) document.documentElement.classList.add("dark");
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (e) { /* storage blocked — React applies the theme on mount */ }
+      })();
+    </script>
   </head>
-  <body class="bg-slate-100">
+  <body class="bg-bg text-text">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

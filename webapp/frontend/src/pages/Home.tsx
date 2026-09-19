@@ -1,28 +1,33 @@
 import { useState, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 
-import client from "../api/client";
 import LoginPrompt from "../components/LoginPrompt";
-import SearchFilters from "../components/Jobs/SearchFilters";
+import SearchFilters, { type SearchFilterValue } from "../components/Jobs/SearchFilters";
 import VacancyCard from "../components/Jobs/VacancyCard";
 import VacancyDetail from "../components/Jobs/VacancyDetail";
-import { useJobs } from "../hooks/useJobs";
+import BottomSheet from "../components/ui/BottomSheet";
+import { useJobDetail, useJobs } from "../hooks/useJobs";
 import { useSaves } from "../hooks/useSaves";
+import { useT } from "../i18n/useT";
+import { FREE_SAVE_LIMIT } from "../lib/constants";
 import { useAuthStore } from "../store/auth";
 
 function SkeletonCard() {
   return (
-    <div className="card animate-pulse p-4 space-y-3">
-      <div className="h-3 w-1/3 rounded bg-slate-200" />
-      <div className="h-5 w-2/3 rounded bg-slate-200" />
-      <div className="h-3 w-1/2 rounded bg-slate-200" />
-      <div className="mt-2 h-10 rounded-2xl bg-slate-200" />
+    <div className="card animate-pulse space-y-3 p-4">
+      <div className="h-3 w-1/3 rounded bg-surfaceAlt" />
+      <div className="h-5 w-2/3 rounded bg-surfaceAlt" />
+      <div className="h-3 w-1/2 rounded bg-surfaceAlt" />
+      <div className="mt-2 h-10 rounded-2xl bg-surfaceAlt" />
     </div>
   );
 }
 
 export default function Home() {
-  const [filters, setFilters] = useState({
+  const t = useT();
+  const navigate = useNavigate();
+
+  const [filters, setFilters] = useState<SearchFilterValue>({
     query: "",
     specs: "",
     region_soato: "",
@@ -33,6 +38,7 @@ export default function Home() {
   });
   const [activeUid, setActiveUid] = useState("");
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const authUser = useAuthStore((state) => state.user);
   const initData = window.Telegram?.WebApp?.initData;
@@ -41,11 +47,11 @@ export default function Home() {
   // Debounce text search — call API 400ms after user stops typing
   const [debouncedQuery, setDebouncedQuery] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(filters.query.trim()), 400);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setDebouncedQuery(filters.query.trim()), 400);
+    return () => clearTimeout(timer);
   }, [filters.query]);
 
-  const queryParams = {
+  const jobs = useJobs({
     q: debouncedQuery,
     specs: filters.specs,
     region_soato: filters.region_soato,
@@ -53,41 +59,33 @@ export default function Home() {
     money: filters.money,
     sort_key: filters.sort_key,
     sort_type: filters.sort_type,
-  };
+  });
+  const { save, remove, saveLimitReached, clearSaveLimitReached } = useSaves(1, 10, canUseSaves);
 
-  const jobs = useJobs(queryParams);
-  const { save, remove } = useSaves(1, 10, canUseSaves);
-
-  // Flatten all pages into a single list
   const vacancies = jobs.data?.pages.flatMap((p) => p.vacancies) ?? [];
   const lastPage = jobs.data?.pages[jobs.data.pages.length - 1];
   const hasMore = jobs.hasNextPage;
 
   // IntersectionObserver sentinel — when it enters the viewport, load next page
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const fetchNextPage = jobs.fetchNextPage;
+  const isFetchingNextPage = jobs.isFetchingNextPage;
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !jobs.isFetchingNextPage) {
-          jobs.fetchNextPage();
+        if (entries[0].isIntersecting && hasMore && !isFetchingNextPage) {
+          void fetchNextPage();
         }
       },
-      { rootMargin: "200px" }
+      { rootMargin: "200px" },
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, jobs.isFetchingNextPage, jobs.fetchNextPage]);
+  }, [hasMore, isFetchingNextPage, fetchNextPage]);
 
-  const detail = useQuery({
-    queryKey: ["jobs", "detail", activeUid],
-    queryFn: async () => {
-      const { data } = await client.get(`/jobs/${activeUid}`);
-      return data as { uid: string; data: Record<string, unknown> };
-    },
-    enabled: Boolean(activeUid),
-  });
+  const detail = useJobDetail(activeUid);
 
   const toggleSave = (uid: string, saved: boolean) => {
     if (!canUseSaves) {
@@ -98,35 +96,24 @@ export default function Home() {
     else save.mutate(uid);
   };
 
-  // Find current vacancy and pass lock status into detail modal
-  const currentVacancy = vacancies.find((v) => v.uid === activeUid);
-  const isLocked = currentVacancy?.is_pro_locked || false;
+  const isLocked = vacancies.find((v) => v.uid === activeUid)?.is_pro_locked ?? false;
 
   return (
     <div className="space-y-3">
-      <SearchFilters
-        value={filters}
-        onChange={(next) => {
-          setFilters(next);
-        }}
-      />
+      <SearchFilters value={filters} onChange={setFilters} />
 
       {jobs.isError && (
-        <div className="card p-4 text-sm text-red-600">
-          Natijalar yuklanmadi. Qayta urinib ko'ring.
-        </div>
+        <div className="card p-4 text-sm text-danger">{t("home.errorLoad")}</div>
       )}
 
-      <div className="flex items-center justify-between text-xs text-slate-500">
+      <div className="flex items-center justify-between text-xs text-muted">
         <span>
-          {jobs.isLoading
-            ? "Yuklanmoqda..."
-            : jobs.isFetchingNextPage
-              ? "Yuklanmoqda..."
-              : `${lastPage?.total_estimate ?? vacancies.length} ta vakansiya`}
+          {jobs.isLoading || jobs.isFetchingNextPage
+            ? t("common.loading")
+            : t("home.count", { n: lastPage?.total_estimate ?? vacancies.length })}
         </span>
         <span>
-          {lastPage ? `${lastPage.page} / ${lastPage.last_page || 1}` : ""}
+          {lastPage ? t("home.page", { page: lastPage.page, total: lastPage.last_page || 1 }) : ""}
         </span>
       </div>
 
@@ -148,8 +135,8 @@ export default function Home() {
               />
             ))}
             {vacancies.length === 0 && !jobs.isError && (
-              <div className="card col-span-full p-6 text-center text-sm text-slate-500">
-                Natija topilmadi. Boshqa kalit so'z yoki filtr sinab ko'ring.
+              <div className="card col-span-full p-6 text-center text-sm text-muted">
+                {t("home.empty")}
               </div>
             )}
           </section>
@@ -166,9 +153,7 @@ export default function Home() {
           )}
 
           {!hasMore && vacancies.length > 0 && (
-            <p className="pb-2 text-center text-xs text-slate-400">
-              Barcha natijalar ko'rsatildi
-            </p>
+            <p className="pb-2 text-center text-xs text-muted">{t("home.allShown")}</p>
           )}
         </>
       )}
@@ -181,9 +166,42 @@ export default function Home() {
         isLocked={isLocked}
       />
 
-      {showLoginPrompt && (
-        <LoginPrompt onClose={() => setShowLoginPrompt(false)} />
-      )}
+      {showLoginPrompt && <LoginPrompt onClose={() => setShowLoginPrompt(false)} />}
+
+      <BottomSheet
+        open={saveLimitReached}
+        onClose={clearSaveLimitReached}
+        ariaLabel={t("home.saveLimitTitle", { current: FREE_SAVE_LIMIT, limit: FREE_SAVE_LIMIT })}
+      >
+        <div className="text-center">
+          <div className="mb-3 text-3xl">📌</div>
+          <p className="text-base font-bold text-text">
+            {t("home.saveLimitTitle", { current: FREE_SAVE_LIMIT, limit: FREE_SAVE_LIMIT })}
+          </p>
+          <p className="mt-1 text-sm text-muted">
+            {t("home.saveLimitBody", { limit: FREE_SAVE_LIMIT })}
+          </p>
+          <div className="mt-4 flex flex-col gap-2">
+            <button
+              type="button"
+              className="tap-target w-full rounded-2xl bg-primary py-3 text-sm font-semibold text-primaryFg"
+              onClick={() => {
+                clearSaveLimitReached();
+                navigate("/wallet");
+              }}
+            >
+              💎 {t("home.goPro")}
+            </button>
+            <button
+              type="button"
+              className="tap-target w-full rounded-2xl bg-surfaceAlt py-3 text-sm font-medium text-text"
+              onClick={clearSaveLimitReached}
+            >
+              {t("common.close")}
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
     </div>
   );
 }

@@ -1,180 +1,164 @@
-import { useEffect, useState } from "react";
-import { Search, SlidersHorizontal, X } from "lucide-react";
+import { useState } from "react";
+import { Search, SlidersHorizontal } from "lucide-react";
 
-import client from "../../api/client";
+import BottomSheet from "../ui/BottomSheet";
+import { useDistricts, useRegions, regionName } from "../../hooks/useStaticList";
+import { useT } from "../../i18n/useT";
+import type { TranslationKey } from "../../i18n";
 
-type Region = { soato: string; name_uz: string };
-
-type Props = {
-  value: {
-    query: string;
-    specs: string;
-    region_soato: string;
-    district_soato: string;
-    money: number;
-    sort_key: string;
-    sort_type: string;
-  };
-  onChange: (next: {
-    query: string;
-    specs: string;
-    region_soato: string;
-    district_soato: string;
-    money: number;
-    sort_key: string;
-    sort_type: string;
-  }) => void;
+export type SearchFilterValue = {
+  query: string;
+  specs: string;
+  region_soato: string;
+  district_soato: string;
+  money: number;
+  sort_key: string;
+  sort_type: string;
 };
 
-const SECTOR_CHIPS = [
-  { id: "", label: "Barchasi" },
-  { id: "spec:21", label: "Sanoat" },
-  { id: "spec:48", label: "Xizmatlar" },
-  { id: "spec:42", label: "Ta'lim" },
-  { id: "spec:47", label: "Sog'liq" },
-  { id: "spec:41", label: "Qurilish" },
-  { id: "spec:12", label: "IT" },
-  { id: "spec:64", label: "Savdo" }
+type Props = {
+  value: SearchFilterValue;
+  onChange: (next: SearchFilterValue) => void;
+};
+
+const SECTOR_CHIPS: Array<{ id: string; labelKey: TranslationKey }> = [
+  { id: "", labelKey: "filters.sector.all" },
+  { id: "spec:21", labelKey: "filters.sector.industry" },
+  { id: "spec:48", labelKey: "filters.sector.services" },
+  { id: "spec:42", labelKey: "filters.sector.education" },
+  { id: "spec:47", labelKey: "filters.sector.health" },
+  { id: "spec:41", labelKey: "filters.sector.construction" },
+  { id: "spec:12", labelKey: "filters.sector.it" },
+  { id: "spec:64", labelKey: "filters.sector.trade" },
 ];
 
-const SORT_CHIPS = [
-  { label: "Yangi", sort_key: "published_at", sort_type: "desc" },
-  { label: "Yuqori maosh", sort_key: "salary", sort_type: "desc" },
-  { label: "Eski", sort_key: "published_at", sort_type: "asc" }
+const SORT_CHIPS: Array<{ labelKey: TranslationKey; sort_key: string; sort_type: string }> = [
+  { labelKey: "filters.sortNew", sort_key: "published_at", sort_type: "desc" },
+  { labelKey: "filters.sortSalary", sort_key: "salary", sort_type: "desc" },
+  { labelKey: "filters.sortOld", sort_key: "published_at", sort_type: "asc" },
 ];
 
-const MONEY = [
-  { value: 0, label: "Maosh" },
-  { value: 2000000, label: "2 mln +" },
-  { value: 3000000, label: "3 mln +" },
-  { value: 4000000, label: "4 mln +" },
-  { value: 5000000, label: "5 mln +" }
-];
+const MONEY_TIERS = [0, 2_000_000, 3_000_000, 4_000_000, 5_000_000];
+
+const selectCls =
+  "tap-target rounded-2xl border border-border bg-surface px-3 text-sm text-text";
 
 export default function SearchFilters({ value, onChange }: Props) {
-  const [regions, setRegions] = useState<Region[]>([]);
-  const [districts, setDistricts] = useState<Region[]>([]);
+  const t = useT();
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  useEffect(() => {
-    client.get<Region[]>("/filters/regions").then((res) => setRegions(res.data)).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    if (!value.region_soato) {
-      setDistricts([]);
-      return;
-    }
-    client
-      .get<Region[]>("/filters/districts", { params: { region_soato: value.region_soato } })
-      .then((res) => setDistricts(res.data))
-      .catch(() => setDistricts([]));
-  }, [value.region_soato]);
+  const regions = useRegions();
+  const districts = useDistricts(value.region_soato);
 
   const activeFiltersCount = [
     Boolean(value.region_soato),
     Boolean(value.district_soato),
     value.money > 0,
     Boolean(value.sort_key),
-    Boolean(value.sort_type)
+    Boolean(value.sort_type),
   ].filter(Boolean).length;
+
+  const moneyLabel = (tier: number) =>
+    tier === 0 ? t("filters.salary") : t("filters.salaryFrom", { n: tier / 1_000_000 });
 
   return (
     <section className="card p-3">
       <div className="flex items-center gap-2">
         <label className="relative flex-1">
-          <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             value={value.query}
             onChange={(e) => onChange({ ...value, query: e.target.value })}
-            placeholder="Kasb, lavozim nomi"
-            className="tap-target w-full rounded-2xl border border-slate-300 bg-slate-50 py-2 pl-10 pr-3 text-sm outline-none transition focus:border-brand-400 focus:bg-white"
+            placeholder={t("filters.searchPlaceholder")}
+            aria-label={t("filters.searchPlaceholder")}
+            className="tap-target w-full rounded-2xl border border-border bg-surfaceAlt py-2 pl-10 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus:border-primary focus:bg-surface"
           />
         </label>
 
         <button
-          className="relative tap-target inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-300 bg-slate-50 text-slate-700"
+          type="button"
+          className="tap-target relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-surfaceAlt text-text"
           onClick={() => setFiltersOpen(true)}
-          aria-label="Filtrlarni ochish"
+          aria-label={t("filters.open")}
         >
           <SlidersHorizontal size={18} />
-          {activeFiltersCount > 0 ? <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-red-500" /> : null}
+          {activeFiltersCount > 0 ? (
+            <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-danger" />
+          ) : null}
         </button>
       </div>
 
       <div className="mt-3">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Sohalar</p>
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+          {t("filters.sectors")}
+        </p>
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           {SECTOR_CHIPS.map((spec) => {
             const active = value.specs === spec.id;
             return (
               <button
+                type="button"
                 key={spec.id || "all"}
-                className={`tap-target shrink-0 rounded-full border px-3 text-sm transition ${active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-600"}`}
+                className={`tap-target shrink-0 rounded-full border px-3 text-sm transition ${active ? "border-primary bg-primary text-primaryFg" : "border-border bg-surface text-muted"}`}
                 onClick={() => onChange({ ...value, specs: spec.id })}
               >
-                {spec.label}
+                {t(spec.labelKey)}
               </button>
             );
           })}
         </div>
       </div>
 
-      {filtersOpen ? (
-        <div className="fixed inset-0 z-40 bg-slate-950/35" onClick={() => setFiltersOpen(false)}>
-          <div
-            className="absolute bottom-0 left-0 right-0 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white p-4 pb-[calc(1rem+var(--tg-content-safe-area-bottom))] pl-[calc(1rem+var(--tg-content-safe-area-left))] pr-[calc(1rem+var(--tg-content-safe-area-right))] shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-900">Barcha filterlar</p>
-              <button className="tap-target rounded-full border border-slate-300 p-2 text-slate-600" onClick={() => setFiltersOpen(false)}>
-                <X size={16} />
-              </button>
+      <BottomSheet
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        title={t("filters.allFilters")}
+      >
+        <div className="space-y-3">
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+              {t("filters.sort")}
+            </p>
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              {SORT_CHIPS.map((chip) => {
+                const active = value.sort_key === chip.sort_key && value.sort_type === chip.sort_type;
+                return (
+                  <button
+                    type="button"
+                    key={chip.labelKey}
+                    className={`tap-target shrink-0 rounded-full border px-3 text-sm transition ${active ? "border-primary bg-primary text-primaryFg" : "border-border bg-surface text-muted"}`}
+                    onClick={() => onChange({ ...value, sort_key: chip.sort_key, sort_type: chip.sort_type })}
+                  >
+                    {t(chip.labelKey)}
+                  </button>
+                );
+              })}
             </div>
+          </div>
 
-            <div className="space-y-3">
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Saralash</p>
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {SORT_CHIPS.map((chip) => {
-                    const active = value.sort_key === chip.sort_key && value.sort_type === chip.sort_type;
-                    return (
-                      <button
-                        key={chip.label}
-                        className={`tap-target shrink-0 rounded-full border px-3 text-sm transition ${active ? "border-brand-500 bg-brand-500 text-white" : "border-slate-300 bg-white text-slate-600"}`}
-                        onClick={() => onChange({ ...value, sort_key: chip.sort_key, sort_type: chip.sort_type })}
-                      >
-                        {chip.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid gap-3">
+          <div className="grid gap-3">
             <select
-              className="tap-target rounded-2xl border border-slate-300 bg-white px-3 text-sm"
+              className={selectCls}
+              aria-label={t("filters.allRegions")}
               value={value.region_soato}
               onChange={(e) => onChange({ ...value, region_soato: e.target.value, district_soato: "" })}
             >
-              <option value="">Barcha viloyatlar</option>
-              {regions.map((region) => (
+              <option value="">{t("filters.allRegions")}</option>
+              {(regions.data ?? []).map((region) => (
                 <option key={region.soato} value={region.soato}>
-                  {region.name_uz}
+                  {regionName(region)}
                 </option>
               ))}
             </select>
 
             <select
-              className="tap-target rounded-2xl border border-slate-300 bg-white px-3 text-sm"
+              className={selectCls}
+              aria-label={t("filters.allDistricts")}
               value={value.district_soato}
               onChange={(e) => onChange({ ...value, district_soato: e.target.value })}
             >
-              <option value="">Barcha tumanlar</option>
-              {districts.map((district) => (
+              <option value="">{t("filters.allDistricts")}</option>
+              {(districts.data ?? []).map((district) => (
                 <option key={district.soato} value={district.soato}>
                   {district.name_uz}
                 </option>
@@ -182,45 +166,46 @@ export default function SearchFilters({ value, onChange }: Props) {
             </select>
 
             <select
-              className="tap-target rounded-2xl border border-slate-300 bg-white px-3 text-sm"
+              className={selectCls}
+              aria-label={t("filters.salary")}
               value={value.money}
               onChange={(e) => onChange({ ...value, money: Number(e.target.value) })}
             >
-              {MONEY.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
+              {MONEY_TIERS.map((tier) => (
+                <option key={tier} value={tier}>
+                  {moneyLabel(tier)}
                 </option>
               ))}
             </select>
-              </div>
-
-              <button
-                className="tap-target w-full rounded-2xl bg-slate-900 py-2.5 text-sm font-semibold text-white"
-                onClick={() => setFiltersOpen(false)}
-              >
-                Qo‘llash
-              </button>
-
-              <button
-                className="tap-target w-full rounded-2xl border border-slate-300 py-2.5 text-sm font-medium text-slate-600"
-                onClick={() =>
-                  onChange({
-                    query: value.query,
-                    specs: value.specs,
-                    region_soato: "",
-                    district_soato: "",
-                    money: 0,
-                    sort_key: "",
-                    sort_type: ""
-                  })
-                }
-              >
-                Qo‘shimcha filterlarni tozalash
-              </button>
-            </div>
           </div>
+
+          <button
+            type="button"
+            className="tap-target w-full rounded-2xl bg-primary py-2.5 text-sm font-semibold text-primaryFg"
+            onClick={() => setFiltersOpen(false)}
+          >
+            {t("common.apply")}
+          </button>
+
+          <button
+            type="button"
+            className="tap-target w-full rounded-2xl border border-border py-2.5 text-sm font-medium text-muted"
+            onClick={() =>
+              onChange({
+                query: value.query,
+                specs: value.specs,
+                region_soato: "",
+                district_soato: "",
+                money: 0,
+                sort_key: "",
+                sort_type: "",
+              })
+            }
+          >
+            {t("filters.clear")}
+          </button>
         </div>
-      ) : null}
+      </BottomSheet>
     </section>
   );
 }

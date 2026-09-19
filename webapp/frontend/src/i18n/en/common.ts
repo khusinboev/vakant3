@@ -1,0 +1,218 @@
+import type { CommonDict } from "../uz/common";
+
+const common: Record<keyof CommonDict, string> = {
+  // ── Generic ────────────────────────────────────────────────────────────────
+  "common.loading": "Loading...",
+  "common.retry": "Try again",
+  "common.close": "Close",
+  "common.cancel": "Cancel",
+  "common.apply": "Apply",
+  "common.save": "Save",
+  "common.saving": "Saving...",
+  "common.copy": "Copy",
+  "common.share": "Share",
+  "common.shareShort": "Share",
+  "common.details": "Details",
+  "common.delete": "Delete",
+  "common.statistics": "Statistics",
+  "common.all": "All",
+  "common.optional": "optional",
+  "common.sum": "UZS",
+  "common.notSpecified": "Not specified",
+  "common.itemsCount": "{n}",
+  "common.empty": "No data",
+
+  // ── App shell / errors ─────────────────────────────────────────────────────
+  "app.name": "Bandlik.uz",
+  "app.errorTitle": "Something went wrong",
+  "app.errorBody": "This page failed to load. Please try again.",
+  "app.reload": "Reload page",
+  "app.referralLockTitle": "Referral requirement is on",
+  "app.referralLockBody": "To use the app, please complete the referral requirement first.",
+  "app.referralLockStatus": "Progress: {current}/{required}",
+  "app.referralLockShare": "Share referral link",
+
+  // ── Bottom navigation ──────────────────────────────────────────────────────
+  "nav.home": "Home",
+  "nav.profile": "Profile",
+  "nav.hub": "Hub",
+  "nav.admin": "Admin",
+
+  // ── Login prompt ───────────────────────────────────────────────────────────
+  "login.title": "Sign in required",
+  "login.body": "You need an account in the bot to use this feature.",
+  "login.toBot": "Back to the bot",
+
+  // ── Home / job list ────────────────────────────────────────────────────────
+  "home.errorLoad": "Results failed to load. Please try again.",
+  "home.count": "{n} vacancies",
+  "home.page": "{page} / {total}",
+  "home.empty": "Nothing found. Try another keyword or filter.",
+  "home.allShown": "All results shown",
+  "home.saveLimitTitle": "Save limit reached ({current}/{limit})",
+  "home.saveLimitBody":
+    "The free plan allows up to {limit} saved jobs. Upgrade to Pro for unlimited saves.",
+  "home.goPro": "Upgrade to Pro",
+
+  // ── Search filters ─────────────────────────────────────────────────────────
+  "filters.searchPlaceholder": "Job title or profession",
+  "filters.open": "Open filters",
+  "filters.sectors": "Sectors",
+  "filters.allFilters": "All filters",
+  "filters.sort": "Sort by",
+  "filters.sortNew": "Newest",
+  "filters.sortSalary": "Highest salary",
+  "filters.sortOld": "Oldest",
+  "filters.allRegions": "All regions",
+  "filters.allDistricts": "All districts",
+  "filters.salary": "Salary",
+  "filters.salaryFrom": "{n}M +",
+  "filters.clear": "Clear extra filters",
+  "filters.sector.all": "All",
+  "filters.sector.industry": "Industry",
+  "filters.sector.services": "Services",
+  "filters.sector.education": "Education",
+  "filters.sector.health": "Healthcare",
+  "filters.sector.construction": "Construction",
+  "filters.sector.it": "IT",
+  "filters.sector.trade": "Retail",
+
+  // ── Saves ──────────────────────────────────────────────────────────────────
+  "saves.title": "Saved jobs",
+  "saves.tgOnly": "This section only works when opened inside Telegram.",
+  "saves.login": "Sign in",
+  "saves.error": "Saved jobs could not be loaded.",
+  "saves.empty": "No saved jobs yet. Tap the heart on a job to save it.",
+
+  // ── Hub ────────────────────────────────────────────────────────────────────
+  "hub.title": "Hub",
+  "hub.subtitle": "Open the resume section and fill in your details.",
+  "hub.resume": "Resume",
+  "hub.resumeDesc": "Fill in a simple form, save it or send it to Telegram.",
+  "hub.resumeCta": "Open resume builder",
+  "hub.laws": "Labour law",
+  "hub.lawsDesc": "Know your rights under the Labour Code of Uzbekistan.",
+  "hub.lawsCta": "Browse articles",
+
+  // ── Landing (outside Telegram) ─────────────────────────────────────────────
+  "landing.badge": "Job search platform",
+  "landing.body":
+    "Find the freshest job openings quickly and easily through our Telegram bot. Everything in one place.",
+  "landing.cta": "Open the Telegram bot",
+
+  // ── Referral ───────────────────────────────────────────────────────────────
+  "referral.perInvite": "For every invite",
+  "referral.rewardAmount": "+{amount} UZS",
+  "referral.autoCredit": "Credited to your balance automatically",
+  "referral.yourLink": "Your link",
+  "referral.invitedWithCount": "Invited: {n}",
+  "referral.income": "Referral earnings",
+  "referral.invited": "Invited",
+  "referral.totalEarned": "Total earned (UZS)",
+  "referral.emptyList": "Nobody has joined yet. Share your link.",
+  "referral.shareText":
+    "Bandlik.uz — the easiest way to find a job through Telegram! Join us:",
+  "referral.anonymous": "User",
+  "referral.copied": "Link copied",
+  "referral.loadError": "Referral data could not be loaded.",
+
+  // ── Wallet ─────────────────────────────────────────────────────────────────
+  "wallet.balance": "Wallet balance",
+  "wallet.proActive": "PRO plan active",
+  "wallet.freePlan": "Free plan",
+  "wallet.notFound": "Wallet data not found. Please sign in through Telegram.",
+  "wallet.proTitle": "Pro plan",
+  "wallet.proDesc": "Pro unlocks contact details for high-paying vacancies.",
+  "wallet.price": "Price",
+  "wallet.balanceLabel": "Balance",
+  "wallet.activate": "Activate Pro",
+  "wallet.activating": "Activating...",
+  "wallet.activated": "Pro plan activated",
+  "wallet.needMore": "You need {amount} UZS more for Pro.",
+  "wallet.referralWayTitle": "The easiest way: referrals",
+  "wallet.referralWayBody":
+    "Invite your friends. Every friend who joins the bot adds {amount} UZS to your balance.",
+  "wallet.autoPro": "Once you reach {amount} UZS, Pro is activated automatically",
+  "wallet.adminTitle": "Top up through an admin",
+  "wallet.adminBody":
+    "If you want Pro right away, you can ask an admin to top up your balance by {amount} UZS.",
+  "wallet.adminCta": "Contact an admin",
+  "wallet.adminMessage":
+    "Hello! I'd like to upgrade to Pro — please top up my balance by {amount} UZS.\n\nTelegram ID: {userId}\n\nThank you!",
+  "wallet.proActiveBody": "All high-paying vacancies are open to you.",
+  "wallet.inviteTitle": "Invite your friends",
+  "wallet.inviteBody": "You earn {amount} UZS for every friend you invite.",
+  "wallet.refStats": "Referral statistics",
+
+  // ── Laws ───────────────────────────────────────────────────────────────────
+  "laws.title": "Labour law",
+  "laws.subtitle": "Articles based on the Labour Code of Uzbekistan",
+  "laws.error": "Data could not be loaded. Check your internet connection.",
+  "laws.empty": "There are no articles in this category.",
+  "laws.readFull": "Read the full text on lex.uz",
+
+  // ── Profile ────────────────────────────────────────────────────────────────
+  "profile.title": "Profile",
+  "profile.tgOnly": "Profile details are shown when the app is opened inside Telegram.",
+  "profile.userNotFound":
+    "Telegram user data not found. Try reopening the app from the WebApp button.",
+  "profile.tgUser": "Telegram user",
+  "profile.pro": "PRO",
+  "profile.free": "Free",
+  "profile.statSaved": "Saved",
+  "profile.statReferrals": "Referrals",
+  "profile.statBalance": "Balance (UZS)",
+  "profile.savedJobs": "Saved jobs",
+  "profile.wallet": "Wallet",
+  "profile.inviteTitle": "Invite your friends",
+  "profile.inviteBody": "You earn money for every friend you invite.",
+  "profile.gateTitle": "Access requirement",
+  "profile.gateReferrals": "Referrals",
+  "profile.notifications": "Notifications",
+  "profile.notifToggleAria": "Turn notifications on or off",
+  "profile.notifOn": "You'll get a daily digest of new jobs matching your filters.",
+  "profile.notifOffPro": "Turn it on to get new jobs matching your filters.",
+  "profile.notifOffFree": "Pro plan only. Upgrade to Pro to enable notifications.",
+  "profile.notifSettings": "Notification settings",
+  "profile.notifSettingsBody": "You'll get a daily digest of jobs matching your interests.",
+  "profile.region": "Region",
+  "profile.sector": "Sector",
+  "profile.minSalary": "Minimum salary",
+  "profile.minSalaryPlaceholder": "For example: 3 000 000",
+  "profile.enableNotif": "Enable notifications",
+  "profile.proNotifTitle": "Notifications are a Pro feature",
+  "profile.proNotifBody": "Upgrade to Pro to receive daily job recommendations.",
+
+  // ── Settings card (language + theme) ───────────────────────────────────────
+  "settings.title": "Settings",
+  "settings.language": "Language",
+  "settings.theme": "Theme",
+  "settings.theme.telegram": "Telegram",
+  "settings.theme.light": "Light",
+  "settings.theme.dark": "Dark",
+  "settings.theme.system": "System",
+  "settings.langSaved": "Language changed",
+
+  // ── API error codes ────────────────────────────────────────────────────────
+  "error.AUTH_REQUIRED": "Please sign in first.",
+  "error.INVALID_INIT_DATA": "Telegram data is invalid. Please reopen the app.",
+  "error.SESSION_EXPIRED": "Your session expired. Please reopen the app.",
+  "error.ADMIN_REQUIRED": "This action is for admins only.",
+  "error.REFERRAL_LOCKED": "Referral requirement not met ({count}/{required}).",
+  "error.PRO_REQUIRED": "This feature is available on the Pro plan.",
+  "error.SAVE_LIMIT_REACHED": "Save limit reached ({current}/{limit}).",
+  "error.PREMIUM_TEMPLATE": "This template is available on the Pro plan.",
+  "error.INSUFFICIENT_BALANCE": "Not enough funds: {required} UZS needed, {balance} UZS available.",
+  "error.ALREADY_PRO": "The Pro plan is already active.",
+  "error.NOT_FOUND": "Not found.",
+  "error.INVALID_UID": "Invalid vacancy identifier.",
+  "error.VALIDATION_ERROR": "The submitted data is invalid.",
+  "error.PAYLOAD_TOO_LARGE": "The file is too large.",
+  "error.TELEGRAM_SEND_FAILED": "Could not send to Telegram. Start the bot and try again.",
+  "error.UPSTREAM_ERROR": "An external service is not responding. Please try again shortly.",
+  "error.RATE_LIMITED": "Too many requests. Please try again shortly.",
+  "error.NETWORK_ERROR": "No internet connection. Please check your network.",
+  "error.UNKNOWN": "Something went wrong. Please try again.",
+};
+
+export default common;

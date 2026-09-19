@@ -1,5 +1,13 @@
 import { useEffect } from "react";
 
+import { useThemeStore, type ResolvedTheme } from "../store/theme";
+
+/** Hex values of the `bg` / `surface` tokens in src/index.css, per theme. */
+const THEME_COLORS: Record<ResolvedTheme, { bg: string; surface: string }> = {
+  light: { bg: "#f4f7f9", surface: "#ffffff" },
+  dark: { bg: "#0d1117", surface: "#161b22" },
+};
+
 function px(value: number | undefined): string {
   return `${Math.max(0, Number(value ?? 0))}px`;
 }
@@ -56,15 +64,27 @@ function setViewportVariables(webApp: TelegramWebApp) {
 
 /**
  * In fullscreen the Telegram header becomes transparent.
- * Setting bg_color gives the OS status bar the correct contrast color.
+ * We push our OWN resolved-theme colors (rather than Telegram's "bg_color"
+ * keyword) so the native chrome matches the app even when the user forces a
+ * theme that differs from the Telegram client's.
  */
-function applyColors(webApp: TelegramWebApp) {
-  webApp.setHeaderColor?.("bg_color");
-  webApp.setBackgroundColor?.("bg_color");
-  webApp.setBottomBarColor?.("bottom_bar_bg_color");
+function applyColors(webApp: TelegramWebApp, resolved: ResolvedTheme) {
+  const colors = THEME_COLORS[resolved];
+  webApp.setHeaderColor?.(colors.bg);
+  webApp.setBackgroundColor?.(colors.bg);
+  webApp.setBottomBarColor?.(colors.surface);
 }
 
 export default function useTelegramWebApp() {
+  const resolvedTheme = useThemeStore((s) => s.resolved);
+
+  // Keep the native Telegram chrome in sync with the app theme.
+  useEffect(() => {
+    const webApp = window.Telegram?.WebApp;
+    if (!webApp) return;
+    applyColors(webApp, resolvedTheme);
+  }, [resolvedTheme]);
+
   useEffect(() => {
     const webApp = window.Telegram?.WebApp;
     if (!webApp) return;
@@ -73,7 +93,7 @@ export default function useTelegramWebApp() {
     webApp.ready();
     webApp.expand();
 
-    applyColors(webApp);
+    applyColors(webApp, useThemeStore.getState().resolved);
     setInsetVariables(webApp);
     setViewportVariables(webApp);
 
@@ -95,7 +115,7 @@ export default function useTelegramWebApp() {
     // Re-apply header color so status bar text contrast stays correct.
     const onFullscreenChanged = () => {
       document.documentElement.dataset.fullscreen = webApp.isFullscreen ? "1" : "0";
-      applyColors(webApp);
+      applyColors(webApp, useThemeStore.getState().resolved);
     };
 
     // Fires when requestFullscreen() fails (unsupported platform, etc.) — ignore.
@@ -106,7 +126,7 @@ export default function useTelegramWebApp() {
     const onActivated = () => {
       setInsetVariables(webApp);
       setViewportVariables(webApp);
-      applyColors(webApp);
+      applyColors(webApp, useThemeStore.getState().resolved);
     };
 
     webApp.onEvent("viewportChanged",        onViewportChanged);
