@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import Depends, Request
 
 from webapp.core.database import get_db
+from webapp.core.district_names import DISTRICT_NAMES
 
 LANGS: tuple[str, ...] = ("uz", "ru", "en")
 DEFAULT_LANG = "uz"
@@ -83,6 +84,15 @@ def region_name(soato: str, name_uz: str, lang: str) -> str:
     if lang == "uz":
         return name_uz
     entry = REGION_NAMES.get(str(soato).strip())
+    if not entry:
+        return name_uz
+    return entry.get(lang) or name_uz
+
+
+def district_name(soato: str, name_uz: str, lang: str) -> str:
+    if lang == "uz":
+        return name_uz
+    entry = DISTRICT_NAMES.get(str(soato).strip())
     if not entry:
         return name_uz
     return entry.get(lang) or name_uz

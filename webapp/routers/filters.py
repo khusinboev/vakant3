@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from src.functions.cache import cache_get, cache_set, make_cache_key
 from webapp.core.database import get_db
-from webapp.core.i18n import SPECS, get_lang, region_name
+from webapp.core.i18n import SPECS, district_name, get_lang, region_name
 from webapp.models.schemas import RegionItem, SpecItem
 
 router = APIRouter(prefix="/filters", tags=["filters"])
@@ -33,7 +33,9 @@ async def regions(db=Depends(get_db), lang: str = Depends(get_lang)) -> list[Reg
 
 
 @router.get("/districts", response_model=list[RegionItem])
-async def districts(region_soato: str, db=Depends(get_db)) -> list[RegionItem]:
+async def districts(
+    region_soato: str, db=Depends(get_db), lang: str = Depends(get_lang)
+) -> list[RegionItem]:
     key = make_cache_key("webapp_filters_districts", region_soato=region_soato)
     cached = await cache_get(key)
     if isinstance(cached, list):
@@ -49,9 +51,12 @@ async def districts(region_soato: str, db=Depends(get_db)) -> list[RegionItem]:
         ]
         await cache_set(key, rows, ttl=24 * 60 * 60)
 
-    # Districts have no translations; `name` mirrors the Uzbek name.
     return [
-        RegionItem(soato=str(item["soato"]), name_uz=str(item["name_uz"]), name=str(item["name_uz"]))
+        RegionItem(
+            soato=str(item["soato"]),
+            name_uz=str(item["name_uz"]),
+            name=district_name(str(item["soato"]), str(item["name_uz"]), lang),
+        )
         for item in rows
     ]
 
