@@ -1,4 +1,4 @@
-from fastapi import HTTPException
+from webapp.core import errors
 
 
 async def get_referral_gate_state(db, user_id: int) -> dict[str, int | bool]:
@@ -25,9 +25,9 @@ async def get_referral_gate_state(db, user_id: int) -> dict[str, int | bool]:
 def raise_if_referral_locked(state: dict[str, int | bool]) -> None:
     if bool(state.get("unlocked")):
         return
-    required = int(state.get("required") or 0)
-    current = int(state.get("current") or 0)
-    raise HTTPException(
-        status_code=403,
-        detail=f"Referral sharti bajarilmagan: {current}/{required}",
+    raise errors.api_error(
+        403,
+        errors.REFERRAL_LOCKED,
+        count=int(state.get("current") or 0),
+        required=int(state.get("required") or 0),
     )

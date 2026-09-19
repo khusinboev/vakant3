@@ -1,29 +1,24 @@
 import json
+import time
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from webapp.core.config import get_settings
+from webapp.core import errors
+from webapp.core.auth import require_admin
 from webapp.core.database import get_db
-from webapp.core.identity import resolve_user_id_from_init_data
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+TZ_UZB = timezone(timedelta(hours=5))
 
-def _require_admin(request: Request) -> int:
-    settings = get_settings()
-    init_data = (request.headers.get("X-Telegram-Init-Data") or "").strip()
-    if not init_data:
-        raise HTTPException(status_code=401, detail="Telegram initData required")
 
-    user_id = resolve_user_id_from_init_data(init_data, settings.TOKEN)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid initData")
-
-    if user_id not in settings.admin_ids_set:
-        raise HTTPException(status_code=403, detail="Admin only")
-
-    return user_id
+class AutoPostScheduleItem(BaseModel):
+    ts: int
+    done: bool
+    uid: str | None
+    time_str: str  # HH:MM (UTC+5)
 
 
 class AdminStateResponse(BaseModel):
@@ -31,6 +26,9 @@ class AdminStateResponse(BaseModel):
     auto_post_enabled: bool
     auto_post_channel: str
     auto_post_min_salary: int
+    auto_post_per_day_min: int
+    auto_post_per_day_max: int
+    channel_lang: str
     referral_enabled: bool
     referral_required_count: int
     pro_price: int
@@ -62,6 +60,9 @@ class AdminSettingsPatch(BaseModel):
     auto_post_enabled: bool | None = None
     auto_post_channel: str | None = None
     auto_post_min_salary: int | None = Field(default=None, ge=0)
+    auto_post_per_day_min: int | None = Field(default=None, ge=1, le=24)
+    auto_post_per_day_max: int | None = Field(default=None, ge=1, le=24)
+    channel_lang: str | None = Field(default=None, pattern="^(uz|ru|en)$")
     referral_enabled: bool | None = None
     referral_required_count: int | None = Field(default=None, ge=0)
     pro_price: int | None = Field(default=None, ge=0)
@@ -146,24 +147,27 @@ def _median(values: list[float]) -> float:
 
 
 @router.get("/state", response_model=AdminStateResponse)
-async def get_admin_state(request: Request, db=Depends(get_db)) -> AdminStateResponse:
-    _require_admin(request)
+async def get_admin_state(admin=Depends(require_admin), db=Depends(get_db)) -> AdminStateResponse:
     cursor = await db.execute(
         "SELECT auto_post_enabled, auto_post_channel, auto_post_min_salary, referral_enabled, referral_required_count, "
         "pro_price, referral_reward, pro_min_salary, "
+        "auto_post_per_day_min, auto_post_per_day_max, channel_lang, "
         "resume_target_creation_minutes, resume_target_completion_rate, "
         "resume_target_send_success_rate, resume_target_export_success_rate "
         "FROM webapp_admin_settings WHERE singleton = 1"
     )
     row = await cursor.fetchone()
     if not row:
-        raise HTTPException(status_code=500, detail="Settings not initialized")
+        raise errors.api_error(500, errors.SERVER_MISCONFIGURED)
 
     return AdminStateResponse(
         is_admin=True,
         auto_post_enabled=bool(int(row["auto_post_enabled"] or 0)),
         auto_post_channel=str(row["auto_post_channel"] or ""),
         auto_post_min_salary=int(row["auto_post_min_salary"] or 0),
+        auto_post_per_day_min=int(row["auto_post_per_day_min"] or 4),
+        auto_post_per_day_max=int(row["auto_post_per_day_max"] or 8),
+        channel_lang=str(row["channel_lang"] or "uz"),
         referral_enabled=bool(int(row["referral_enabled"] or 0)),
         referral_required_count=int(row["referral_required_count"] or 0),
         pro_price=int(row["pro_price"] or 10000),
@@ -177,8 +181,23 @@ async def get_admin_state(request: Request, db=Depends(get_db)) -> AdminStateRes
 
 
 @router.patch("/state", response_model=AdminStateResponse)
-async def patch_admin_state(payload: AdminSettingsPatch, request: Request, db=Depends(get_db)) -> AdminStateResponse:
-    _require_admin(request)
+async def patch_admin_state(
+    payload: AdminSettingsPatch,
+    admin=Depends(require_admin),
+    db=Depends(get_db),
+) -> AdminStateResponse:
+    # auto_post_per_day_min must stay <= max, otherwise the bot's random.randint() raises.
+    if payload.auto_post_per_day_min is not None or payload.auto_post_per_day_max is not None:
+        cursor = await db.execute(
+            "SELECT auto_post_per_day_min, auto_post_per_day_max FROM webapp_admin_settings WHERE singleton = 1"
+        )
+        row = await cursor.fetchone()
+        current_min = int((row["auto_post_per_day_min"] if row else 4) or 4)
+        current_max = int((row["auto_post_per_day_max"] if row else 8) or 8)
+        new_min = int(payload.auto_post_per_day_min) if payload.auto_post_per_day_min is not None else current_min
+        new_max = int(payload.auto_post_per_day_max) if payload.auto_post_per_day_max is not None else current_max
+        if new_min > new_max:
+            raise errors.validation_error("auto_post_per_day_min")
 
     if payload.auto_post_enabled is not None:
         await db.execute(
@@ -194,6 +213,23 @@ async def patch_admin_state(payload: AdminSettingsPatch, request: Request, db=De
         await db.execute(
             "UPDATE webapp_admin_settings SET auto_post_min_salary = ? WHERE singleton = 1",
             (int(payload.auto_post_min_salary),),
+        )
+    if payload.auto_post_per_day_min is not None:
+        v = max(1, min(24, int(payload.auto_post_per_day_min)))
+        await db.execute(
+            "UPDATE webapp_admin_settings SET auto_post_per_day_min = ? WHERE singleton = 1",
+            (v,),
+        )
+    if payload.auto_post_per_day_max is not None:
+        v = max(1, min(24, int(payload.auto_post_per_day_max)))
+        await db.execute(
+            "UPDATE webapp_admin_settings SET auto_post_per_day_max = ? WHERE singleton = 1",
+            (v,),
+        )
+    if payload.channel_lang is not None:
+        await db.execute(
+            "UPDATE webapp_admin_settings SET channel_lang = ? WHERE singleton = 1",
+            (payload.channel_lang,),
         )
     if payload.referral_enabled is not None:
         await db.execute(
@@ -242,14 +278,52 @@ async def patch_admin_state(payload: AdminSettingsPatch, request: Request, db=De
         )
 
     await db.commit()
-    return await get_admin_state(request, db)
+    return await get_admin_state(admin=admin, db=db)
+
+
+class AutoPostScheduleResponse(BaseModel):
+    schedule: list[AutoPostScheduleItem]
+    posted_today: int
+    total_today: int
+
+
+@router.get("/auto-post-schedule", response_model=AutoPostScheduleResponse)
+async def get_auto_post_schedule(admin=Depends(require_admin), db=Depends(get_db)) -> AutoPostScheduleResponse:
+    cursor = await db.execute(
+        "SELECT auto_post_scheduled_times_json FROM webapp_admin_settings WHERE singleton = 1"
+    )
+    row = await cursor.fetchone()
+    raw = str(row["auto_post_scheduled_times_json"] or "[]") if row else "[]"
+    try:
+        items: list[dict] = json.loads(raw)
+    except Exception:
+        items = []
+
+    now_uzb = datetime.now(TZ_UZB)
+    today_start = int(now_uzb.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    today_items = [item for item in items if int(item.get("ts", 0)) >= today_start]
+
+    result: list[AutoPostScheduleItem] = []
+    for item in today_items:
+        ts = int(item.get("ts", 0))
+        dt = datetime.fromtimestamp(ts, tz=TZ_UZB)
+        result.append(AutoPostScheduleItem(
+            ts=ts,
+            done=bool(item.get("done", False)),
+            uid=item.get("uid") or None,
+            time_str=dt.strftime("%H:%M"),
+        ))
+
+    posted_today = sum(1 for r in result if r.done and r.uid)
+    return AutoPostScheduleResponse(
+        schedule=result,
+        posted_today=posted_today,
+        total_today=len(result),
+    )
 
 
 @router.get("/resume-metrics", response_model=AdminResumeMetricsResponse)
-async def get_resume_metrics(request: Request, db=Depends(get_db)) -> AdminResumeMetricsResponse:
-    _require_admin(request)
-    import time
-
+async def get_resume_metrics(admin=Depends(require_admin), db=Depends(get_db)) -> AdminResumeMetricsResponse:
     since = int(time.time()) - 24 * 60 * 60
     cursor = await db.execute(
         """
@@ -291,50 +365,47 @@ async def get_resume_metrics(request: Request, db=Depends(get_db)) -> AdminResum
 
 
 @router.get("/resume-funnel", response_model=AdminFunnelResponse)
-async def get_resume_funnel(request: Request, db=Depends(get_db), hours: int = 24) -> AdminFunnelResponse:
-    _require_admin(request)
-    import time
-
+async def get_resume_funnel(admin=Depends(require_admin), db=Depends(get_db), hours: int = 24) -> AdminFunnelResponse:
     window_hours = min(max(int(hours), 1), 168)
     since = int(time.time()) - window_hours * 60 * 60
     steps = ["basic", "experience", "education", "skills", "summary", "template", "final"]
 
+    # One pass over the window instead of two queries per step.
+    per_step_cursor = await db.execute(
+        """
+        SELECT
+            step,
+            COUNT(DISTINCT user_id) AS entered_users,
+            COUNT(DISTINCT CASE
+                WHEN event_name IN ('save_success','autosave_success') THEN user_id
+            END) AS completed_users
+        FROM resume_events
+        WHERE created_at >= ? AND step IS NOT NULL
+        GROUP BY step
+        """,
+        (since,),
+    )
+    per_step = {
+        str(row["step"]): (int(row["entered_users"] or 0), int(row["completed_users"] or 0))
+        for row in await per_step_cursor.fetchall()
+    }
+
+    final_cursor = await db.execute(
+        """
+        SELECT COUNT(DISTINCT user_id) AS c
+        FROM resume_events
+        WHERE created_at >= ? AND event_name IN ('send_success','export_success')
+        """,
+        (since,),
+    )
+    final_row = await final_cursor.fetchone()
+    final_completed = int((final_row["c"] if final_row else 0) or 0)
+
     metrics: list[AdminFunnelStepMetric] = []
     for step in steps:
-        entered_cursor = await db.execute(
-            """
-            SELECT COUNT(DISTINCT user_id) AS c
-            FROM resume_events
-            WHERE created_at >= ? AND step = ?
-            """,
-            (since, step),
-        )
-        entered_row = await entered_cursor.fetchone()
-        entered_users = int((entered_row["c"] if entered_row else 0) or 0)
-
+        entered_users, completed_users = per_step.get(step, (0, 0))
         if step == "final":
-            completed_cursor = await db.execute(
-                """
-                SELECT COUNT(DISTINCT user_id) AS c
-                FROM resume_events
-                WHERE created_at >= ?
-                  AND event_name IN ('send_success','export_success')
-                """,
-                (since,),
-            )
-        else:
-            completed_cursor = await db.execute(
-                """
-                SELECT COUNT(DISTINCT user_id) AS c
-                FROM resume_events
-                WHERE created_at >= ?
-                  AND step = ?
-                  AND event_name IN ('save_success','autosave_success')
-                """,
-                (since, step),
-            )
-        completed_row = await completed_cursor.fetchone()
-        completed_users = int((completed_row["c"] if completed_row else 0) or 0)
+            completed_users = final_completed
         dropoff_users = max(entered_users - completed_users, 0)
         completion_rate = round((completed_users / entered_users) * 100.0, 2) if entered_users else 0.0
 
@@ -352,15 +423,18 @@ async def get_resume_funnel(request: Request, db=Depends(get_db), hours: int = 2
 
 
 @router.get("/resume-user/{user_id}", response_model=AdminResumeUserInspectResponse)
-async def inspect_resume_user(user_id: int, request: Request, db=Depends(get_db)) -> AdminResumeUserInspectResponse:
-    _require_admin(request)
+async def inspect_resume_user(
+    user_id: int,
+    admin=Depends(require_admin),
+    db=Depends(get_db),
+) -> AdminResumeUserInspectResponse:
     cursor = await db.execute(
         "SELECT user_id, first_name, username FROM users WHERE user_id = ?",
         (int(user_id),),
     )
     user_row = await cursor.fetchone()
     if not user_row:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise errors.not_found("user")
 
     profile_cursor = await db.execute(
         "SELECT profile_json, selected_template, updated_at FROM resume_profiles WHERE user_id = ?",
@@ -420,10 +494,11 @@ async def inspect_resume_user(user_id: int, request: Request, db=Depends(get_db)
 
 
 @router.get("/resume-diagnostics", response_model=AdminDiagnosticsResponse)
-async def get_resume_diagnostics(request: Request, db=Depends(get_db), hours: int = 24) -> AdminDiagnosticsResponse:
-    _require_admin(request)
-    import time
-
+async def get_resume_diagnostics(
+    admin=Depends(require_admin),
+    db=Depends(get_db),
+    hours: int = 24,
+) -> AdminDiagnosticsResponse:
     window_hours = min(max(int(hours), 1), 168)
     since = int(time.time()) - window_hours * 60 * 60
 
@@ -482,10 +557,7 @@ async def get_resume_diagnostics(request: Request, db=Depends(get_db), hours: in
 
 
 @router.get("/resume-goals", response_model=AdminGoalsResponse)
-async def get_resume_goals(request: Request, db=Depends(get_db), hours: int = 168) -> AdminGoalsResponse:
-    _require_admin(request)
-    import time
-
+async def get_resume_goals(admin=Depends(require_admin), db=Depends(get_db), hours: int = 168) -> AdminGoalsResponse:
     window_hours = min(max(int(hours), 24), 24 * 30)
     since = int(time.time()) - window_hours * 60 * 60
 

@@ -1,10 +1,20 @@
 import os
 from functools import lru_cache
-import warnings
 from pathlib import Path
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+INSECURE_SECRETS = {"", "change-me"}
+
+SECRET_ERROR_MESSAGE = (
+    "WEBAPP_SECRET is missing or still set to the default 'change-me'. "
+    "Every Mini App session token is signed with it, so the API refuses to start.\n"
+    "Fix: add a strong random value to the .env file next to main.py, e.g.\n"
+    "    WEBAPP_SECRET=$(python -c \"import secrets; print(secrets.token_urlsafe(48))\")\n"
+    "On the server the .env is NOT synced by deploy_safe.sh — add the line by hand to "
+    "/home/vakant/.env and restart vakant-api.\n"
+    "For local development or tests you may instead export ALLOW_INSECURE_SECRET=1."
+)
 
 
 class Settings(BaseSettings):
@@ -26,23 +36,19 @@ class Settings(BaseSettings):
                 ids.add(int(item))
         return ids
 
-    @field_validator("WEBAPP_SECRET")
-    @classmethod
-    def secret_must_be_set(cls, v: str) -> str:
-        if v == "change-me":
-            warnings.warn(
-                "WEBAPP_SECRET is set to the default 'change-me' value. "
-                "Set a strong random secret in .env to secure all JWT sessions.",
-                stacklevel=2,
-            )
-        return v
-
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_DB_PATH = BASE_DIR / "src" / "database" / "database.sqlite3"
 DB_PATH = Path(os.getenv("DB_PATH", str(DEFAULT_DB_PATH)))
 
 
+def allow_insecure_secret() -> bool:
+    return str(os.getenv("ALLOW_INSECURE_SECRET", "")).strip().lower() in {"1", "true", "yes"}
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if settings.WEBAPP_SECRET.strip() in INSECURE_SECRETS and not allow_insecure_secret():
+        raise RuntimeError(SECRET_ERROR_MESSAGE)
+    return settings

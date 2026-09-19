@@ -1,26 +1,25 @@
 import asyncio
-import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from src.functions.cache import cache_get, cache_set, make_cache_key
 from src.functions.scraping import fetch_osonish_detail
-from webapp.core.config import get_settings
+from webapp.core import errors
+from webapp.core.auth import current_user
 from webapp.core.database import get_db
 from webapp.core.limiter import limiter
 from webapp.core.referral_gate import get_referral_gate_state, raise_if_referral_locked
-from webapp.core.session import get_optional_current_user
-from webapp.core.telegram_auth import verify_webapp_init_data
 from webapp.models.schemas import SaveActionResponse, SavesResponse
 
 router = APIRouter(prefix="/saves", tags=["saves"])
 DETAIL_CACHE_TTL = 60 * 60
+FREE_SAVE_LIMIT = 5
+MAX_PARALLEL_DETAIL_FETCHES = 5
 
 
-def _save_id_to_raw_id(value: object) -> int | None:
+def _row_to_raw_id(value: object) -> int | None:
+    """saves.save_id is an INTEGER, but tolerate legacy 'osonish_<id>' text rows."""
     s = str(value or "").strip()
-    if not s:
-        return None
     if s.startswith("osonish_"):
         s = s.split("_", 1)[1]
     try:
@@ -29,71 +28,47 @@ def _save_id_to_raw_id(value: object) -> int | None:
         return None
 
 
-def _normalize_unique_save_ids(rows: list) -> list[int]:
-    ids: list[int] = []
-    seen: set[int] = set()
-    for row in rows:
-        raw_id = _save_id_to_raw_id(row[0])
-        if raw_id is None or raw_id in seen:
-            continue
-        ids.append(raw_id)
-        seen.add(raw_id)
-    return ids
-
-
 def _uid_to_raw_id(uid: str) -> int:
     if not uid.startswith("osonish_"):
-        raise HTTPException(status_code=400, detail="Only osonish vacancies are supported")
+        raise errors.api_error(400, errors.INVALID_UID, uid=uid)
     try:
         return int(uid.split("_", 1)[1])
     except (IndexError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="Invalid vacancy uid") from exc
-
-
-def _resolve_user_id(request: Request, current: dict | None) -> int:
-    if current and current.get("user"):
-        return int(current["user"]["user_id"])
-
-    init_data = request.headers.get("X-Telegram-Init-Data", "").strip()
-    if not init_data:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    settings = get_settings()
-    if not settings.TOKEN:
-        raise HTTPException(status_code=500, detail="TOKEN not configured")
-
-    user_data = verify_webapp_init_data(init_data, settings.TOKEN)
-    if not user_data or not user_data.get("id"):
-        raise HTTPException(status_code=401, detail="Invalid initData")
-
-    return int(user_data["id"])
+        raise errors.api_error(400, errors.INVALID_UID, uid=uid) from exc
 
 
 @router.get("", response_model=SavesResponse)
+@limiter.limit("30/minute")
 async def list_saves(
     request: Request,
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=10, ge=1, le=50),
-    current=Depends(get_optional_current_user),
+    user=Depends(current_user),
     db=Depends(get_db),
 ) -> SavesResponse:
-    user_id = _resolve_user_id(request, current)
-    gate_state = await get_referral_gate_state(db, user_id)
-    raise_if_referral_locked(gate_state)
+    user_id = int(user["user_id"])
+    raise_if_referral_locked(await get_referral_gate_state(db, user_id))
 
     offset = (page - 1) * limit
 
     cursor = await db.execute(
-        "SELECT save_id FROM saves WHERE user_id = ? ORDER BY save_id DESC",
+        "SELECT DISTINCT save_id FROM saves WHERE user_id = ? ORDER BY save_id DESC",
         (user_id,),
     )
-    all_rows = await cursor.fetchall()
-
-    all_ids = _normalize_unique_save_ids(all_rows)
+    seen: set[int] = set()
+    all_ids: list[int] = []
+    for row in await cursor.fetchall():
+        raw_id = _row_to_raw_id(row[0])
+        if raw_id is None or raw_id in seen:
+            continue
+        seen.add(raw_id)
+        all_ids.append(raw_id)
     total = len(all_ids)
     save_ids = all_ids[offset: offset + limit]
 
-    async def _load_item(save_id: int) -> dict | None:
+    semaphore = asyncio.Semaphore(MAX_PARALLEL_DETAIL_FETCHES)
+
+    async def _load_item(save_id: int) -> dict:
         uid = f"osonish_{save_id}"
         cache_key = make_cache_key("detail", uid=uid)
         cached = await cache_get(cache_key)
@@ -101,9 +76,14 @@ async def list_saves(
         if isinstance(cached, dict) and isinstance(cached.get("data"), dict):
             return {"uid": uid, "data": cached["data"]}
 
-        detail = await fetch_osonish_detail(save_id)
+        async with semaphore:
+            try:
+                detail = await fetch_osonish_detail(save_id)
+            except Exception:
+                detail = None
         if not isinstance(detail, dict):
-            return None
+            # Keep the row so `items` and `total` always agree.
+            return {"uid": uid, "title": None, "unavailable": True, "data": None}
 
         await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
         return {"uid": uid, "data": detail}
@@ -111,9 +91,11 @@ async def list_saves(
     loaded = await asyncio.gather(*[_load_item(save_id) for save_id in save_ids], return_exceptions=True)
 
     items: list[dict] = []
-    for item in loaded:
+    for save_id, item in zip(save_ids, loaded):
         if isinstance(item, dict):
             items.append(item)
+        else:
+            items.append({"uid": f"osonish_{save_id}", "title": None, "unavailable": True, "data": None})
 
     return SavesResponse(items=items, total=total)
 
@@ -123,37 +105,44 @@ async def list_saves(
 async def add_save(
     request: Request,
     uid: str,
-    current=Depends(get_optional_current_user),
+    user=Depends(current_user),
     db=Depends(get_db),
 ) -> SaveActionResponse:
-    user_id = _resolve_user_id(request, current)
-    gate_state = await get_referral_gate_state(db, user_id)
-    raise_if_referral_locked(gate_state)
+    user_id = int(user["user_id"])
+    raise_if_referral_locked(await get_referral_gate_state(db, user_id))
 
     raw_id = _uid_to_raw_id(uid)
 
-    # Ensure user exists even when the request is identified by Telegram initData.
-    now = int(time.time())
-    await db.execute(
-        "INSERT OR IGNORE INTO users (user_id, date, lang) VALUES (?, ?, ?)",
-        (user_id, now, "uz"),
-    )
+    if not bool(user.get("is_pro")):
+        count_cursor = await db.execute(
+            "SELECT COUNT(DISTINCT save_id) FROM saves WHERE user_id = ?", (user_id,)
+        )
+        current_count = int((await count_cursor.fetchone())[0] or 0)
+        if current_count >= FREE_SAVE_LIMIT:
+            raise errors.api_error(
+                403,
+                errors.SAVE_LIMIT_REACHED,
+                limit=FREE_SAVE_LIMIT,
+                current=current_count,
+            )
 
     await db.execute(
         "INSERT OR IGNORE INTO saves (user_id, save_id) VALUES (?, ?)",
         (user_id, raw_id),
     )
+    # Commit before any network call: never hold the write transaction across HTTP.
+    await db.commit()
 
-    # Warm the detail cache on save so /saves opens immediately.
-    uid = f"osonish_{raw_id}"
-    cache_key = make_cache_key("detail", uid=uid)
+    # Warm the detail cache so /saves opens immediately.
+    cache_key = make_cache_key("detail", uid=f"osonish_{raw_id}")
     cached = await cache_get(cache_key)
     if not (isinstance(cached, dict) and isinstance(cached.get("data"), dict)):
-        detail = await fetch_osonish_detail(raw_id)
+        try:
+            detail = await fetch_osonish_detail(raw_id)
+        except Exception:
+            detail = None
         if isinstance(detail, dict):
             await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
-
-    await db.commit()
 
     return SaveActionResponse(saved=True)
 
@@ -162,12 +151,11 @@ async def add_save(
 async def remove_save(
     request: Request,
     uid: str,
-    current=Depends(get_optional_current_user),
+    user=Depends(current_user),
     db=Depends(get_db),
 ) -> SaveActionResponse:
-    user_id = _resolve_user_id(request, current)
-    gate_state = await get_referral_gate_state(db, user_id)
-    raise_if_referral_locked(gate_state)
+    user_id = int(user["user_id"])
+    raise_if_referral_locked(await get_referral_gate_state(db, user_id))
 
     raw_id = _uid_to_raw_id(uid)
 

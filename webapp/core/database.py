@@ -1,8 +1,16 @@
+import logging
 from collections.abc import AsyncGenerator
 
 import aiosqlite
 
 from webapp.core.config import DB_PATH
+
+_log = logging.getLogger(__name__)
+
+
+def _is_duplicate_column(exc: Exception) -> bool:
+    """True only for the benign 'another worker already added it' race."""
+    return "duplicate column name" in str(exc).lower()
 
 USER_EXTRA_COLUMNS = {
     "ref_by": "INTEGER",
@@ -11,6 +19,7 @@ USER_EXTRA_COLUMNS = {
     "photo_url": "TEXT",
     "user_balance": "INTEGER",
     "user_pro": "INTEGER",
+    "pref_filters_json": "TEXT",
 }
 
 
@@ -35,7 +44,11 @@ async def _ensure_user_columns(conn: aiosqlite.Connection) -> None:
 
     for column, col_type in USER_EXTRA_COLUMNS.items():
         if column not in existing:
-            await conn.execute(f"ALTER TABLE users ADD COLUMN {column} {col_type}")
+            try:
+                await conn.execute(f"ALTER TABLE users ADD COLUMN {column} {col_type}")
+            except Exception as exc:
+                if not _is_duplicate_column(exc):
+                    _log.error("users migration failed for column %s: %s", column, exc)
 
 
 async def init_db() -> None:
@@ -152,7 +165,10 @@ async def init_db() -> None:
                 resume_target_creation_minutes REAL NOT NULL DEFAULT 8,
                 resume_target_completion_rate REAL NOT NULL DEFAULT 60,
                 resume_target_send_success_rate REAL NOT NULL DEFAULT 98,
-                resume_target_export_success_rate REAL NOT NULL DEFAULT 99
+                resume_target_export_success_rate REAL NOT NULL DEFAULT 99,
+                auto_post_per_day_min INTEGER NOT NULL DEFAULT 4,
+                auto_post_per_day_max INTEGER NOT NULL DEFAULT 8,
+                auto_post_scheduled_times_json TEXT NOT NULL DEFAULT '[]'
             )
             """
         )
@@ -167,11 +183,29 @@ async def init_db() -> None:
             ("resume_target_completion_rate", 60, "REAL"),
             ("resume_target_send_success_rate", 98, "REAL"),
             ("resume_target_export_success_rate", 99, "REAL"),
+            ("auto_post_per_day_min", 4, "INTEGER"),
+            ("auto_post_per_day_max", 8, "INTEGER"),
+            # Columns the bot also adds (src/db/settings.py); kept here so either process can migrate.
+            ("channel_lang", "'uz'", "TEXT"),
+            ("auto_post_scheduled_day", "''", "TEXT"),
+            ("last_weekly_stats_week", "''", "TEXT"),
         ]:
             if col not in admin_cols:
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE webapp_admin_settings ADD COLUMN {col} {col_type} NOT NULL DEFAULT {default}"
+                    )
+                except Exception as exc:
+                    if not _is_duplicate_column(exc):
+                        _log.error("admin settings migration failed for column %s: %s", col, exc)
+        if "auto_post_scheduled_times_json" not in admin_cols:
+            try:
                 await conn.execute(
-                    f"ALTER TABLE webapp_admin_settings ADD COLUMN {col} {col_type} NOT NULL DEFAULT {default}"
+                    "ALTER TABLE webapp_admin_settings ADD COLUMN auto_post_scheduled_times_json TEXT NOT NULL DEFAULT '[]'"
                 )
+            except Exception as exc:
+                if not _is_duplicate_column(exc):
+                    _log.error("admin settings migration failed for auto_post_scheduled_times_json: %s", exc)
         await conn.execute(
             """
             INSERT OR IGNORE INTO webapp_admin_settings (
@@ -188,10 +222,64 @@ async def init_db() -> None:
                 resume_target_creation_minutes,
                 resume_target_completion_rate,
                 resume_target_send_success_rate,
-                resume_target_export_success_rate
+                resume_target_export_success_rate,
+                auto_post_per_day_min,
+                auto_post_per_day_max,
+                auto_post_scheduled_times_json
             )
-            VALUES (1, 0, '', 8000000, 0, 0, 0, 10000, 2000, 8000000, 8, 60, 98, 99)
+            VALUES (1, 0, '', 8000000, 0, 0, 0, 10000, 2000, 8000000, 8, 60, 98, 99, 4, 8, '[]')
             """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS vacancy_cache (
+                uid        TEXT PRIMARY KEY,
+                data_json  TEXT NOT NULL,
+                expires_at INTEGER NOT NULL
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_vacancy_cache_expires_at ON vacancy_cache(expires_at)"
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS posted_vacancies (
+                vacancy_uid TEXT NOT NULL,
+                channel     TEXT NOT NULL,
+                posted_at   INTEGER NOT NULL,
+                PRIMARY KEY (vacancy_uid, channel)
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_posted_vac_time ON posted_vacancies(posted_at)"
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS notification_settings (
+                user_id    INTEGER PRIMARY KEY,
+                enabled    INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sent_notifications (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL,
+                vacancy_uid TEXT NOT NULL,
+                sent_at     INTEGER NOT NULL
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sent_notif_unique ON sent_notifications(user_id, vacancy_uid)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sent_notif_time ON sent_notifications(user_id, sent_at)"
         )
         await conn.commit()
 
