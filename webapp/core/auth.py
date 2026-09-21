@@ -24,7 +24,7 @@ from webapp.core.database import get_db
 from webapp.core.i18n import normalize_lang
 from webapp.core.session import decode_session_token, load_session_user
 from webapp.core.telegram_auth import verify_webapp_init_data
-from webapp.core.users import ensure_user
+from webapp.core.users import ensure_user, touch_last_seen
 
 _STATE_KEY = "_auth_resolution"
 
@@ -52,7 +52,11 @@ def _user_payload(row: dict[str, Any], session_sid: str | None) -> dict[str, Any
 
 
 async def _resolve(request: Request, db) -> tuple[dict[str, Any] | None, str | None]:
-    """Return ``(user, error_code)``. Both are None for an anonymous request."""
+    """Return ``(user, error_code)``. Both are None for an anonymous request.
+
+    Runs exactly once per request (the result is cached on ``request.state``),
+    which is also why ``users.last_seen_at`` is refreshed from here.
+    """
     authorization = request.headers.get("authorization") or ""
     if authorization.startswith("Bearer "):
         token = authorization.split(" ", 1)[1].strip()
@@ -67,6 +71,7 @@ async def _resolve(request: Request, db) -> tuple[dict[str, Any] | None, str | N
         if not row:
             return None, errors.SESSION_EXPIRED
         _remember_identity(request, row["user_id"])
+        await touch_last_seen(db, row)
         return _user_payload(row, sid), None
 
     init_data = (request.headers.get("x-telegram-init-data") or "").strip()
@@ -92,6 +97,7 @@ async def _resolve(request: Request, db) -> tuple[dict[str, Any] | None, str | N
         if not row:
             return None, errors.AUTH_REQUIRED
         _remember_identity(request, user_id)
+        await touch_last_seen(db, row)
         return _user_payload(row, None), None
 
     return None, None

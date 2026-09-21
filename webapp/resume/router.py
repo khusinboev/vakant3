@@ -13,6 +13,7 @@ from webapp.core.auth import current_user
 from webapp.core.config import get_settings
 from webapp.core.database import get_db
 from webapp.core.entry_gate import require_entry
+from webapp.core.event_queue import enqueue_event
 from webapp.core.i18n import get_lang
 from webapp.core.limiter import limiter
 from webapp.resume import repository
@@ -54,6 +55,9 @@ router = APIRouter(prefix="/resume", tags=["resume"], dependencies=[Depends(requ
 TELEGRAM_SEND_TIMEOUT = 25
 TELEGRAM_SEND_ATTEMPTS = 2
 
+#: ``X-Idempotency-Key`` prefix the Mini App uses for the periodic autosave.
+AUTOSAVE_KEY_PREFIX = "resume_autosave:"
+
 
 def _require_template(template_id: str) -> str:
     normalized = (template_id or "").strip().lower()
@@ -65,6 +69,24 @@ def _require_template(template_id: str) -> str:
 def _require_template_access(template_id: str, user: dict) -> None:
     if template_id not in FREE_TEMPLATES and not bool(user.get("is_pro")):
         raise errors.api_error(403, errors.PREMIUM_TEMPLATE, template_id=template_id)
+
+
+def is_autosave_key(idempotency_key: str) -> bool:
+    """True for the Mini App's 15 s autosave, false for an explicit save.
+
+    The wizard builds every key as ``<action>:<epoch_ms>:<random>`` with
+    ``action`` either ``resume_save`` (the Save button, retried by the user)
+    or ``resume_autosave`` (the timer, never retried) — see
+    ``webapp/frontend/src/pages/ResumeStudio/useResumeSync.ts``.
+    """
+    return idempotency_key.lower().startswith(AUTOSAVE_KEY_PREFIX)
+
+
+def track_event(
+    user_id: int, event_name: str, step: str | None = None, meta_json: str | None = None
+) -> None:
+    """Record one resume analytics beat (batched; never blocks the request)."""
+    enqueue_event(user_id, event_name, step, meta_json)
 
 
 @router.get("/templates", response_model=ResumeTemplatesResponse)
@@ -121,9 +143,14 @@ async def put_profile(
     user_id = int(user["user_id"])
 
     idempotency_key = (request.headers.get("X-Idempotency-Key") or "").strip()
-    if idempotency_key:
-        if not IDEMPOTENCY_RE.match(idempotency_key):
-            raise errors.validation_error("idempotency_key")
+    if idempotency_key and not IDEMPOTENCY_RE.match(idempotency_key):
+        raise errors.validation_error("idempotency_key")
+    # An autosave is not replayed by the client, so it gets no idempotency row
+    # (see AUTOSAVE_KEY_PREFIX): that is one INSERT + one COMMIT less every
+    # 15 s per open wizard. The lookup is skipped too — nothing ever stores a
+    # row under an autosave key, so it could only ever miss.
+    use_idempotency = bool(idempotency_key) and not is_autosave_key(idempotency_key)
+    if use_idempotency:
         cached = await repository.get_idempotent_response(db, user_id, "resume_profile_save", idempotency_key)
         if cached:
             return cached
@@ -168,7 +195,7 @@ async def put_profile(
         accent_color=accent_color,
         updated_at=now,
     )
-    if idempotency_key:
+    if use_idempotency:
         await repository.save_idempotent_response(db, user_id, "resume_profile_save", idempotency_key, response_obj)
     await db.commit()
 
@@ -264,8 +291,9 @@ async def track_resume_event(
     payload: ResumeEventRequest,
     request: Request,
     user=Depends(current_user),
-    db=Depends(get_db),
 ) -> ResumeEventResponse:
+    # No ``db`` here on purpose: the event is buffered and written in batches
+    # (``webapp.core.event_queue``), so this handler touches SQLite not at all.
     event_name = payload.event_name.strip().lower()
     if event_name not in ALLOWED_EVENT_NAMES:
         raise errors.validation_error("event_name")
@@ -274,6 +302,5 @@ async def track_resume_event(
     if step is not None and step not in ALLOWED_EVENT_STEPS:
         raise errors.validation_error("step")
 
-    await repository.insert_event(db, int(user["user_id"]), event_name, step, payload.meta_json)
-    await db.commit()
+    track_event(int(user["user_id"]), event_name, step, payload.meta_json)
     return ResumeEventResponse(ok=True)

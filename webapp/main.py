@@ -13,6 +13,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from webapp.core.config import get_settings
 from webapp.core.database import close_pool, init_db, open_connection
+from webapp.core.event_queue import get_event_queue
 from webapp.core.limiter import limiter
 from webapp.core.retention import checkpoint_wal, purge_expired
 from webapp.core.error_log import install_exception_handler
@@ -83,11 +84,19 @@ async def lifespan(app: FastAPI):
         _log.error("retention pass failed: %s", exc)
 
     task = asyncio.create_task(_maintenance_loop(), name="maintenance_loop")
+    # Analytics events are batched in memory and written by this task; it must
+    # be drained before the pool closes so a clean shutdown loses nothing.
+    events = get_event_queue()
+    await events.start()
     try:
         yield
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+        try:
+            await events.stop()
+        except Exception as exc:  # pragma: no cover - shutdown must not raise
+            _log.error("event queue shutdown failed: %s", exc)
         await close_pool()
 
 

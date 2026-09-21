@@ -119,7 +119,8 @@ CREATE TABLE IF NOT EXISTS users (
     blocked INTEGER NOT NULL DEFAULT 0,
     first_name TEXT,
     username TEXT,
-    photo_url TEXT
+    photo_url TEXT,
+    last_seen_at INTEGER
 )
 """
 

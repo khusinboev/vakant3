@@ -26,7 +26,12 @@ _USER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("user_pro", "INTEGER DEFAULT 0"),
     ("pref_filters_json", "TEXT"),
     ("blocked", "INTEGER NOT NULL DEFAULT 0"),
+    # m009 migratsiyasi ham qo'shadi; bu yerda — middleware har xabarda yozadi.
+    ("last_seen_at", "INTEGER"),
 )
+
+#: `users.last_seen_at` shu muddatdan tez-tez yangilanmaydi (API bilan bir xil).
+LAST_SEEN_THROTTLE_SECONDS = 10 * 60
 
 
 def _extract_list(payload: Any) -> list[dict[str, Any]]:
@@ -227,6 +232,60 @@ async def _notify_inviter(conn: aiosqlite.Connection, inviter_id: int, reward: i
         logger.info("referral: taklif qiluvchiga xabar yuborilmadi id=%s: %s", inviter_id, exc)
 
 
+async def fetch_user_state(
+    conn: aiosqlite.Connection, user_id: int
+) -> tuple[Any, bool]:
+    """(row, last_seen_bor) — foydalanuvchi qatorini BITTA so'rov bilan o'qiydi.
+
+    `last_seen_at` ustuni m009 migratsiyasi va `ensure_user_columns` orqali
+    keladi; juda eski bazada bo'lmasligi mumkin, shuning uchun fallback bor.
+    """
+    try:
+        cursor = await conn.execute(
+            "SELECT lang, blocked, last_seen_at FROM users WHERE user_id = ?", (user_id,)
+        )
+        return await cursor.fetchone(), True
+    except Exception:
+        cursor = await conn.execute(
+            "SELECT lang, blocked FROM users WHERE user_id = ?", (user_id,)
+        )
+        return await cursor.fetchone(), False
+
+
+async def touch_last_seen(
+    conn: aiosqlite.Connection, user_id: int, previous: Any, now_ts: int | None = None
+) -> bool:
+    """`users.last_seen_at` ni 10 daqiqada ko'pi bilan bir marta yangilaydi.
+
+    `previous` — o'sha qatorni o'qigan so'rovdan kelgan qiymat, shuning uchun
+    qo'shimcha SELECT kerak emas. WHERE sharti ham throttle ni takrorlaydi:
+    ikki jarayon (bot va API) bir vaqtda yozib yubormasligi uchun. Xato
+    yutiladi — statistika ustuni xabarni to'xtatmasligi kerak.
+    """
+    now_ts = int(now_ts if now_ts is not None else now_tz().timestamp())
+    try:
+        previous_ts = int(previous or 0)
+    except (TypeError, ValueError):
+        previous_ts = 0
+    if previous_ts and now_ts - previous_ts < LAST_SEEN_THROTTLE_SECONDS:
+        return False
+
+    cutoff = now_ts - LAST_SEEN_THROTTLE_SECONDS
+    try:
+        cursor = await conn.execute(
+            "UPDATE users SET last_seen_at = ? WHERE user_id = ? "
+            "AND (last_seen_at IS NULL OR last_seen_at < ?)",
+            (now_ts, user_id, cutoff),
+        )
+        if cursor.rowcount:
+            await conn.commit()
+            return True
+        await conn.rollback()
+    except Exception as exc:
+        logger.debug("last_seen_at yangilanmadi user_id=%s: %s", user_id, exc)
+    return False
+
+
 class StatsMiddleware(BaseMiddleware):
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -373,10 +432,7 @@ class StatsMiddleware(BaseMiddleware):
     ) -> tuple[str, bool]:
         """(lang, is_new) — foydalanuvchini kerak bo'lsa yozadi va tilini qaytaradi."""
         async with connect(self.db_path) as conn:
-            cursor = await conn.execute(
-                "SELECT lang, blocked FROM users WHERE user_id = ?", (user_id,)
-            )
-            row = await cursor.fetchone()
+            row, has_last_seen = await fetch_user_state(conn, user_id)
 
             if row is None:
                 lang = normalize_lang(language_code)
@@ -393,6 +449,9 @@ class StatsMiddleware(BaseMiddleware):
                         (user_id, today, lang),
                     )
                 await conn.commit()
+
+                if has_last_seen:
+                    await touch_last_seen(conn, user_id, 0, today)
 
                 if inviter_id:
                     try:
@@ -426,6 +485,13 @@ class StatsMiddleware(BaseMiddleware):
                     await conn.commit()
                 except Exception:
                     pass
+
+            if has_last_seen:
+                try:
+                    previous_seen = row["last_seen_at"]
+                except (IndexError, KeyError):
+                    previous_seen = None
+                await touch_last_seen(conn, user_id, previous_seen)
 
             return lang, False
 

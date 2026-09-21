@@ -105,11 +105,5 @@ async def complete_export_row(db, export_id: int, status: str, error_text: str |
     )
 
 
-async def insert_event(db, user_id: int, event_name: str, step: str | None, meta_json: str | None) -> None:
-    await db.execute(
-        """
-        INSERT INTO resume_events (user_id, event_name, step, meta_json, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (int(user_id), event_name, step, meta_json, int(time.time())),
-    )
+# ``resume_events`` rows are NOT written here: they are buffered by
+# ``webapp.core.event_queue`` and inserted in batches (see that module).

@@ -176,6 +176,9 @@ USER_EXTRA_COLUMNS = {
     "user_pro": "INTEGER",
     "pref_filters_json": "TEXT",
     "blocked": "INTEGER NOT NULL DEFAULT 0",
+    # Also added by migration m009; kept here because the auth path SELECTs it
+    # (webapp/core/users.py USER_COLUMNS) and init_db runs before migrations.
+    "last_seen_at": "INTEGER",
 }
 
 

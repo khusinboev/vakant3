@@ -38,3 +38,5 @@ webapp/frontend/tsconfig.tsbuildinfo
 
 # Bot log
 bot.log
+ops/loadtest-results/*
+!ops/loadtest-results/.gitkeep

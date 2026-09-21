@@ -235,3 +235,7 @@ Tekshiruv (deploy'dan keyin):
   curl -s https://abitur24.uz/api/health
   journalctl -u vakant-api -n 30 --no-pager | grep -i "migration applied"
   journalctl -u vakant-bot -n 30 --no-pager | grep -iE "broadcast_worker|bot_jobs|daily_rollup"
+
+Monitoring (2026-09-21 dan): har 5 daqiqada /home/vakant/healthcheck.sh (cron) API health,
+servislar va disk (>=92%) ni tekshiradi; muammo boshlanganda va tiklanganda ADMIN_IDS ga
+bot orqali bir marta xabar yuboradi. Log: /var/log/vakant-health.log. Nusxa: ops/healthcheck.sh
