@@ -5,10 +5,9 @@
 import asyncio
 import datetime
 import logging
-from typing import Awaitable, Callable
 
 from aiogram import Router
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -20,7 +19,8 @@ from src.core.timeutil import month_end, month_step_back, now_tz
 from src.db.connection import connect
 from src.filters.admin import IsAdmin
 from src.filters.text_key import TextKey
-from src.functions.functions import panel_func
+from src.functions.broadcast_worker import broadcast_progress, create_broadcast, queue_broadcast
+from src.functions.functions import panel_func, parse_channel_link
 from src.i18n import DEFAULT_LANG, key_for_text, t
 
 logger = logging.getLogger(__name__)
@@ -28,8 +28,12 @@ logger = logging.getLogger(__name__)
 router = Router(name="admin")
 router.message.filter(IsAdmin())
 
-PROGRESS_EVERY = 50
-SEND_DELAY_SECONDS = 0.05
+#: The bot no longer sends broadcasts itself — it queues them and watches the
+#: counters the worker writes (src/functions/broadcast_worker.py).
+PROGRESS_POLL_SECONDS = 5.0
+#: Stop watching after this long; the worker keeps going either way.
+PROGRESS_MAX_SECONDS = 6 * 60 * 60
+TERMINAL_STATUSES = frozenset({"done", "cancelled", "failed"})
 
 
 class AdminStates(StatesGroup):
@@ -122,17 +126,44 @@ async def channel_add_start(message: Message, state: FSMContext, lang: str = DEF
     await state.set_state(AdminStates.channel_add)
 
 
-def _channel_username(message: Message) -> str | None:
+def _channel_input(message: Message) -> str | None:
     text = message.text
     if not isinstance(text, str):
         return None
-    return text.strip().upper()
+    return text.strip()
+
+
+async def _find_channel_row(parsed, chat_id: int | None = None):
+    """Existing row for a parsed reference: by id, by username or by chat_id."""
+    candidates = [parsed.target] if parsed.target else []
+    if parsed.kind == "username":
+        # Legacy rows were stored upper-cased, exactly as the admin typed them.
+        candidates += [f"@{parsed.username.upper()}", parsed.username]
+    async with connect() as conn:
+        for candidate in candidates:
+            cursor = await conn.execute(
+                "SELECT id FROM channels WHERE id = ? COLLATE NOCASE", (candidate,)
+            )
+            row = await cursor.fetchone()
+            if row:
+                return row[0]
+        if chat_id is not None:
+            try:
+                cursor = await conn.execute(
+                    "SELECT id FROM channels WHERE chat_id = ?", (int(chat_id),)
+                )
+            except Exception:
+                return None
+            row = await cursor.fetchone()
+            if row:
+                return row[0]
+    return None
 
 
 @router.message(AdminStates.channel_add)
 async def channel_add_process(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
-    channel_username = _channel_username(message)
-    if channel_username is None:
+    raw = _channel_input(message)
+    if raw is None:
         await message.reply(t(lang, "admin.text_required"), reply_markup=back_btn(lang))
         return
 
@@ -141,25 +172,63 @@ async def channel_add_process(message: Message, state: FSMContext, lang: str = D
         await message.reply(t(lang, "admin.cancelled"), reply_markup=main_btn(lang))
         return
 
-    if not channel_username.startswith("@"):
+    try:
+        parsed = parse_channel_link(raw)
+    except ValueError:
         await message.reply(
             t(lang, "admin.channel_bad_format"), reply_markup=channel_btn(lang)
         )
         await state.clear()
         return
 
-    async with connect() as conn:
-        cursor = await conn.execute(
-            "SELECT id FROM channels WHERE id = ?", (channel_username,)
+    if parsed.kind == "invite":
+        # getChat cannot resolve a private invite link — the numeric id is needed.
+        await message.reply(
+            t(lang, "admin.channel_bad_format"), reply_markup=channel_btn(lang)
         )
-        exists = await cursor.fetchone()
+        await state.clear()
+        return
 
-    if exists:
+    # Darhol tekshirish: kanal bormi va bot unda adminmi.
+    try:
+        chat = await bot.get_chat(chat_id=parsed.target)
+        member = await bot.get_chat_member(chat_id=chat.id, user_id=bot.id)
+        is_admin = member.status in ("administrator", "creator")
+    except Exception as exc:
+        logger.warning("channel_add tekshiruvi muvaffaqiyatsiz %s: %s", parsed.target, exc)
+        await message.reply(
+            t(lang, "admin.channel_no_admin", username=raw), reply_markup=channel_btn(lang)
+        )
+        await state.clear()
+        return
+
+    if not is_admin:
+        await message.reply(
+            t(lang, "admin.channel_no_admin", username=chat.title or raw),
+            reply_markup=channel_btn(lang),
+        )
+        await state.clear()
+        return
+
+    existing = await _find_channel_row(parsed, chat.id)
+    if existing:
         await message.reply(t(lang, "admin.channel_exists"), reply_markup=channel_btn(lang))
-    else:
-        await panel_func.channel_add(channel_username)
-        await message.reply(t(lang, "admin.channel_added"), reply_markup=channel_btn(lang))
+        await state.clear()
+        return
 
+    username = chat.username or parsed.username
+    channel_id = f"@{username}" if username else str(chat.id)
+    invite_link = chat.invite_link or (f"https://t.me/{username}" if username else None)
+    await panel_func.channel_add(
+        channel_id,
+        title=chat.title,
+        username=username,
+        invite_link=invite_link,
+        chat_id=chat.id,
+        added_by=message.from_user.id,
+        bot_is_admin=True,
+    )
+    await message.reply(t(lang, "admin.channel_added"), reply_markup=channel_btn(lang))
     await state.clear()
 
 
@@ -171,8 +240,8 @@ async def channel_delete_start(message: Message, state: FSMContext, lang: str = 
 
 @router.message(AdminStates.channel_delete)
 async def channel_delete_process(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
-    channel_username = _channel_username(message)
-    if channel_username is None:
+    raw = _channel_input(message)
+    if raw is None:
         await message.reply(t(lang, "admin.text_required"), reply_markup=back_btn(lang))
         return
 
@@ -181,23 +250,20 @@ async def channel_delete_process(message: Message, state: FSMContext, lang: str 
         await message.reply(t(lang, "admin.cancelled"), reply_markup=main_btn(lang))
         return
 
-    if not channel_username.startswith("@"):
+    try:
+        parsed = parse_channel_link(raw)
+    except ValueError:
         await message.reply(
             t(lang, "admin.channel_bad_format"), reply_markup=channel_btn(lang)
         )
         await state.clear()
         return
 
-    async with connect() as conn:
-        cursor = await conn.execute(
-            "SELECT id FROM channels WHERE id = ?", (channel_username,)
-        )
-        exists = await cursor.fetchone()
-
-    if not exists:
+    existing = await _find_channel_row(parsed)
+    if not existing:
         await message.reply(t(lang, "admin.channel_missing"), reply_markup=channel_btn(lang))
     else:
-        await panel_func.channel_delete(channel_username)
+        await panel_func.channel_delete(existing)
         await message.reply(t(lang, "admin.channel_deleted"), reply_markup=channel_btn(lang))
 
     await state.clear()
@@ -232,90 +298,72 @@ async def copy_broadcast_start(message: Message, state: FSMContext, lang: str = 
     await state.set_state(AdminStates.send_msg)
 
 
-async def _mark_blocked(conn, user_id: int, blocked: bool) -> None:
-    """users.blocked ni yangilaydi (faqat qiymat o'zgarganda yozadi)."""
-    value = 1 if blocked else 0
-    cursor = await conn.execute(
-        "UPDATE users SET blocked = ? WHERE user_id = ? AND blocked != ?",
-        (value, user_id, value),
-    )
-    if cursor.rowcount:
-        await conn.commit()
+async def _watch_progress(status_msg: Message, broadcast_id: int, lang: str) -> None:
+    """Refresh the progress message from the DB until the job ends."""
+    deadline = asyncio.get_running_loop().time() + PROGRESS_MAX_SECONDS
+    last_line = ""
+
+    while asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(PROGRESS_POLL_SECONDS)
+        async with connect() as conn:
+            progress = await broadcast_progress(conn, broadcast_id)
+        if progress is None:
+            return
+
+        ok = progress["sent"]
+        fail = progress["failed"] + progress["blocked"]
+        if progress["status"] in TERMINAL_STATUSES:
+            await _edit(
+                status_msg,
+                t(lang, "admin.finished", total=progress["total"], ok=ok, fail=fail),
+            )
+            return
+
+        line = t(
+            lang,
+            "admin.progress",
+            done=progress["done"],
+            total=progress["total"],
+            ok=ok,
+            fail=fail,
+        )
+        if line != last_line:
+            await _edit(status_msg, line)
+            last_line = line
 
 
-async def _deliver(
-    conn, send: Callable[[int], Awaitable[object]], user_id: int
-) -> bool:
-    """Bitta foydalanuvchiga yuborish. Flood wait bo'lsa kutib, BIR marta qayta uriladi."""
+async def _edit(status_msg: Message, text: str) -> None:
     try:
-        await send(user_id)
-        await _mark_blocked(conn, user_id, False)
-        return True
-    except TelegramRetryAfter as exc:
-        logger.warning("Broadcast: flood wait %ss", exc.retry_after)
-        await asyncio.sleep(exc.retry_after)
-        try:
-            await send(user_id)
-            await _mark_blocked(conn, user_id, False)
-            return True
-        except TelegramForbiddenError:
-            await _mark_blocked(conn, user_id, True)
-            return False
-        except Exception as retry_exc:
-            logger.error("Broadcast retry xato user_id=%s: %s", user_id, retry_exc)
-            return False
-    except TelegramForbiddenError:
-        await _mark_blocked(conn, user_id, True)
-        return False
-    except Exception as exc:
-        logger.error("Broadcast xato user_id=%s: %s", user_id, exc)
-        return False
+        await status_msg.edit_text(text)
+    except TelegramBadRequest:  # message unchanged or deleted
+        pass
 
 
-async def _run_broadcast(
-    message: Message,
-    state: FSMContext,
-    lang: str,
-    send: Callable[[int], Awaitable[object]],
+async def _queue_broadcast_from_message(
+    message: Message, state: FSMContext, lang: str, mode: str
 ) -> None:
+    """Turn the admin's message into a broadcast job and follow its progress.
+
+    Both the bot flow and the admin panel write the same rows, so there is one
+    worker, one rate limiter and one progress source.
+    """
     await state.clear()
 
     async with connect() as conn:
-        cursor = await conn.execute("SELECT user_id FROM users WHERE blocked = 0")
-        users = [int(row[0]) for row in await cursor.fetchall()]
+        broadcast_id = await create_broadcast(
+            conn,
+            actor_id=message.from_user.id,
+            kind="forward",
+            forward_chat_id=message.chat.id,
+            forward_message_id=message.message_id,
+            target={"segment": "all", "exclude_blocked": True, "forward_mode": mode},
+        )
+        total = await queue_broadcast(conn, broadcast_id)
+        await conn.commit()
 
-        total = len(users)
-        success_count = 0
-        failed_count = 0
-
-        status_msg = await message.answer(t(lang, "admin.sending", done=0, total=total))
-
-        for idx, user_id in enumerate(users, 1):
-            if await _deliver(conn, send, user_id):
-                success_count += 1
-            else:
-                failed_count += 1
-
-            if idx % PROGRESS_EVERY == 0:
-                try:
-                    await status_msg.edit_text(
-                        t(
-                            lang,
-                            "admin.progress",
-                            done=idx,
-                            total=total,
-                            ok=success_count,
-                            fail=failed_count,
-                        )
-                    )
-                except TelegramBadRequest:
-                    pass
-
-            await asyncio.sleep(SEND_DELAY_SECONDS)
-
-    await status_msg.edit_text(
-        t(lang, "admin.finished", total=total, ok=success_count, fail=failed_count)
-    )
+    logger.info("broadcast %s queued by %s (%s users, mode=%s)", broadcast_id, message.from_user.id, total, mode)
+    status_msg = await message.answer(t(lang, "admin.sending", done=0, total=total))
+    await _watch_progress(status_msg, broadcast_id, lang)
 
 
 def _is_back(message: Message) -> bool:
@@ -330,13 +378,7 @@ async def forward_broadcast_send(message: Message, state: FSMContext, lang: str 
         await message.reply(t(lang, "admin.cancelled"), reply_markup=main_btn(lang))
         return
 
-    chat_id = message.chat.id
-    message_id = message.message_id
-
-    async def send(user_id: int):
-        return await bot.forward_message(user_id, chat_id, message_id)
-
-    await _run_broadcast(message, state, lang, send)
+    await _queue_broadcast_from_message(message, state, lang, "forward")
 
 
 @router.message(AdminStates.send_msg)
@@ -346,10 +388,4 @@ async def copy_broadcast_send(message: Message, state: FSMContext, lang: str = D
         await message.reply(t(lang, "admin.cancelled"), reply_markup=main_btn(lang))
         return
 
-    chat_id = message.chat.id
-    message_id = message.message_id
-
-    async def send(user_id: int):
-        return await bot.copy_message(user_id, chat_id, message_id)
-
-    await _run_broadcast(message, state, lang, send)
+    await _queue_broadcast_from_message(message, state, lang, "copy")

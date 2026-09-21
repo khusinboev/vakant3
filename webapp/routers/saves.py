@@ -7,11 +7,12 @@ from src.functions.scraping import fetch_osonish_detail
 from webapp.core import errors
 from webapp.core.auth import current_user
 from webapp.core.database import get_db
+from webapp.core.entry_gate import require_entry
 from webapp.core.limiter import limiter
 from webapp.core.referral_gate import get_referral_gate_state, raise_if_referral_locked
 from webapp.models.schemas import SaveActionResponse, SavesResponse
 
-router = APIRouter(prefix="/saves", tags=["saves"])
+router = APIRouter(prefix="/saves", tags=["saves"], dependencies=[Depends(require_entry)])
 DETAIL_CACHE_TTL = 60 * 60
 FREE_SAVE_LIMIT = 5
 MAX_PARALLEL_DETAIL_FETCHES = 5

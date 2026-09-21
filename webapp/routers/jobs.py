@@ -10,12 +10,13 @@ from webapp.core import errors
 from webapp.core.admin_settings import get_admin_settings
 from webapp.core.auth import current_user
 from webapp.core.database import get_db
+from webapp.core.entry_gate import require_entry
 from webapp.core.i18n import get_lang, localize_salary_text, pro_locked_salary
 from webapp.core.limiter import limiter
 from webapp.core.referral_gate import get_referral_gate_state, raise_if_referral_locked
 from webapp.models.schemas import JobsSearchResponse, VacancyDetailResponse, VacancyItem
 
-router = APIRouter(prefix="/jobs", tags=["jobs"])
+router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(require_entry)])
 
 _CODE_FIELDS = {
     "gender": "gender",

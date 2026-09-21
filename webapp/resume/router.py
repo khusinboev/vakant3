@@ -12,6 +12,7 @@ from webapp.core import errors
 from webapp.core.auth import current_user
 from webapp.core.config import get_settings
 from webapp.core.database import get_db
+from webapp.core.entry_gate import require_entry
 from webapp.core.i18n import get_lang
 from webapp.core.limiter import limiter
 from webapp.resume import repository
@@ -48,7 +49,7 @@ from webapp.resume.schemas import (
 
 _log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/resume", tags=["resume"])
+router = APIRouter(prefix="/resume", tags=["resume"], dependencies=[Depends(require_entry)])
 
 TELEGRAM_SEND_TIMEOUT = 25
 TELEGRAM_SEND_ATTEMPTS = 2

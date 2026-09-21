@@ -3,6 +3,7 @@
 # ============================================
 import html
 import logging
+import time
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
@@ -19,7 +20,7 @@ from config import WEBAPP_URL, bot
 from src.buttons.buttuns import user_menu_btn
 from src.db.connection import connect
 from src.filters.admin import IsAdmin
-from src.functions.functions import functions
+from src.functions.functions import channel_row_target, functions, load_channel_rows
 from src.functions.referral_gate import get_referral_gate_state, referral_gate_message
 from src.functions.scraping import fetch_osonish_detail
 from src.functions.vacancy_format import format_vacancy_message_html
@@ -70,6 +71,24 @@ def build_lang_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+async def mark_bot_started(user_id: int) -> None:
+    """Record the /start press the Mini App entry gate requires.
+
+    The Mini App can be opened without ever pressing /start (Main App button,
+    ``t.me/<bot>/app``), so ``users.started_at`` is what tells the API this user
+    really came through the bot. Set once — the first /start is the one we mean.
+    """
+    try:
+        async with connect() as conn:
+            await conn.execute(
+                "UPDATE users SET started_at = ? WHERE user_id = ? AND started_at IS NULL",
+                (int(time.time()), int(user_id)),
+            )
+            await conn.commit()
+    except Exception as exc:  # eski baza / migratsiya hali ishlamagan
+        logger.warning("started_at yozilmadi user_id=%s: %s", user_id, exc)
+
+
 async def _send_main_menu(message: Message, lang: str) -> None:
     await message.answer(t(lang, "start.extra_sections"), reply_markup=user_menu_btn(lang))
     await message.answer(
@@ -88,6 +107,7 @@ async def welcome(
     """Start handler. Referralni middleware ushlaydi."""
     await state.clear()
     user_id = message.from_user.id
+    await mark_bot_started(user_id)
 
     args = (message.text or "").split()
     start_param = args[1] if len(args) > 1 else ""
@@ -165,34 +185,44 @@ async def set_language(call: CallbackQuery):
 # ── Kanal obunasi ───────────────────────────────────────────────────────
 
 async def build_channel_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup | None:
-    """Kanallar keyboard"""
+    """Kanallar keyboard (bazadagi havola/sarlavha ustun, yo'q bo'lsa getChat)."""
     async with connect() as conn:
-        cursor = await conn.execute("SELECT id FROM channels")
-        channels = await cursor.fetchall()
+        channels = await load_channel_rows(conn)
 
     if not channels:
         return None
 
     buttons = []
     for idx, row in enumerate(channels, 1):
-        channel_id = row[0]
-        try:
-            chat = await bot.get_chat(chat_id=channel_id)
-            invite_link = chat.invite_link
+        data = dict(row)
+        target = channel_row_target(row)
+        invite_link = data.get("invite_link")
+        title = data.get("title")
+        if not invite_link and data.get("username"):
+            invite_link = f"https://t.me/{str(data['username']).lstrip('@')}"
 
-            if not invite_link:
-                try:
-                    invite_link = await bot.export_chat_invite_link(channel_id)
-                except Exception:
-                    continue
+        if not invite_link or not title:
+            try:
+                chat = await bot.get_chat(chat_id=target)
+                invite_link = invite_link or chat.invite_link
+                title = title or chat.title
+                if not invite_link:
+                    invite_link = await bot.export_chat_invite_link(target)
+            except Exception as exc:
+                logger.debug("kanal tugmasi qurilmadi id=%s: %s", target, exc)
+                continue
 
-            title = chat.title or t(lang, "start.channel_fallback")
-            buttons.append(
-                [InlineKeyboardButton(text=f"{idx}. {title}", url=invite_link)]
-            )
-        except Exception as exc:
-            logger.debug("kanal tugmasi qurilmadi id=%s: %s", channel_id, exc)
+        if not invite_link:
             continue
+
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{idx}. {title or t(lang, 'start.channel_fallback')}",
+                    url=invite_link,
+                )
+            ]
+        )
 
     if not buttons:
         return None
@@ -231,8 +261,7 @@ async def check_subscription(call: CallbackQuery, lang: str = DEFAULT_LANG):
 async def diagnose_channels(message: Message, lang: str = DEFAULT_LANG):
     """Kanallar diagnostikasi"""
     async with connect() as conn:
-        cursor = await conn.execute("SELECT id FROM channels")
-        channels = await cursor.fetchall()
+        channels = await load_channel_rows(conn, enabled_only=False)
 
     if not channels:
         await message.answer(t(lang, "admin.channels_db_empty"))
@@ -241,7 +270,7 @@ async def diagnose_channels(message: Message, lang: str = DEFAULT_LANG):
     lines = [t(lang, "admin.channels_status_header"), ""]
 
     for idx, row in enumerate(channels, 1):
-        channel_id = row[0]
+        channel_id = channel_row_target(row)
         try:
             chat = await bot.get_chat(chat_id=channel_id)
             bot_member = await bot.get_chat_member(chat_id=channel_id, user_id=bot.id)

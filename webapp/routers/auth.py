@@ -5,6 +5,7 @@ from webapp.core import errors
 from webapp.core.auth import current_user
 from webapp.core.config import get_settings
 from webapp.core.database import get_db
+from webapp.core.entry_gate import evaluate_entry
 from webapp.core.i18n import normalize_lang
 from webapp.core.limiter import limiter
 from webapp.core.session import create_session
@@ -66,3 +67,35 @@ async def tg_webapp_login(request: Request, payload: TgWebAppRequest, db=Depends
     await db.commit()
 
     return AuthResponse(session_token=session_token, user=_to_profile(row))
+
+
+# ── Entry gate ──────────────────────────────────────────────────────────────
+# One call the Mini App makes on launch to decide between the app and the lock
+# screen. It is deliberately NOT behind ``require_entry``: it is the endpoint
+# that reports the gate, so a locked user must be able to read it.
+
+
+@router.get("/gate")
+@limiter.limit("60/minute")
+async def entry_gate_state(
+    request: Request, user=Depends(current_user), db=Depends(get_db)
+) -> dict:
+    state = await evaluate_entry(db, int(user["user_id"]))
+    await db.commit()
+    return state
+
+
+@router.post("/gate/recheck")
+@limiter.limit("6/minute")
+async def entry_gate_recheck(
+    request: Request, user=Depends(current_user), db=Depends(get_db)
+) -> dict:
+    """Drop the cached subscription verdict and ask Telegram again.
+
+    This is the only way to bypass the per-user TTL, hence the tight limit:
+    without it a lock screen with an eager "check again" button would turn into
+    one Telegram round trip per tap per user.
+    """
+    state = await evaluate_entry(db, int(user["user_id"]), force=True)
+    await db.commit()
+    return state

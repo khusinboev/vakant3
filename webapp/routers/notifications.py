@@ -6,9 +6,10 @@ from pydantic import BaseModel
 from webapp.core import errors
 from webapp.core.auth import current_user
 from webapp.core.database import get_db
+from webapp.core.entry_gate import require_entry
 from webapp.core.users import get_user_pro
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+router = APIRouter(prefix="/notifications", tags=["notifications"], dependencies=[Depends(require_entry)])
 
 
 class NotificationSettings(BaseModel):

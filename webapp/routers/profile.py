@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from webapp.core import errors
 from webapp.core.auth import current_user
 from webapp.core.database import get_db
+from webapp.core.entry_gate import require_entry
 from webapp.core.i18n import LANGS, normalize_lang
 from webapp.core.users import set_user_lang
 from webapp.models.schemas import (
@@ -14,7 +15,7 @@ from webapp.models.schemas import (
     UpdateResultResponse,
 )
 
-router = APIRouter(prefix="/profile", tags=["profile"])
+router = APIRouter(prefix="/profile", tags=["profile"], dependencies=[Depends(require_entry)])
 
 # Column allowlist: the patch body can only touch these, and the SQL fragment
 # is taken from this mapping (never interpolated from user input).
