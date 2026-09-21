@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     ADMIN_IDS: str = ""
     WEBAPP_ORIGIN: str = "http://localhost:5173"
     SESSION_TTL_SECONDS: int = 30 * 24 * 60 * 60
+    # Telegram initData replay window. It is minted fresh on every Mini App
+    # launch, so 5 minutes is plenty for the one /auth/launch exchange.
+    INIT_DATA_MAX_AGE: int = 300
+    # Lifetime of an admin confirmation token (POST /api/admin/confirm).
+    ADMIN_CONFIRM_TTL_SECONDS: int = 60
 
     @property
     def admin_ids_set(self) -> set[int]:

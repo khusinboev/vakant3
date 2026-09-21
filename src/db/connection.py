@@ -16,6 +16,8 @@ from config import BASE_DIR
 logger = logging.getLogger(__name__)
 
 BUSY_TIMEOUT_MS = 5000
+# WAL fayli cheksiz o'smasligi uchun (64 MB).
+JOURNAL_SIZE_LIMIT = 64 * 1024 * 1024
 
 
 async def apply_pragmas(conn: aiosqlite.Connection) -> None:
@@ -23,8 +25,11 @@ async def apply_pragmas(conn: aiosqlite.Connection) -> None:
     conn.row_factory = aiosqlite.Row
     for pragma in (
         "PRAGMA journal_mode=WAL",
+        # NORMAL: WAL rejimida xavfsiz va FULL dan sezilarli tez.
+        "PRAGMA synchronous=NORMAL",
         f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}",
         "PRAGMA foreign_keys=ON",
+        f"PRAGMA journal_size_limit={JOURNAL_SIZE_LIMIT}",
     ):
         try:
             await conn.execute(pragma)

@@ -171,8 +171,36 @@ async def pay_referral_reward(
         "UPDATE users SET user_balance = COALESCE(user_balance, 0) + ? WHERE user_id = ?",
         (reward, inviter_id),
     )
+    await _write_referral_ledger_row(conn, inviter_id, user_id, reward, now_ts)
     await conn.commit()
     return reward
+
+
+async def _write_referral_ledger_row(
+    conn: aiosqlite.Connection, inviter_id: int, user_id: int, reward: int, now_ts: int
+) -> None:
+    """Ledger qatori (wallet_transactions) — balans yangilanishi bilan BIR tranzaksiyada.
+
+    Jadvalni m004 migratsiyasi yaratadi va ikkala jarayon ham startupda
+    migratsiyalarni ishlatadi; juda eski bazada jadval bo'lmasa — payout baribir
+    o'tadi, faqat log yoziladi (plain SQL, webapp import qilinmaydi).
+    """
+    try:
+        cursor = await conn.execute(
+            "SELECT COALESCE(user_balance, 0) FROM users WHERE user_id = ?", (inviter_id,)
+        )
+        row = await cursor.fetchone()
+        balance_after = int(row[0] or 0) if row is not None else reward
+        await conn.execute(
+            """
+            INSERT INTO wallet_transactions
+                (user_id, kind, amount, balance_after, price_snapshot, actor_id, note, created_at)
+            VALUES (?, 'referral_reward', ?, ?, NULL, ?, ?, ?)
+            """,
+            (inviter_id, reward, balance_after, user_id, f"referral:{user_id}", now_ts),
+        )
+    except Exception as exc:  # jadval yo'q / eski baza — to'lovni bekor qilmaymiz
+        logger.warning("referral ledger qatori yozilmadi (inviter=%s): %s", inviter_id, exc)
 
 
 async def _notify_inviter(conn: aiosqlite.Connection, inviter_id: int, reward: int) -> None:

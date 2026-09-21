@@ -2,14 +2,24 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from webapp.core import errors
-from webapp.core.auth import require_admin
+from webapp.core.audit import client_ip, log_admin_action
+from webapp.core.auth import require_admin, require_role
 from webapp.core.database import get_db
+from webapp.core.limiter import limiter
+from webapp.routers import admin_admins
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# Roster management and confirmation tokens live in their own module but share
+# this prefix, so webapp/main.py needs no change.
+router.include_router(admin_admins.router)
+
+#: Reading the panel is open to every admin role; changing settings is not.
+require_settings_writer = require_role("admin")
 
 TZ_UZB = timezone(timedelta(hours=5))
 
@@ -23,6 +33,8 @@ class AutoPostScheduleItem(BaseModel):
 
 class AdminStateResponse(BaseModel):
     is_admin: bool
+    role: str
+    version: int
     auto_post_enabled: bool
     auto_post_channel: str
     auto_post_min_salary: int
@@ -57,6 +69,8 @@ class AdminResumeMetricsResponse(BaseModel):
 
 
 class AdminSettingsPatch(BaseModel):
+    #: Optimistic concurrency: when set and stale -> 409 SETTINGS_CONFLICT.
+    expected_version: int | None = Field(default=None, ge=0)
     auto_post_enabled: bool | None = None
     auto_post_channel: str | None = None
     auto_post_min_salary: int | None = Field(default=None, ge=0)
@@ -146,22 +160,44 @@ def _median(values: list[float]) -> float:
     return float((ordered[mid - 1] + ordered[mid]) / 2.0)
 
 
-@router.get("/state", response_model=AdminStateResponse)
-async def get_admin_state(admin=Depends(require_admin), db=Depends(get_db)) -> AdminStateResponse:
+#: patch field -> (column, coercion). The column list is the whole editable
+#: surface of the settings singleton; PATCH writes it in ONE statement.
+_SETTING_FIELDS: dict[str, object] = {
+    "auto_post_enabled": lambda v: 1 if v else 0,
+    "auto_post_channel": lambda v: str(v).strip(),
+    "auto_post_min_salary": lambda v: int(v),
+    "auto_post_per_day_min": lambda v: max(1, min(24, int(v))),
+    "auto_post_per_day_max": lambda v: max(1, min(24, int(v))),
+    "channel_lang": lambda v: str(v),
+    "referral_enabled": lambda v: 1 if v else 0,
+    "referral_required_count": lambda v: int(v),
+    "pro_price": lambda v: int(v),
+    "referral_reward": lambda v: int(v),
+    "pro_min_salary": lambda v: int(v),
+    "resume_target_creation_minutes": lambda v: float(v),
+    "resume_target_completion_rate": lambda v: float(v),
+    "resume_target_send_success_rate": lambda v: float(v),
+    "resume_target_export_success_rate": lambda v: float(v),
+}
+
+_STATE_COLUMNS = ", ".join([*_SETTING_FIELDS.keys(), "version"])
+
+
+async def _settings_row(db):
     cursor = await db.execute(
-        "SELECT auto_post_enabled, auto_post_channel, auto_post_min_salary, referral_enabled, referral_required_count, "
-        "pro_price, referral_reward, pro_min_salary, "
-        "auto_post_per_day_min, auto_post_per_day_max, channel_lang, "
-        "resume_target_creation_minutes, resume_target_completion_rate, "
-        "resume_target_send_success_rate, resume_target_export_success_rate "
-        "FROM webapp_admin_settings WHERE singleton = 1"
+        f"SELECT {_STATE_COLUMNS} FROM webapp_admin_settings WHERE singleton = 1"
     )
     row = await cursor.fetchone()
     if not row:
         raise errors.api_error(500, errors.SERVER_MISCONFIGURED)
+    return row
 
+
+def _state_response(row, role: str) -> AdminStateResponse:
     return AdminStateResponse(
         is_admin=True,
+        role=role,
+        version=int(row["version"] or 0),
         auto_post_enabled=bool(int(row["auto_post_enabled"] or 0)),
         auto_post_channel=str(row["auto_post_channel"] or ""),
         auto_post_min_salary=int(row["auto_post_min_salary"] or 0),
@@ -180,105 +216,88 @@ async def get_admin_state(admin=Depends(require_admin), db=Depends(get_db)) -> A
     )
 
 
-@router.patch("/state", response_model=AdminStateResponse)
-async def patch_admin_state(
-    payload: AdminSettingsPatch,
+@router.get("/state", response_model=AdminStateResponse)
+@limiter.limit("60/minute")
+async def get_admin_state(
+    request: Request,
     admin=Depends(require_admin),
     db=Depends(get_db),
 ) -> AdminStateResponse:
+    return _state_response(await _settings_row(db), str(admin["role"]))
+
+
+@router.patch("/state", response_model=AdminStateResponse)
+@limiter.limit("10/minute")
+async def patch_admin_state(
+    request: Request,
+    payload: AdminSettingsPatch,
+    admin=Depends(require_settings_writer),
+    db=Depends(get_db),
+) -> AdminStateResponse:
+    """Write every changed field in one UPDATE guarded by ``version``.
+
+    Two admins editing the panel at once used to silently overwrite each
+    other: the old handler issued one UPDATE per field with no read-modify
+    guard. Now the row carries a ``version`` that the UPDATE both matches on
+    and increments, so the loser gets 409 SETTINGS_CONFLICT with the current
+    version instead of a half-applied merge. The bot uses the same counter to
+    drop its 60 s settings cache.
+    """
+    current = await _settings_row(db)
+    version = int(current["version"] or 0)
+    if payload.expected_version is not None and int(payload.expected_version) != version:
+        raise errors.api_error(409, errors.SETTINGS_CONFLICT, version=version)
+
+    provided = payload.model_dump(exclude_unset=True)
+    provided.pop("expected_version", None)
+
     # auto_post_per_day_min must stay <= max, otherwise the bot's random.randint() raises.
-    if payload.auto_post_per_day_min is not None or payload.auto_post_per_day_max is not None:
-        cursor = await db.execute(
-            "SELECT auto_post_per_day_min, auto_post_per_day_max FROM webapp_admin_settings WHERE singleton = 1"
-        )
-        row = await cursor.fetchone()
-        current_min = int((row["auto_post_per_day_min"] if row else 4) or 4)
-        current_max = int((row["auto_post_per_day_max"] if row else 8) or 8)
-        new_min = int(payload.auto_post_per_day_min) if payload.auto_post_per_day_min is not None else current_min
-        new_max = int(payload.auto_post_per_day_max) if payload.auto_post_per_day_max is not None else current_max
+    if provided.get("auto_post_per_day_min") is not None or provided.get("auto_post_per_day_max") is not None:
+        new_min = int(provided.get("auto_post_per_day_min") or current["auto_post_per_day_min"] or 4)
+        new_max = int(provided.get("auto_post_per_day_max") or current["auto_post_per_day_max"] or 8)
         if new_min > new_max:
             raise errors.validation_error("auto_post_per_day_min")
 
-    if payload.auto_post_enabled is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET auto_post_enabled = ? WHERE singleton = 1",
-            (1 if payload.auto_post_enabled else 0,),
-        )
-    if payload.auto_post_channel is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET auto_post_channel = ? WHERE singleton = 1",
-            (payload.auto_post_channel.strip(),),
-        )
-    if payload.auto_post_min_salary is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET auto_post_min_salary = ? WHERE singleton = 1",
-            (int(payload.auto_post_min_salary),),
-        )
-    if payload.auto_post_per_day_min is not None:
-        v = max(1, min(24, int(payload.auto_post_per_day_min)))
-        await db.execute(
-            "UPDATE webapp_admin_settings SET auto_post_per_day_min = ? WHERE singleton = 1",
-            (v,),
-        )
-    if payload.auto_post_per_day_max is not None:
-        v = max(1, min(24, int(payload.auto_post_per_day_max)))
-        await db.execute(
-            "UPDATE webapp_admin_settings SET auto_post_per_day_max = ? WHERE singleton = 1",
-            (v,),
-        )
-    if payload.channel_lang is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET channel_lang = ? WHERE singleton = 1",
-            (payload.channel_lang,),
-        )
-    if payload.referral_enabled is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET referral_enabled = ? WHERE singleton = 1",
-            (1 if payload.referral_enabled else 0,),
-        )
-    if payload.referral_required_count is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET referral_required_count = ? WHERE singleton = 1",
-            (int(payload.referral_required_count),),
-        )
-    if payload.pro_price is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET pro_price = ? WHERE singleton = 1",
-            (int(payload.pro_price),),
-        )
-    if payload.referral_reward is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET referral_reward = ? WHERE singleton = 1",
-            (int(payload.referral_reward),),
-        )
-    if payload.pro_min_salary is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET pro_min_salary = ? WHERE singleton = 1",
-            (int(payload.pro_min_salary),),
-        )
-    if payload.resume_target_creation_minutes is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET resume_target_creation_minutes = ? WHERE singleton = 1",
-            (float(payload.resume_target_creation_minutes),),
-        )
-    if payload.resume_target_completion_rate is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET resume_target_completion_rate = ? WHERE singleton = 1",
-            (float(payload.resume_target_completion_rate),),
-        )
-    if payload.resume_target_send_success_rate is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET resume_target_send_success_rate = ? WHERE singleton = 1",
-            (float(payload.resume_target_send_success_rate),),
-        )
-    if payload.resume_target_export_success_rate is not None:
-        await db.execute(
-            "UPDATE webapp_admin_settings SET resume_target_export_success_rate = ? WHERE singleton = 1",
-            (float(payload.resume_target_export_success_rate),),
-        )
+    updates: dict[str, object] = {}
+    diff: dict[str, list] = {}
+    for field, coerce in _SETTING_FIELDS.items():
+        value = provided.get(field)
+        if value is None:
+            continue
+        new_value = coerce(value)  # type: ignore[operator]
+        updates[field] = new_value
+        old_value = current[field]
+        if isinstance(new_value, float):
+            changed = abs(float(old_value or 0) - new_value) > 1e-9
+        else:
+            changed = old_value != new_value
+        if changed:
+            diff[field] = [old_value, new_value]
 
+    if not updates:
+        return _state_response(current, str(admin["role"]))
+
+    assignments = ", ".join(f"{column} = ?" for column in updates)
+    cursor = await db.execute(
+        f"UPDATE webapp_admin_settings SET {assignments}, version = version + 1 "
+        "WHERE singleton = 1 AND version = ?",
+        (*updates.values(), version),
+    )
+    if cursor.rowcount == 0:
+        raise errors.api_error(409, errors.SETTINGS_CONFLICT, version=int((await _settings_row(db))["version"] or 0))
+
+    await log_admin_action(
+        db,
+        actor_id=int(admin["user_id"]),
+        action="settings.patch",
+        target_type="settings",
+        target_id="1",
+        payload={"diff": diff, "version": version + 1},
+        ip=client_ip(request),
+    )
     await db.commit()
-    return await get_admin_state(admin=admin, db=db)
+
+    return _state_response(await _settings_row(db), str(admin["role"]))
 
 
 class AutoPostScheduleResponse(BaseModel):
@@ -288,7 +307,12 @@ class AutoPostScheduleResponse(BaseModel):
 
 
 @router.get("/auto-post-schedule", response_model=AutoPostScheduleResponse)
-async def get_auto_post_schedule(admin=Depends(require_admin), db=Depends(get_db)) -> AutoPostScheduleResponse:
+@limiter.limit("60/minute")
+async def get_auto_post_schedule(
+    request: Request,
+    admin=Depends(require_admin),
+    db=Depends(get_db),
+) -> AutoPostScheduleResponse:
     cursor = await db.execute(
         "SELECT auto_post_scheduled_times_json FROM webapp_admin_settings WHERE singleton = 1"
     )
@@ -323,7 +347,12 @@ async def get_auto_post_schedule(admin=Depends(require_admin), db=Depends(get_db
 
 
 @router.get("/resume-metrics", response_model=AdminResumeMetricsResponse)
-async def get_resume_metrics(admin=Depends(require_admin), db=Depends(get_db)) -> AdminResumeMetricsResponse:
+@limiter.limit("60/minute")
+async def get_resume_metrics(
+    request: Request,
+    admin=Depends(require_admin),
+    db=Depends(get_db),
+) -> AdminResumeMetricsResponse:
     since = int(time.time()) - 24 * 60 * 60
     cursor = await db.execute(
         """
@@ -365,7 +394,13 @@ async def get_resume_metrics(admin=Depends(require_admin), db=Depends(get_db)) -
 
 
 @router.get("/resume-funnel", response_model=AdminFunnelResponse)
-async def get_resume_funnel(admin=Depends(require_admin), db=Depends(get_db), hours: int = 24) -> AdminFunnelResponse:
+@limiter.limit("60/minute")
+async def get_resume_funnel(
+    request: Request,
+    admin=Depends(require_admin),
+    db=Depends(get_db),
+    hours: int = 24,
+) -> AdminFunnelResponse:
     window_hours = min(max(int(hours), 1), 168)
     since = int(time.time()) - window_hours * 60 * 60
     steps = ["basic", "experience", "education", "skills", "summary", "template", "final"]
@@ -423,7 +458,9 @@ async def get_resume_funnel(admin=Depends(require_admin), db=Depends(get_db), ho
 
 
 @router.get("/resume-user/{user_id}", response_model=AdminResumeUserInspectResponse)
+@limiter.limit("60/minute")
 async def inspect_resume_user(
+    request: Request,
     user_id: int,
     admin=Depends(require_admin),
     db=Depends(get_db),
@@ -494,7 +531,9 @@ async def inspect_resume_user(
 
 
 @router.get("/resume-diagnostics", response_model=AdminDiagnosticsResponse)
+@limiter.limit("60/minute")
 async def get_resume_diagnostics(
+    request: Request,
     admin=Depends(require_admin),
     db=Depends(get_db),
     hours: int = 24,
@@ -557,7 +596,13 @@ async def get_resume_diagnostics(
 
 
 @router.get("/resume-goals", response_model=AdminGoalsResponse)
-async def get_resume_goals(admin=Depends(require_admin), db=Depends(get_db), hours: int = 168) -> AdminGoalsResponse:
+@limiter.limit("60/minute")
+async def get_resume_goals(
+    request: Request,
+    admin=Depends(require_admin),
+    db=Depends(get_db),
+    hours: int = 168,
+) -> AdminGoalsResponse:
     window_hours = min(max(int(hours), 24), 24 * 30)
     since = int(time.time()) - window_hours * 60 * 60
 

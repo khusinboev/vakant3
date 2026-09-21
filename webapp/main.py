@@ -1,8 +1,8 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import aiosqlite
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -11,28 +11,84 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from webapp.core.config import DB_PATH, get_settings
-from webapp.core.database import init_db
+from webapp.core.config import get_settings
+from webapp.core.database import close_pool, init_db, open_connection
 from webapp.core.limiter import limiter
-from webapp.core.retention import purge_expired
-from webapp.routers import admin_panel, auth, content, filters, jobs, notifications, profile, referral, resume, saves, wallet
+from webapp.core.retention import checkpoint_wal, purge_expired
+from webapp.core.error_log import install_exception_handler
+from webapp.routers import (
+    admin_analytics,
+    admin_autopost,
+    admin_broadcasts,
+    admin_channels,
+    admin_content,
+    admin_finance,
+    admin_panel,
+    admin_system,
+    admin_users,
+    auth,
+    content,
+    filters,
+    jobs,
+    notifications,
+    profile,
+    referral,
+    resume,
+    saves,
+    wallet,
+)
 
 _log = logging.getLogger(__name__)
 settings = get_settings()
+
+
+# The maintenance pass is cheap (indexed DELETEs + a checkpoint), so hourly is
+# frequent enough to keep the WAL and resume_events from growing unbounded.
+MAINTENANCE_INTERVAL_SECONDS = 60 * 60
+
+
+async def _maintenance_pass() -> None:
+    """One retention sweep plus a WAL checkpoint, on its own connection.
+
+    Deliberately not a pooled connection: maintenance must never take a slot
+    away from a request.
+    """
+    conn = await open_connection()
+    try:
+        deleted = await purge_expired(conn)
+        if any(deleted.values()):
+            _log.info("retention pass deleted %s", deleted)
+        await checkpoint_wal(conn)
+    finally:
+        await conn.close()
+
+
+async def _maintenance_loop() -> None:
+    while True:
+        try:
+            await asyncio.sleep(MAINTENANCE_INTERVAL_SECONDS)
+            await _maintenance_pass()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _log.error("maintenance pass failed: %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     try:
-        async with aiosqlite.connect(DB_PATH) as conn:
-            conn.row_factory = aiosqlite.Row
-            deleted = await purge_expired(conn)
-        if any(deleted.values()):
-            _log.info("retention pass deleted %s", deleted)
+        await _maintenance_pass()
     except Exception as exc:
         _log.error("retention pass failed: %s", exc)
-    yield
+
+    task = asyncio.create_task(_maintenance_loop(), name="maintenance_loop")
+    try:
+        yield
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await close_pool()
 
 
 app = FastAPI(title="Bandlik.uz WebApp API", version="1.0.0", lifespan=lifespan)
@@ -43,7 +99,9 @@ app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.WEBAPP_ORIGIN],
-    allow_credentials=True,
+    # The Mini App authenticates with headers (Bearer / init-data), never with
+    # cookies — so the browser must not be allowed to attach credentials.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -59,6 +117,20 @@ app.include_router(wallet.router, prefix="/api")
 app.include_router(resume.router, prefix="/api")
 app.include_router(content.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
+# Admin panel v2 routers (all protected by require_role inside each router).
+for _admin_router in (
+    admin_channels,
+    admin_users,
+    admin_broadcasts,
+    admin_content,
+    admin_autopost,
+    admin_finance,
+    admin_analytics,
+    admin_system,
+):
+    app.include_router(_admin_router.router, prefix="/api")
+
+install_exception_handler(app)
 
 
 @app.get("/api/health")

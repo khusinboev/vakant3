@@ -25,6 +25,8 @@ uvicorn==0.34.0
 httpx==0.28.1
 python-jose[cryptography]==3.3.0
 slowapi==0.1.9
+# Broadcast media upload (FastAPI multipart forms)
+python-multipart>=0.0.18
 pydantic-settings==2.7.0
 fpdf2>=2.8.0
 Pillow>=10.0.0

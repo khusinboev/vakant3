@@ -4,6 +4,7 @@ Notification scheduler testlari.
 `_next_notification_ts` / slot mantiqi mock qilinmaydi — vaqt `_now_uzb` ni
 almashtirish orqali "muzlatiladi", shuning uchun haqiqiy xatti-harakat sinaladi.
 """
+import asyncio
 import json
 import time
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ from unittest.mock import AsyncMock, patch
 
 from src.core.timeutil import TZ
 from src.functions.notification_scheduler import (
+    MAX_CONCURRENT_SENDS,
     MAX_PER_DAY,
     WORK_HOUR_END,
     WORK_HOUR_START,
@@ -394,3 +396,170 @@ async def test_notification_text_escapes_html(full_db):
 
     text = mock_bot.send_message.call_args.kwargs["text"]
     assert "&lt;b&gt;hack&lt;/b&gt; &amp; co" in text
+
+
+# ───────────────────────────────────────────────
+# Masshtab: 1000 foydalanuvchi, chegaralangan so'rovlar
+# ───────────────────────────────────────────────
+
+class _CountingConn:
+    """`conn` ustidagi yupqa proxy — execute/executemany chaqiruvlarini sanaydi."""
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.queries: list[str] = []
+
+    async def execute(self, sql, *args, **kwargs):
+        self.queries.append(" ".join(sql.split())[:80])
+        return await self._conn.execute(sql, *args, **kwargs)
+
+    async def executemany(self, sql, *args, **kwargs):
+        self.queries.append("MANY " + " ".join(sql.split())[:80])
+        return await self._conn.executemany(sql, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+class _FakeBot:
+    """Parallellik cho'qqisini o'lchaydigan soxta bot."""
+
+    def __init__(self):
+        self.sent: list[int] = []
+        self.in_flight = 0
+        self.peak = 0
+
+    async def send_message(self, *, chat_id, text, **_kwargs):
+        self.in_flight += 1
+        self.peak = max(self.peak, self.in_flight)
+        try:
+            await asyncio.sleep(0)
+            self.sent.append(chat_id)
+        finally:
+            self.in_flight -= 1
+
+
+async def _seed_many(conn, user_ids, vacancies: int = 50):
+    now = int(time.time())
+    await conn.executemany(
+        "INSERT INTO users (user_id, user_pro, pref_filters_json, lang) VALUES (?, 1, NULL, 'uz')",
+        [(uid,) for uid in user_ids],
+    )
+    await conn.executemany(
+        "INSERT INTO notification_settings VALUES (?, 1, ?, ?)",
+        [(uid, now, now) for uid in user_ids],
+    )
+    await conn.executemany(
+        "INSERT INTO vacancy_cache VALUES (?, ?, ?)",
+        [
+            (f"bulk{i}", json.dumps({"title": f"Ish {i}", "max_salary": 7000000}), now + 3600)
+            for i in range(vacancies)
+        ],
+    )
+    await conn.commit()
+
+
+@pytest.mark.asyncio
+async def test_run_scales_to_1000_users(full_db):
+    """1000 Pro user, hammasining sloti kelgan: har biriga aniq 1 ta qator, so'rovlar chegarali."""
+    user_ids = list(range(10_000, 11_000))
+    await _seed_many(full_db, user_ids)
+
+    counting = _CountingConn(full_db)
+    fake_bot = _FakeBot()
+
+    # Token bucket real vaqtda kutmasligi uchun tezlik ko'tariladi (mantiq o'zgarmaydi).
+    started = time.monotonic()
+    with patch(f"{MODULE}.bot", fake_bot), patch(f"{MODULE}.SEND_RATE_PER_SECOND", 100_000), _freeze(
+        _at(WORK_HOUR_END, 30)
+    ):
+        await _run_notifications(counting)
+    elapsed = time.monotonic() - started
+
+    assert len(fake_bot.sent) == len(user_ids)
+    assert sorted(fake_bot.sent) == user_ids
+    assert fake_bot.peak <= MAX_CONCURRENT_SENDS
+
+    cur = await full_db.execute("SELECT COUNT(*) FROM sent_notifications")
+    assert (await cur.fetchone())[0] == len(user_ids)
+    cur = await full_db.execute(
+        "SELECT COUNT(*) FROM (SELECT user_id FROM sent_notifications GROUP BY user_id HAVING COUNT(*) != 1)"
+    )
+    assert (await cur.fetchone())[0] == 0
+
+    # users + GROUP BY + vacancy_cache + 2 ta IN bo'lak + 1 executemany = 6
+    assert len(counting.queries) <= 10, counting.queries
+    assert elapsed < 5
+
+
+@pytest.mark.asyncio
+async def test_run_second_tick_after_scale_sends_nothing_new(full_db):
+    """Ikkinchi tick: MAX_PER_DAY va slot hisobi ko'p userda ham ishlaydi."""
+    user_ids = list(range(20_000, 20_050))
+    await _seed_many(full_db, user_ids, vacancies=10)
+
+    fake_bot = _FakeBot()
+    with patch(f"{MODULE}.bot", fake_bot), patch(f"{MODULE}.SEND_RATE_PER_SECOND", 100_000), _freeze(
+        _at(WORK_HOUR_END, 30)
+    ):
+        await _run_notifications(full_db)
+        first = len(fake_bot.sent)
+        await _run_notifications(full_db)
+
+    # Ikkala slot ham o'tgan, shuning uchun ikkinchi tickda yana bittadan yuboriladi,
+    # uchinchisida esa MAX_PER_DAY to'sadi.
+    assert first == len(user_ids)
+    assert len(fake_bot.sent) == 2 * len(user_ids)
+
+    with patch(f"{MODULE}.bot", fake_bot), patch(f"{MODULE}.SEND_RATE_PER_SECOND", 100_000), _freeze(
+        _at(WORK_HOUR_END, 30)
+    ):
+        await _run_notifications(full_db)
+    assert len(fake_bot.sent) == 2 * len(user_ids)
+
+
+@pytest.mark.asyncio
+async def test_run_excludes_blocked_users_in_batch(full_db):
+    """Bloklangan user gruppalangan yo'lda ham chiqarib tashlanadi."""
+    await _seed_user(full_db, 701)
+    await _seed_user(full_db, 702)
+    await full_db.execute("UPDATE users SET blocked = 1 WHERE user_id = 702")
+    await full_db.commit()
+
+    fake_bot = _FakeBot()
+    with patch(f"{MODULE}.bot", fake_bot), _freeze(_at(WORK_HOUR_END, 30)):
+        await _run_notifications(full_db)
+
+    assert fake_bot.sent == [701]
+
+
+@pytest.mark.asyncio
+async def test_run_applies_per_user_filters(full_db):
+    """Har bir userning pref_filters_json i Python filtrida saqlanib qoladi."""
+    now = int(time.time())
+    await full_db.executemany(
+        "INSERT INTO users (user_id, user_pro, pref_filters_json, lang) VALUES (?, 1, ?, 'uz')",
+        [
+            (801, json.dumps({"min_salary": 5_000_000})),
+            (802, json.dumps({"region_soato": "1726"})),
+            (803, None),
+        ],
+    )
+    await full_db.executemany(
+        "INSERT INTO notification_settings VALUES (?, 1, ?, ?)",
+        [(uid, now, now) for uid in (801, 802, 803)],
+    )
+    await full_db.executemany(
+        "INSERT INTO vacancy_cache VALUES (?, ?, ?)",
+        [
+            ("cheap", json.dumps({"title": "Arzon", "max_salary": 1_000_000, "region_soato": "1703"}), now + 3600),
+        ],
+    )
+    await full_db.commit()
+
+    fake_bot = _FakeBot()
+    with patch(f"{MODULE}.bot", fake_bot), _freeze(_at(WORK_HOUR_END, 30)):
+        await _run_notifications(full_db)
+
+    # 801: maosh poli o'tmaydi, 802: region mos emas, 803: filtrsiz — oladi.
+    assert fake_bot.sent == [803]

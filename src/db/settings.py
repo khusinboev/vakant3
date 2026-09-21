@@ -22,12 +22,35 @@ BOT_SETTINGS_COLUMNS: tuple[tuple[str, str], ...] = (
 
 _cache: dict[str, Any] | None = None
 _cache_at: float = 0.0
+_cache_version: int = -1
 
 
 def invalidate_settings_cache() -> None:
-    global _cache, _cache_at
+    global _cache, _cache_at, _cache_version
     _cache = None
     _cache_at = 0.0
+    _cache_version = -1
+
+
+async def read_settings_version(conn: aiosqlite.Connection) -> int:
+    """`webapp_admin_settings.version` — ustun/jadval bo'lmasa 0.
+
+    API har PATCH da versiyani oshiradi; bot shu arzon SELECT orqali TTL
+    tugashini kutmasdan keshni yangilaydi.
+    """
+    try:
+        cursor = await conn.execute(
+            "SELECT version FROM webapp_admin_settings WHERE singleton = 1"
+        )
+        row = await cursor.fetchone()
+    except Exception:  # ustun hali qo'shilmagan (m005) yoki jadval yo'q
+        return 0
+    if row is None:
+        return 0
+    try:
+        return int(row[0] or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 async def ensure_settings_columns(conn: aiosqlite.Connection) -> None:
@@ -61,10 +84,16 @@ async def get_admin_settings(
     conn: aiosqlite.Connection, ttl: int = 60, force: bool = False
 ) -> dict[str, Any]:
     """Singleton sozlamalar qatorini dict ko'rinishida qaytaradi (TTL keshlangan)."""
-    global _cache, _cache_at
+    global _cache, _cache_at, _cache_version
 
     now = time.monotonic()
-    if not force and _cache is not None and (now - _cache_at) < ttl:
+    version = await read_settings_version(conn)
+    if (
+        not force
+        and _cache is not None
+        and version == _cache_version
+        and (now - _cache_at) < ttl
+    ):
         return dict(_cache)
 
     try:
@@ -79,6 +108,10 @@ async def get_admin_settings(
     data: dict[str, Any] = dict(row) if row is not None else {}
     _cache = data
     _cache_at = now
+    try:
+        _cache_version = int(data.get("version") or 0)
+    except (TypeError, ValueError):
+        _cache_version = version
     return dict(data)
 
 

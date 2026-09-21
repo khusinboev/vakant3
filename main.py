@@ -5,7 +5,12 @@ import asyncio
 import logging
 
 from config import BASE_DIR, bot, dp
+from src.db.connection import connect
+from src.db.migrate import run_migrations
 from src.functions.auto_post_scheduler import auto_post_loop
+from src.functions.bot_jobs import bot_jobs_loop
+from src.functions.broadcast_worker import broadcast_worker_loop
+from src.functions.daily_rollup import daily_rollup_loop
 from src.functions.notification_scheduler import notification_loop
 from src.functions.weekly_stats_scheduler import weekly_stats_loop
 from src.handlers import admin, content, start
@@ -49,6 +54,10 @@ async def main():
     """Bot ishga tushirish"""
     # Database init
     await stats_middleware.init_db()
+    async with connect() as conn:
+        applied = await run_migrations(conn)
+    if applied:
+        logger.info("Migratsiyalar qo'llandi: %s", ", ".join(applied))
     logger.info("Database initialized")
 
     # Routerlarni ulash
@@ -63,6 +72,9 @@ async def main():
         _start_task(auto_post_loop, "auto_post_loop"),
         _start_task(notification_loop, "notification_loop"),
         _start_task(weekly_stats_loop, "weekly_stats_loop"),
+        _start_task(broadcast_worker_loop, "broadcast_worker_loop"),
+        _start_task(bot_jobs_loop, "bot_jobs_loop"),
+        _start_task(daily_rollup_loop, "daily_rollup_loop"),
     ]
 
     try:

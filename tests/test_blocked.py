@@ -1,9 +1,10 @@
 """
 users.blocked bayrog'i testlari:
-- broadcast TelegramForbiddenError da blocked=1 qo'yadi va muvaffaqiyatli
-  yuborishda qayta blocked=0 ga qaytaradi;
 - bildirishnoma so'rovi blocked=1 foydalanuvchilarni chiqarib tashlaydi;
 - StatsMiddleware yangi xabar kelganda blocked=0 ga qaytaradi.
+
+Broadcast tomoni endi src/functions/broadcast_worker.py da — u yerdagi
+blocked=1 / blocked=0 yozuvlari tests/test_broadcast.py da tekshiriladi.
 """
 from unittest.mock import AsyncMock, patch
 
@@ -11,7 +12,6 @@ import aiosqlite
 import pytest
 from aiogram.exceptions import TelegramForbiddenError
 
-from src.handlers.admin import _deliver
 from src.middleware.middlewares import StatsMiddleware
 
 MW_MODULE = "src.middleware.middlewares"
@@ -19,68 +19,6 @@ MW_MODULE = "src.middleware.middlewares"
 
 def _forbidden() -> TelegramForbiddenError:
     return TelegramForbiddenError(method=object(), message="bot was blocked by the user")
-
-
-async def _users_db() -> aiosqlite.Connection:
-    conn = await aiosqlite.connect(":memory:")
-    conn.row_factory = aiosqlite.Row
-    await conn.execute(
-        "CREATE TABLE users (user_id INTEGER PRIMARY KEY, blocked INTEGER NOT NULL DEFAULT 0)"
-    )
-    await conn.commit()
-    return conn
-
-
-# ─── broadcast: _deliver ────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_deliver_marks_blocked_on_forbidden():
-    conn = await _users_db()
-    await conn.execute("INSERT INTO users (user_id, blocked) VALUES (1, 0)")
-    await conn.commit()
-
-    async def send(_user_id: int):
-        raise _forbidden()
-
-    ok = await _deliver(conn, send, 1)
-    assert ok is False
-
-    cur = await conn.execute("SELECT blocked FROM users WHERE user_id = 1")
-    assert (await cur.fetchone())[0] == 1
-    await conn.close()
-
-
-@pytest.mark.asyncio
-async def test_deliver_unblocks_on_success():
-    conn = await _users_db()
-    await conn.execute("INSERT INTO users (user_id, blocked) VALUES (2, 1)")
-    await conn.commit()
-
-    send = AsyncMock(return_value=None)
-
-    ok = await _deliver(conn, send, 2)
-    assert ok is True
-
-    cur = await conn.execute("SELECT blocked FROM users WHERE user_id = 2")
-    assert (await cur.fetchone())[0] == 0
-    await conn.close()
-
-
-@pytest.mark.asyncio
-async def test_deliver_leaves_unrelated_errors_unblocked():
-    conn = await _users_db()
-    await conn.execute("INSERT INTO users (user_id, blocked) VALUES (3, 0)")
-    await conn.commit()
-
-    async def send(_user_id: int):
-        raise RuntimeError("boom")
-
-    ok = await _deliver(conn, send, 3)
-    assert ok is False
-
-    cur = await conn.execute("SELECT blocked FROM users WHERE user_id = 3")
-    assert (await cur.fetchone())[0] == 0
-    await conn.close()
 
 
 # ─── notification scheduler: blocked users excluded ────────────────────────

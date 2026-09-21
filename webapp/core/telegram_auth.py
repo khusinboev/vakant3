@@ -5,8 +5,12 @@ import time
 import urllib.parse
 from typing import Any
 
+from webapp.core.config import get_settings
 
-def verify_webapp_init_data(init_data: str, bot_token: str) -> dict[str, Any] | None:
+
+def verify_webapp_init_data(
+    init_data: str, bot_token: str, max_age: int | None = None
+) -> dict[str, Any] | None:
     """
     Verify Telegram.WebApp.initData and return parsed user dict if valid.
 
@@ -35,9 +39,12 @@ def verify_webapp_init_data(init_data: str, bot_token: str) -> dict[str, Any] | 
     except (TypeError, ValueError):
         return None
 
-    # initData is generated fresh on each Mini App launch. 1 hour is generous
-    # enough for any session re-auth while still blocking replayed credentials.
-    if time.time() - auth_date > 3600:
+    # initData is generated fresh on each Mini App launch, so the replay window
+    # only has to cover the single /auth/launch exchange. Default 300 s
+    # (Settings.INIT_DATA_MAX_AGE); a clock-skewed future auth_date is rejected too.
+    window = int(max_age if max_age is not None else get_settings().INIT_DATA_MAX_AGE)
+    age = time.time() - auth_date
+    if age > window or age < -window:
         return None
 
     user_str = parsed.get("user", "{}")
