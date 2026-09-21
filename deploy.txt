@@ -206,3 +206,32 @@ Bot logi:   /etc/logrotate.d/vakant-bot (haftalik yoki 20M, 8 ta arxiv, copytrun
 Qo'lda backup:  ssh root@194.163.136.239 /home/vakant/backup_db.sh
 Tiklash:        gunzip -c data/backups/database_YYYYMMDD.sqlite3.gz > data/database.sqlite3
                 (avval systemctl stop vakant-api vakant-bot)
+
+
+========================================================
+  10. ADMIN PANEL v2 (2026-09-21 dan)
+========================================================
+
+Yangi talablar (deploy_safe.sh o'zi bajaradi, lekin bilib qo'ying):
+  - requirements.txt ga python-multipart qo'shildi (media yuklash uchun).
+  - Migratsiyalar: src/db/migrations/mNNN_*.py, ikkala servis ishga tushganda
+    avtomatik qo'llanadi (schema_migrations jadvali). Deploy oldidan DB backup shart:
+      ssh root@194.163.136.239 /home/vakant/backup_db.sh
+  - Broadcast media: /home/vakant/data/uploads/ (DB papkasi ichida, rsync'dan tashqarida).
+  - Adminlar: birinchi kirishda ADMIN_IDS dagi user "owner" bo'lib admins jadvaliga
+    yoziladi; keyin adminlar faqat paneldan (System → Admins) boshqariladi.
+  - Kirish nazorati: /start bosmagan user API'dan 403 BOT_START_REQUIRED oladi;
+    majburiy obuna kanallari panelda (Channels) qo'shiladi, bot kanalda admin bo'lishi shart.
+  - Nginx: X-Real-IP va X-Forwarded-For proxy_set_header qatorlari bo'lishi kerak
+    (rate limit va audit uchun; hozirgi konfiguratsiyada bor). MAJBURIY qator:
+      proxy_set_header X-Real-IP $remote_addr;
+    API (webapp/core/request_ip.py) client IP'ni avval X-Real-IP dan oladi, bo'lmasa
+    X-Forwarded-For ning OXIRGI hop'idan. Birinchi hop'ni hech qachon ishlatmaydi —
+    uni klient o'zi yuborishi mumkin (sohta IP -> rate limit va audit yozuvlari
+    ishonchsiz bo'ladi). Agar nginx X-Real-IP ni qo'ymasa, hamma anonim so'rovlar
+    bitta "unknown" rate limit bucket'iga tushadi.
+
+Tekshiruv (deploy'dan keyin):
+  curl -s https://abitur24.uz/api/health
+  journalctl -u vakant-api -n 30 --no-pager | grep -i "migration applied"
+  journalctl -u vakant-bot -n 30 --no-pager | grep -iE "broadcast_worker|bot_jobs|daily_rollup"
