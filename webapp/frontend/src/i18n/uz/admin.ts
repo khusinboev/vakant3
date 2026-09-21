@@ -119,6 +119,62 @@ const admin = {
   "admin.users.recentEvents": "Oxirgi hodisalar",
   "admin.users.noEvents": "Hodisalar yo'q.",
 
+  // ── Shell v2 (AdminLayout / registry / shared components) ─────────────────
+  "admin.nav.aria": "Admin bo'limlari",
+  "admin.nav.more": "Yana",
+  "admin.nav.allPages": "Barcha bo'limlar",
+  "admin.nav.group.main": "Asosiy",
+  "admin.nav.group.people": "Foydalanuvchilar",
+  "admin.nav.group.content": "Kontent va kanallar",
+  "admin.nav.group.money": "Moliya",
+  "admin.nav.group.system": "Tizim",
+
+  "admin.nav.overview": "Boshqaruv paneli",
+  "admin.nav.analytics": "Analitika",
+  "admin.nav.resume": "Rezyume analitikasi",
+  "admin.nav.users": "Foydalanuvchilar",
+  "admin.nav.quick": "Tezkor amallar",
+  "admin.nav.broadcasts": "Xabar yuborish",
+  "admin.nav.channels": "Kanallar",
+  "admin.nav.autopost": "Avto-post",
+  "admin.nav.content": "Kontent",
+  "admin.nav.finance": "Moliya",
+  "admin.nav.system": "Tizim",
+  "admin.nav.settings": "Sozlamalar",
+
+  "admin.role.owner": "Egasi",
+  "admin.role.admin": "Admin",
+  "admin.role.moderator": "Moderator",
+  "admin.role.viewer": "Kuzatuvchi",
+  "admin.role.required": "Bu bo'lim uchun kamida \"{role}\" roli kerak.",
+
+  "admin.shell.langToggle": "Til",
+  "admin.shell.themeToggle": "Mavzu",
+  "admin.shell.loading": "Yuklanmoqda...",
+  "admin.shell.openPanel": "Admin panelni ochish",
+
+  "admin.table.empty": "Ma'lumot topilmadi.",
+  "admin.table.loadMore": "Yana yuklash",
+  "admin.table.loadingMore": "Yuklanmoqda...",
+  "admin.table.sort": "{label} bo'yicha saralash",
+  "admin.table.total": "Jami: {total}",
+
+  "admin.confirm.title": "Amalni tasdiqlaysizmi?",
+  "admin.confirm.confirm": "Tasdiqlash",
+  "admin.confirm.cancel": "Bekor qilish",
+  "admin.confirm.working": "Bajarilmoqda...",
+
+  "admin.filter.aria": "Filtrlar",
+  "admin.filter.searchPlaceholder": "Qidirish...",
+  "admin.filter.all": "Barchasi",
+  "admin.filter.from": "Sanadan",
+  "admin.filter.to": "Sanagacha",
+  "admin.filter.reset": "Tozalash",
+
+  "admin.empty.default": "Hozircha hech nima yo'q.",
+  "admin.stat.deltaUp": "{value} o'sish",
+  "admin.stat.deltaDown": "{value} pasayish",
+
   "admin.danger.title": "Xavfli zona",
   "admin.danger.desc": "Foydalanuvchi balansi 0 ga tushadi va Pro o'chiriladi.",
   "admin.danger.submit": "Tozalash",
@@ -126,6 +182,45 @@ const admin = {
     "{id} ID: balans 0 ga tushadi, Pro olib qo'yiladi. Tasdiqlaysizmi?",
   "admin.danger.confirmYes": "Ha, tozalansin",
   "admin.danger.success": "{id} ID tozalandi: balans 0, Pro o'chirildi.",
+
+  // ── Analytics dashboard (daily_stats rollup) ────────────────────────────────
+  "admin.analytics2.period.label": "Davr",
+  "admin.analytics2.period.7": "7 kun",
+  "admin.analytics2.period.30": "30 kun",
+  "admin.analytics2.period.90": "90 kun",
+
+  "admin.analytics2.stat.groupLabel": "Bugungi ko'rsatkichlar",
+  "admin.analytics2.stat.hintToday": "bugun",
+  "admin.analytics2.stat.newUsers": "Yangi foydalanuvchilar",
+  "admin.analytics2.stat.activeUsers": "Faol foydalanuvchilar",
+  "admin.analytics2.stat.proUsers": "Pro foydalanuvchilar",
+  "admin.analytics2.stat.revenue": "Daromad",
+  "admin.analytics2.stat.saves": "Saqlanganlar",
+  "admin.analytics2.stat.resumeSendsOk": "Rezyume yuborildi",
+  "admin.analytics2.stat.resumeSendsErr": "Rezyume xatoliklari",
+  "admin.analytics2.stat.autoPosts": "Avto-postlar",
+  "admin.analytics2.stat.notifications": "Bildirishnomalar",
+
+  "admin.analytics2.chart.usersTitle": "Foydalanuvchilar",
+  "admin.analytics2.chart.usersAria": "Kunlik yangi va faol foydalanuvchilar grafigi",
+  "admin.analytics2.chart.usersNew": "Yangi",
+  "admin.analytics2.chart.usersActive": "Faol",
+  "admin.analytics2.chart.revenueTitle": "Daromad",
+  "admin.analytics2.chart.revenueAria": "Kunlik daromad grafigi",
+  "admin.analytics2.chart.resumeSendsTitle": "Rezyume yuborilishi",
+  "admin.analytics2.chart.resumeSendsAria": "Kunlik muvaffaqiyatli va xato rezyume yuborishlar grafigi",
+  "admin.analytics2.chart.resumeOk": "Muvaffaqiyatli",
+  "admin.analytics2.chart.resumeErr": "Xatolik",
+  "admin.analytics2.chart.notifTitle": "Bildirishnoma va avto-postlar",
+  "admin.analytics2.chart.notifAria": "Kunlik bildirishnomalar va avto-postlar grafigi",
+  "admin.analytics2.chart.notifNotifications": "Bildirishnomalar",
+  "admin.analytics2.chart.notifAutoPosts": "Avto-postlar",
+
+  "admin.analytics2.empty.title": "Statistika hali hisoblanmagan",
+  "admin.analytics2.empty.description":
+    "Kunlik yig'ish (rollup) hali ishga tushmagan — grafiklar birinchi kun yakunlangach paydo bo'ladi.",
+
+  "admin.analytics2.resumeKpi.title": "Rezyume KPI ko'rsatkichlari",
 };
 export type AdminDict = typeof admin;
 export default admin;

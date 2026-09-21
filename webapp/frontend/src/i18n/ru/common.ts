@@ -32,6 +32,21 @@ const common: Record<keyof CommonDict, string> = {
   "app.referralLockStatus": "Статус: {current}/{required}",
   "app.referralLockShare": "Поделиться реферальной ссылкой",
 
+  // ── Контроль входа (entry gate) ────────────────────────────────────────────
+  "gate.botStartTitle": "Сначала запустите бота",
+  "gate.botStartBody":
+    "Чтобы пользоваться приложением, перейдите в бота, нажмите /start и вернитесь сюда.",
+  "gate.botStartAction": "Открыть бота",
+  "gate.subscribeTitle": "Подпишитесь на каналы",
+  "gate.subscribeBody":
+    "Чтобы пользоваться приложением, подпишитесь на каналы ниже и нажмите «Проверить снова».",
+  "gate.channelFallback": "Канал",
+  "gate.checkAgain": "Проверить снова",
+  "gate.checking": "Проверяем...",
+  "gate.stillLocked": "Условия ещё не выполнены. Попробуйте ещё раз.",
+  "gate.bannedTitle": "Аккаунт заблокирован",
+  "gate.bannedBody": "Доступ к приложению ограничен. По вопросам обратитесь к администратору.",
+
   // ── Bottom navigation ──────────────────────────────────────────────────────
   "nav.home": "Главная",
   "nav.profile": "Профиль",
@@ -212,6 +227,9 @@ const common: Record<keyof CommonDict, string> = {
   "error.UPSTREAM_ERROR": "Внешний сервис не отвечает. Попробуйте чуть позже.",
   "error.RATE_LIMITED": "Слишком много запросов. Попробуйте чуть позже.",
   "error.NETWORK_ERROR": "Нет соединения с интернетом. Проверьте связь.",
+  "error.BOT_START_REQUIRED": "Сначала нажмите /start в боте.",
+  "error.SUBSCRIPTION_REQUIRED": "Сначала подпишитесь на обязательные каналы.",
+  "error.USER_BANNED": "Ваш аккаунт заблокирован.",
   "error.UNKNOWN": "Произошла ошибка. Попробуйте ещё раз.",
 };
 

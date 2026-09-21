@@ -1,9 +1,11 @@
-import { Check, Languages, Palette } from "lucide-react";
+import { Check, ChevronRight, Languages, Palette, ShieldCheck } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import useTheme from "../../hooks/useTheme";
 import useToast from "../../hooks/useToast";
 import { useT } from "../../i18n/useT";
 import type { TranslationKey } from "../../i18n";
+import { ROLE_LABEL_KEY, useAdminRole } from "../../pages/Admin/hooks/useAdminRole";
 import { LANGS, LANG_META, useLangStore, type Lang } from "../../store/lang";
 import { THEME_MODES, type ThemeMode } from "../../store/theme";
 
@@ -24,6 +26,8 @@ export default function SettingsCard() {
   const lang = useLangStore((s) => s.lang);
   const setLang = useLangStore((s) => s.setLang);
   const { mode, setMode } = useTheme();
+  // Shown only to actual admins — the role comes from `/auth/gate`.
+  const { role } = useAdminRole();
 
   const pickLang = (next: Lang) => {
     if (next === lang) return;
@@ -96,6 +100,20 @@ export default function SettingsCard() {
           })}
         </div>
       </div>
+
+      {/* Admin panel — only rendered when the gate reports a role. */}
+      {role && (
+        <Link
+          to="/admin"
+          aria-label={t("admin.shell.openPanel")}
+          className="tap-target mt-4 flex w-full items-center gap-3 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2.5 text-sm font-semibold text-primary"
+        >
+          <ShieldCheck size={16} aria-hidden="true" />
+          <span className="flex-1 text-left">{t("nav.admin")}</span>
+          <span className="text-[11px] font-medium opacity-80">{t(ROLE_LABEL_KEY[role])}</span>
+          <ChevronRight size={16} aria-hidden="true" />
+        </Link>
+      )}
     </section>
   );
 }

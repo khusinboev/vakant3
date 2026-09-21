@@ -32,6 +32,21 @@ const common: Record<keyof CommonDict, string> = {
   "app.referralLockStatus": "Progress: {current}/{required}",
   "app.referralLockShare": "Share referral link",
 
+  // ── Entry gate ─────────────────────────────────────────────────────────────
+  "gate.botStartTitle": "Start the bot first",
+  "gate.botStartBody":
+    "To use the app, open the bot, press /start and come back to this page.",
+  "gate.botStartAction": "Open the bot",
+  "gate.subscribeTitle": "Subscribe to the channels",
+  "gate.subscribeBody":
+    "To use the app, subscribe to the channels below and then tap \"Check again\".",
+  "gate.channelFallback": "Channel",
+  "gate.checkAgain": "Check again",
+  "gate.checking": "Checking...",
+  "gate.stillLocked": "Not everything is done yet. Please try again.",
+  "gate.bannedTitle": "Your account is blocked",
+  "gate.bannedBody": "Access to the app is restricted. Contact an administrator if you have questions.",
+
   // ── Bottom navigation ──────────────────────────────────────────────────────
   "nav.home": "Home",
   "nav.profile": "Profile",
@@ -212,6 +227,9 @@ const common: Record<keyof CommonDict, string> = {
   "error.UPSTREAM_ERROR": "An external service is not responding. Please try again shortly.",
   "error.RATE_LIMITED": "Too many requests. Please try again shortly.",
   "error.NETWORK_ERROR": "No internet connection. Please check your network.",
+  "error.BOT_START_REQUIRED": "Press /start in the bot first.",
+  "error.SUBSCRIPTION_REQUIRED": "Subscribe to the required channels first.",
+  "error.USER_BANNED": "Your account is blocked.",
   "error.UNKNOWN": "Something went wrong. Please try again.",
 };
 

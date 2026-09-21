@@ -38,6 +38,21 @@ const common = {
   "app.referralLockStatus": "Holat: {current}/{required}",
   "app.referralLockShare": "Referral havolani ulashish",
 
+  // ── Kirish nazorati (entry gate) ───────────────────────────────────────────
+  "gate.botStartTitle": "Avval botni ishga tushiring",
+  "gate.botStartBody":
+    "Ilovadan foydalanish uchun botga o'ting va /start tugmasini bosing, so'ng bu sahifaga qayting.",
+  "gate.botStartAction": "Botni ochish",
+  "gate.subscribeTitle": "Kanallarga obuna bo'ling",
+  "gate.subscribeBody":
+    "Ilovadan foydalanish uchun quyidagi kanallarga obuna bo'ling va \"Qayta tekshirish\" tugmasini bosing.",
+  "gate.channelFallback": "Kanal",
+  "gate.checkAgain": "Qayta tekshirish",
+  "gate.checking": "Tekshirilmoqda...",
+  "gate.stillLocked": "Hali hammasi bajarilmadi. Iltimos, qaytadan urinib ko'ring.",
+  "gate.bannedTitle": "Hisobingiz bloklangan",
+  "gate.bannedBody": "Ilovadan foydalanish cheklangan. Savollar bo'lsa, administratorga murojaat qiling.",
+
   // ── Bottom navigation ──────────────────────────────────────────────────────
   "nav.home": "Bosh sahifa",
   "nav.profile": "Profil",
@@ -218,6 +233,9 @@ const common = {
   "error.UPSTREAM_ERROR": "Tashqi xizmat javob bermayapti. Birozdan so'ng urinib ko'ring.",
   "error.RATE_LIMITED": "Juda ko'p so'rov. Birozdan so'ng urinib ko'ring.",
   "error.NETWORK_ERROR": "Internet aloqasi yo'q. Aloqani tekshiring.",
+  "error.BOT_START_REQUIRED": "Avval botda /start tugmasini bosing.",
+  "error.SUBSCRIPTION_REQUIRED": "Avval majburiy kanallarga obuna bo'ling.",
+  "error.USER_BANNED": "Hisobingiz bloklangan.",
   "error.UNKNOWN": "Xatolik yuz berdi. Qayta urinib ko'ring.",
 };
 

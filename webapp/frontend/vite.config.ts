@@ -21,6 +21,8 @@ export default defineConfig({
           // Lazy page chunks (pages/Admin/index.tsx) would otherwise all be called "index".
           const ids = [chunk.facadeModuleId ?? "", ...chunk.moduleIds];
           for (const id of ids) {
+            const sub = id.match(/\/src\/pages\/Admin\/(?:pages\/)?([A-Za-z]+)/);
+            if (sub) return `assets/Admin-${sub[1].replace(/Page$/, "")}-[hash].js`;
             const page = id.match(/\/src\/pages\/([^/]+)\//);
             if (page) return `assets/${page[1]}-[hash].js`;
             const dict = id.match(/\/src\/i18n\/(ru|en)\/index\.ts$/);
@@ -35,6 +37,8 @@ export default defineConfig({
           "vendor-query": ["@tanstack/react-query", "axios", "zustand"],
           // Icons
           "vendor-icons": ["lucide-react"],
+          // Charts are only used by admin analytics/finance; keep them in one lazy shared chunk.
+          "vendor-charts": ["recharts"],
         },
       },
     },

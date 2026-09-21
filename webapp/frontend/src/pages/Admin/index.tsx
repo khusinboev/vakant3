@@ -1,101 +1,83 @@
-import { lazy, Suspense, useState, type ElementType } from "react";
-import { BarChart2, LayoutDashboard, Settings, Users } from "lucide-react";
+import { Suspense } from "react";
+import { ShieldAlert } from "lucide-react";
 
-import type { TranslationKey } from "../../i18n";
+import ErrorBoundary from "../../components/ErrorBoundary";
 import { useT } from "../../i18n/useT";
+import EmptyState from "./components/EmptyState";
 import ErrorCard from "./components/ErrorCard";
-import OverviewTab from "./tabs/OverviewTab";
-import SettingsTab from "./tabs/SettingsTab";
-import UsersTab from "./tabs/UsersTab";
-import { useAdminState } from "./useAdminQueries";
+import { ROLE_LABEL_KEY, roleAtLeast, useAdminRole } from "./hooks/useAdminRole";
+import AdminLayout from "./layout/AdminLayout";
+import { ADMIN_PAGES, DEFAULT_ADMIN_PAGE } from "./registry";
+import { useAdminPageId } from "./routing";
 
-// recharts lives only in the analytics tab — keep it out of this chunk.
-const AnalyticsTab = lazy(() => import("./tabs/AnalyticsTab"));
-
-type TabId = "overview" | "settings" | "analytics" | "users";
-
-const TABS: { id: TabId; labelKey: TranslationKey; icon: ElementType }[] = [
-  { id: "overview", labelKey: "admin.tab.overview", icon: LayoutDashboard },
-  { id: "settings", labelKey: "admin.tab.settings", icon: Settings },
-  { id: "analytics", labelKey: "admin.tab.analytics", icon: BarChart2 },
-  { id: "users", labelKey: "admin.tab.users", icon: Users },
-];
-
-function TabFallback() {
+function PageFallback() {
   const t = useT();
   return (
     <div className="flex h-40 items-center justify-center text-sm text-muted">
-      {t("common.loading")}
+      {t("admin.shell.loading")}
     </div>
   );
 }
 
+/**
+ * Admin panel entry.
+ *
+ * The page is picked from `registry.ts` by the URL (`routing.ts`), rendered
+ * inside `AdminLayout` and lazily loaded, so each section is its own chunk.
+ * Role checks here are cosmetic — every endpoint re-checks with `require_role`.
+ */
 export default function Admin() {
   const t = useT();
-  const [tab, setTab] = useState<TabId>("overview");
-  const state = useAdminState();
+  const { role, isLoading, error, refetch } = useAdminRole();
+  const pageId = useAdminPageId();
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3 py-4">
+        <div className="h-16 animate-pulse rounded-2xl bg-surfaceAlt" />
+        <div className="h-40 animate-pulse rounded-2xl bg-surfaceAlt" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="py-4">
+        <ErrorCard error={error} onRetry={refetch} />
+      </div>
+    );
+  }
+
+  if (!role) {
+    return (
+      <div className="py-6">
+        <EmptyState icon={ShieldAlert} labelKey="admin.accessDenied" />
+      </div>
+    );
+  }
+
+  const entry =
+    ADMIN_PAGES.find((page) => page.id === pageId) ??
+    ADMIN_PAGES.find((page) => page.id === DEFAULT_ADMIN_PAGE)!;
+  const allowed = roleAtLeast(role, entry.minRole);
+  const Page = entry.component;
 
   return (
-    <div className="-mx-4 -mt-4">
-      <header className="bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500 px-5 pb-5 pt-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-wider text-brand-100">
-              {t("admin.brand")}
-            </p>
-            <h1 className="mt-0.5 font-display text-xl font-extrabold text-white">
-              {t("admin.title")}
-            </h1>
-          </div>
-          <div className="flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1.5">
-            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-            <span className="text-xs font-semibold text-white">{t("admin.online")}</span>
-          </div>
-        </div>
-      </header>
-
-      {state.isPending ? (
-        <div className="px-4 py-4">
-          <div className="h-40 animate-pulse rounded-2xl bg-surfaceAlt" />
-        </div>
-      ) : state.isError || !state.data ? (
-        <div className="px-4 py-4">
-          <ErrorCard error={state.error} onRetry={() => void state.refetch()} />
-        </div>
+    <AdminLayout title={t(entry.labelKey)} role={role} active={entry.id}>
+      {allowed ? (
+        <ErrorBoundary>
+          <Suspense fallback={<PageFallback />}>
+            <Page />
+          </Suspense>
+        </ErrorBoundary>
       ) : (
-        <>
-          <nav
-            aria-label={t("admin.title")}
-            className="sticky top-14 z-10 flex border-b border-border bg-surface shadow-sm"
-          >
-            {TABS.map(({ id, labelKey, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                aria-current={tab === id ? "page" : undefined}
-                onClick={() => setTab(id)}
-                className={`flex flex-1 flex-col items-center gap-0.5 border-b-2 py-2.5 text-[10px] font-semibold transition-colors ${
-                  tab === id ? "border-primary text-primary" : "border-transparent text-muted"
-                }`}
-              >
-                <Icon size={15} aria-hidden="true" />
-                {t(labelKey)}
-              </button>
-            ))}
-          </nav>
-
-          <div className="px-4 py-4">
-            {tab === "overview" && <OverviewTab state={state.data} />}
-            {tab === "settings" && <SettingsTab state={state.data} />}
-            {tab === "analytics" && (
-              <Suspense fallback={<TabFallback />}>
-                <AnalyticsTab />
-              </Suspense>
-            )}
-            {tab === "users" && <UsersTab />}
-          </div>
-        </>
+        <div
+          role="alert"
+          className="rounded-2xl border border-warning/40 bg-warning/10 p-4 text-sm text-warning"
+        >
+          {t("admin.role.required", { role: t(ROLE_LABEL_KEY[entry.minRole]) })}
+        </div>
       )}
-    </div>
+    </AdminLayout>
   );
 }

@@ -1,11 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
 import { Grid2x2, Home, ShieldCheck, UserCircle2 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
-import client from "../../api/client";
 import { useKeyboardOpen } from "../../hooks/useKeyboardOpen";
 import { useT } from "../../i18n/useT";
 import type { TranslationKey } from "../../i18n";
+import { useAdminRole } from "../../pages/Admin/hooks/useAdminRole";
 
 const links: Array<{ to: string; labelKey: TranslationKey; icon: typeof Home }> = [
   { to: "/app", labelKey: "nav.home", icon: Home },
@@ -21,20 +20,14 @@ export default function BottomNav({ fixed = true }: { fixed?: boolean }) {
   const keyboardOpen = useKeyboardOpen();
   const t = useT();
 
-  const adminState = useQuery({
-    queryKey: ["admin", "state", "nav"],
-    queryFn: async () => {
-      const { data } = await client.get<{ is_admin: boolean }>("/admin/state");
-      return data;
-    },
-    retry: false,
-    staleTime: 60_000,
-  });
+  // The role comes from the shared `["auth","gate"]` query (one request for the
+  // whole app, with a `/admin/state` fallback while `/auth/gate` is rolling out).
+  const { role } = useAdminRole();
 
   // Hide while the soft keyboard is up so the nav never floats above it.
   if (keyboardOpen) return null;
 
-  const navLinks = adminState.data?.is_admin
+  const navLinks = role
     ? [...links, { to: "/admin", labelKey: "nav.admin" as TranslationKey, icon: ShieldCheck }]
     : links;
 

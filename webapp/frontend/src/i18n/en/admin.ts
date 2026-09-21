@@ -120,6 +120,62 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.users.recentEvents": "Recent events",
   "admin.users.noEvents": "No events.",
 
+  // ── Shell v2 (AdminLayout / registry / shared components) ─────────────────
+  "admin.nav.aria": "Admin sections",
+  "admin.nav.more": "More",
+  "admin.nav.allPages": "All sections",
+  "admin.nav.group.main": "Overview",
+  "admin.nav.group.people": "People",
+  "admin.nav.group.content": "Content & channels",
+  "admin.nav.group.money": "Finance",
+  "admin.nav.group.system": "System",
+
+  "admin.nav.overview": "Dashboard",
+  "admin.nav.analytics": "Analytics",
+  "admin.nav.resume": "Resume analytics",
+  "admin.nav.users": "Users",
+  "admin.nav.quick": "Quick actions",
+  "admin.nav.broadcasts": "Broadcasts",
+  "admin.nav.channels": "Channels",
+  "admin.nav.autopost": "Auto-post",
+  "admin.nav.content": "Content",
+  "admin.nav.finance": "Finance",
+  "admin.nav.system": "System",
+  "admin.nav.settings": "Settings",
+
+  "admin.role.owner": "Owner",
+  "admin.role.admin": "Admin",
+  "admin.role.moderator": "Moderator",
+  "admin.role.viewer": "Viewer",
+  "admin.role.required": "This section needs the \"{role}\" role or higher.",
+
+  "admin.shell.langToggle": "Language",
+  "admin.shell.themeToggle": "Theme",
+  "admin.shell.loading": "Loading...",
+  "admin.shell.openPanel": "Open the admin panel",
+
+  "admin.table.empty": "No data found.",
+  "admin.table.loadMore": "Load more",
+  "admin.table.loadingMore": "Loading...",
+  "admin.table.sort": "Sort by {label}",
+  "admin.table.total": "Total: {total}",
+
+  "admin.confirm.title": "Confirm this action?",
+  "admin.confirm.confirm": "Confirm",
+  "admin.confirm.cancel": "Cancel",
+  "admin.confirm.working": "Working...",
+
+  "admin.filter.aria": "Filters",
+  "admin.filter.searchPlaceholder": "Search...",
+  "admin.filter.all": "All",
+  "admin.filter.from": "From",
+  "admin.filter.to": "To",
+  "admin.filter.reset": "Reset",
+
+  "admin.empty.default": "Nothing here yet.",
+  "admin.stat.deltaUp": "up {value}",
+  "admin.stat.deltaDown": "down {value}",
+
   "admin.danger.title": "Danger zone",
   "admin.danger.desc": "The user's balance drops to 0 and Pro is switched off.",
   "admin.danger.submit": "Reset",
@@ -127,5 +183,44 @@ const admin: Record<keyof AdminDict, string> = {
     "ID {id}: the balance goes to 0 and Pro is removed. Confirm?",
   "admin.danger.confirmYes": "Yes, reset",
   "admin.danger.success": "ID {id} reset: balance 0, Pro disabled.",
+
+  // ── Analytics dashboard (daily_stats rollup) ────────────────────────────────
+  "admin.analytics2.period.label": "Period",
+  "admin.analytics2.period.7": "7 days",
+  "admin.analytics2.period.30": "30 days",
+  "admin.analytics2.period.90": "90 days",
+
+  "admin.analytics2.stat.groupLabel": "Today's numbers",
+  "admin.analytics2.stat.hintToday": "today",
+  "admin.analytics2.stat.newUsers": "New users",
+  "admin.analytics2.stat.activeUsers": "Active users",
+  "admin.analytics2.stat.proUsers": "Pro users",
+  "admin.analytics2.stat.revenue": "Revenue",
+  "admin.analytics2.stat.saves": "Saves",
+  "admin.analytics2.stat.resumeSendsOk": "Resumes sent",
+  "admin.analytics2.stat.resumeSendsErr": "Resume errors",
+  "admin.analytics2.stat.autoPosts": "Auto-posts",
+  "admin.analytics2.stat.notifications": "Notifications",
+
+  "admin.analytics2.chart.usersTitle": "Users",
+  "admin.analytics2.chart.usersAria": "Daily new and active users chart",
+  "admin.analytics2.chart.usersNew": "New",
+  "admin.analytics2.chart.usersActive": "Active",
+  "admin.analytics2.chart.revenueTitle": "Revenue",
+  "admin.analytics2.chart.revenueAria": "Daily revenue chart",
+  "admin.analytics2.chart.resumeSendsTitle": "Resume sends",
+  "admin.analytics2.chart.resumeSendsAria": "Daily successful and failed resume sends chart",
+  "admin.analytics2.chart.resumeOk": "Ok",
+  "admin.analytics2.chart.resumeErr": "Error",
+  "admin.analytics2.chart.notifTitle": "Notifications & auto-posts",
+  "admin.analytics2.chart.notifAria": "Daily notifications and auto-posts chart",
+  "admin.analytics2.chart.notifNotifications": "Notifications",
+  "admin.analytics2.chart.notifAutoPosts": "Auto-posts",
+
+  "admin.analytics2.empty.title": "No stats computed yet",
+  "admin.analytics2.empty.description":
+    "The daily rollup hasn't run yet — charts will appear once the first day is complete.",
+
+  "admin.analytics2.resumeKpi.title": "Resume KPIs",
 };
 export default admin;

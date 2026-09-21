@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Route, Routes, Navigate, useLocation } from "react-router-dom";
 
 import client from "./api/client";
+import EntryLockScreen from "./components/EntryLockScreen";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Layout from "./components/Layout/Layout";
 import { ToastHost } from "./hooks/useToast";
@@ -11,7 +12,8 @@ import useTelegramAuth, { isTelegramWebApp } from "./hooks/useTelegramAuth";
 import useTelegramBackButton from "./hooks/useTelegramBackButton";
 import useTheme from "./hooks/useTheme";
 import { useT } from "./i18n/useT";
-import { shareRefLink } from "./lib/share";
+import type { GateState } from "./lib/entryGate";
+import { gateBlockReason } from "./lib/entryGate";
 import { useAuthStore } from "./store/auth";
 import Home from "./pages/Home";
 
@@ -63,36 +65,6 @@ function AppHomeEntry() {
   return <Layout><Home /></Layout>;
 }
 
-function ReferralLockScreen({ current, required, refLink }: { current: number; required: number; refLink: string }) {
-  const t = useT();
-  return (
-    <div className="mx-auto mt-6 max-w-xl space-y-3 px-4">
-      <div className="card p-5 text-center">
-        <p className="text-base font-semibold text-text">🔒 {t("app.referralLockTitle")}</p>
-        <p className="mt-2 text-sm text-muted">{t("app.referralLockBody")}</p>
-        <p className="mt-3 text-sm font-semibold text-warning">
-          {t("app.referralLockStatus", { current, required })}
-        </p>
-        <button
-          type="button"
-          onClick={() => shareRefLink(refLink, t("referral.shareText"))}
-          className="tap-target mt-4 inline-block rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primaryFg"
-        >
-          {t("app.referralLockShare")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-type GateData = {
-  enabled: boolean;
-  unlocked: boolean;
-  current: number;
-  required: number;
-  ref_link: string;
-};
-
 export default function App() {
   useTheme();
   useTelegramWebApp();
@@ -101,16 +73,21 @@ export default function App() {
 
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
-  const gate = useQuery<GateData>({
-    queryKey: ["referral", "stats", "gate"],
+  // One server-side verdict for the whole entry flow: /start pressed, required
+  // channels subscribed, referral condition met (webapp/core/entry_gate.py).
+  // Every gated endpoint enforces the same thing, so this only picks the screen.
+  const gate = useQuery<GateState>({
+    queryKey: ["auth", "gate"],
     queryFn: async () => {
-      const { data } = await client.get<GateData>("/referral/stats");
+      const { data } = await client.get<GateState>("/auth/gate");
       return data;
     },
     retry: false,
     // The gate is a per-user check: asking before auth resolves always 401s.
     enabled: isTelegramWebApp() && isAuthenticated,
   });
+
+  const blockReason = gateBlockReason(gate.data);
 
   // External browser — always show landing page
   if (!isTelegramWebApp()) {
@@ -126,14 +103,10 @@ export default function App() {
     );
   }
 
-  if (gate.data?.enabled && !gate.data.unlocked) {
+  if (gate.data && blockReason) {
     return (
       <>
-        <ReferralLockScreen
-          current={gate.data.current}
-          required={gate.data.required}
-          refLink={gate.data.ref_link}
-        />
+        <EntryLockScreen reason={blockReason} gate={gate.data} />
         <ToastHost />
       </>
     );
@@ -152,7 +125,7 @@ export default function App() {
             <Route path="/hub/resume" element={<ErrorBoundary><ResumeStudio /></ErrorBoundary>} />
             <Route path="/hub/laws" element={<Layout><ErrorBoundary><Laws /></ErrorBoundary></Layout>} />
             <Route path="/wallet" element={<Layout><ErrorBoundary><Wallet /></ErrorBoundary></Layout>} />
-            <Route path="/admin" element={<Layout><ErrorBoundary><Admin /></ErrorBoundary></Layout>} />
+            <Route path="/admin/*" element={<Layout><ErrorBoundary><Admin /></ErrorBoundary></Layout>} />
             <Route path="/referral" element={<Layout><ErrorBoundary><Referral /></ErrorBoundary></Layout>} />
             <Route path="*" element={<Navigate to="/app" replace />} />
           </Routes>

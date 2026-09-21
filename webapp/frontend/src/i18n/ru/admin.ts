@@ -120,6 +120,62 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.users.recentEvents": "Последние события",
   "admin.users.noEvents": "Событий нет.",
 
+  // ── Shell v2 (AdminLayout / registry / shared components) ─────────────────
+  "admin.nav.aria": "Разделы админ-панели",
+  "admin.nav.more": "Ещё",
+  "admin.nav.allPages": "Все разделы",
+  "admin.nav.group.main": "Главное",
+  "admin.nav.group.people": "Пользователи",
+  "admin.nav.group.content": "Контент и каналы",
+  "admin.nav.group.money": "Финансы",
+  "admin.nav.group.system": "Система",
+
+  "admin.nav.overview": "Панель",
+  "admin.nav.analytics": "Аналитика",
+  "admin.nav.resume": "Аналитика резюме",
+  "admin.nav.users": "Пользователи",
+  "admin.nav.quick": "Быстрые действия",
+  "admin.nav.broadcasts": "Рассылки",
+  "admin.nav.channels": "Каналы",
+  "admin.nav.autopost": "Автопостинг",
+  "admin.nav.content": "Контент",
+  "admin.nav.finance": "Финансы",
+  "admin.nav.system": "Система",
+  "admin.nav.settings": "Настройки",
+
+  "admin.role.owner": "Владелец",
+  "admin.role.admin": "Администратор",
+  "admin.role.moderator": "Модератор",
+  "admin.role.viewer": "Наблюдатель",
+  "admin.role.required": "Для этого раздела нужна роль не ниже «{role}».",
+
+  "admin.shell.langToggle": "Язык",
+  "admin.shell.themeToggle": "Тема",
+  "admin.shell.loading": "Загрузка...",
+  "admin.shell.openPanel": "Открыть админ-панель",
+
+  "admin.table.empty": "Данных нет.",
+  "admin.table.loadMore": "Показать ещё",
+  "admin.table.loadingMore": "Загрузка...",
+  "admin.table.sort": "Сортировать по «{label}»",
+  "admin.table.total": "Всего: {total}",
+
+  "admin.confirm.title": "Подтвердить действие?",
+  "admin.confirm.confirm": "Подтвердить",
+  "admin.confirm.cancel": "Отмена",
+  "admin.confirm.working": "Выполняется...",
+
+  "admin.filter.aria": "Фильтры",
+  "admin.filter.searchPlaceholder": "Поиск...",
+  "admin.filter.all": "Все",
+  "admin.filter.from": "С даты",
+  "admin.filter.to": "По дату",
+  "admin.filter.reset": "Сбросить",
+
+  "admin.empty.default": "Пока ничего нет.",
+  "admin.stat.deltaUp": "рост на {value}",
+  "admin.stat.deltaDown": "снижение на {value}",
+
   "admin.danger.title": "Опасная зона",
   "admin.danger.desc": "Баланс пользователя обнулится, а Pro будет отключён.",
   "admin.danger.submit": "Сбросить",
@@ -127,5 +183,44 @@ const admin: Record<keyof AdminDict, string> = {
     "ID {id}: баланс обнулится, Pro будет снят. Подтверждаете?",
   "admin.danger.confirmYes": "Да, сбросить",
   "admin.danger.success": "ID {id} сброшен: баланс 0, Pro отключён.",
+
+  // ── Analytics dashboard (daily_stats rollup) ────────────────────────────────
+  "admin.analytics2.period.label": "Период",
+  "admin.analytics2.period.7": "7 дней",
+  "admin.analytics2.period.30": "30 дней",
+  "admin.analytics2.period.90": "90 дней",
+
+  "admin.analytics2.stat.groupLabel": "Показатели за сегодня",
+  "admin.analytics2.stat.hintToday": "сегодня",
+  "admin.analytics2.stat.newUsers": "Новые пользователи",
+  "admin.analytics2.stat.activeUsers": "Активные пользователи",
+  "admin.analytics2.stat.proUsers": "Pro-пользователи",
+  "admin.analytics2.stat.revenue": "Доход",
+  "admin.analytics2.stat.saves": "Сохранения",
+  "admin.analytics2.stat.resumeSendsOk": "Резюме отправлено",
+  "admin.analytics2.stat.resumeSendsErr": "Ошибки резюме",
+  "admin.analytics2.stat.autoPosts": "Авто-посты",
+  "admin.analytics2.stat.notifications": "Уведомления",
+
+  "admin.analytics2.chart.usersTitle": "Пользователи",
+  "admin.analytics2.chart.usersAria": "График новых и активных пользователей по дням",
+  "admin.analytics2.chart.usersNew": "Новые",
+  "admin.analytics2.chart.usersActive": "Активные",
+  "admin.analytics2.chart.revenueTitle": "Доход",
+  "admin.analytics2.chart.revenueAria": "График дохода по дням",
+  "admin.analytics2.chart.resumeSendsTitle": "Отправка резюме",
+  "admin.analytics2.chart.resumeSendsAria": "График успешных и неудачных отправок резюме по дням",
+  "admin.analytics2.chart.resumeOk": "Успешно",
+  "admin.analytics2.chart.resumeErr": "Ошибка",
+  "admin.analytics2.chart.notifTitle": "Уведомления и авто-посты",
+  "admin.analytics2.chart.notifAria": "График уведомлений и авто-постов по дням",
+  "admin.analytics2.chart.notifNotifications": "Уведомления",
+  "admin.analytics2.chart.notifAutoPosts": "Авто-посты",
+
+  "admin.analytics2.empty.title": "Статистика ещё не рассчитана",
+  "admin.analytics2.empty.description":
+    "Ежедневный расчёт (rollup) ещё не запускался — графики появятся после завершения первого дня.",
+
+  "admin.analytics2.resumeKpi.title": "KPI резюме",
 };
 export default admin;
