@@ -10,8 +10,7 @@ from aiogram.types import (
     Message,
 )
 
-from src.data.hr_tips import get_tip, get_tips
-from src.data.law_articles import get_article, get_articles
+from src.data.content_repo import get_article, get_articles, get_tip, get_tips
 from src.filters.text_key import TextKey
 from src.i18n import DEFAULT_LANG, t
 
@@ -24,18 +23,18 @@ _MAX_CHARS = 3000
 # ── Helpers ─────────────────────────────────────────────────
 
 
-def _laws_keyboard(lang: str) -> InlineKeyboardMarkup:
+async def _laws_keyboard(lang: str) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text=f"⚖️ {a['title']}", callback_data=f"law:{a['id']}")]
-        for a in get_articles(lang)
+        for a in await get_articles(lang)
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def _hr_keyboard(lang: str) -> InlineKeyboardMarkup:
+async def _hr_keyboard(lang: str) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text=f"💡 {tip['title']}", callback_data=f"hr:{tip['id']}")]
-        for tip in get_tips(lang)
+        for tip in await get_tips(lang)
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -59,7 +58,7 @@ def _truncate(text: str, source_url: str, lang: str) -> str:
 async def laws_menu(message: Message, lang: str = DEFAULT_LANG) -> None:
     await message.answer(
         t(lang, "content.laws.header"),
-        reply_markup=_laws_keyboard(lang),
+        reply_markup=await _laws_keyboard(lang),
         parse_mode="HTML",
     )
 
@@ -67,7 +66,7 @@ async def laws_menu(message: Message, lang: str = DEFAULT_LANG) -> None:
 @router.callback_query(F.data.startswith("law:"))
 async def law_detail(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
     article_id = callback.data.split(":", 1)[1]
-    article = get_article(article_id, lang)
+    article = await get_article(article_id, lang)
     if article is None:
         await callback.answer(t(lang, "content.laws.not_found"), show_alert=True)
         return
@@ -91,7 +90,7 @@ async def law_detail(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
 async def laws_back(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
     await callback.message.edit_text(
         t(lang, "content.laws.header"),
-        reply_markup=_laws_keyboard(lang),
+        reply_markup=await _laws_keyboard(lang),
         parse_mode="HTML",
     )
     await callback.answer()
@@ -104,7 +103,7 @@ async def laws_back(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
 async def hr_menu(message: Message, lang: str = DEFAULT_LANG) -> None:
     await message.answer(
         t(lang, "content.hr.header"),
-        reply_markup=_hr_keyboard(lang),
+        reply_markup=await _hr_keyboard(lang),
         parse_mode="HTML",
     )
 
@@ -112,7 +111,7 @@ async def hr_menu(message: Message, lang: str = DEFAULT_LANG) -> None:
 @router.callback_query(F.data.startswith("hr:"))
 async def hr_detail(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
     tip_id = callback.data.split(":", 1)[1]
-    tip = get_tip(tip_id, lang)
+    tip = await get_tip(tip_id, lang)
     if tip is None:
         await callback.answer(t(lang, "content.hr.not_found"), show_alert=True)
         return
@@ -132,7 +131,7 @@ async def hr_detail(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
 async def hr_back(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
     await callback.message.edit_text(
         t(lang, "content.hr.header"),
-        reply_markup=_hr_keyboard(lang),
+        reply_markup=await _hr_keyboard(lang),
         parse_mode="HTML",
     )
     await callback.answer()

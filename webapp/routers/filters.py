@@ -1,15 +1,24 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from src.functions.cache import cache_get, cache_set, make_cache_key
 from webapp.core.database import get_db
 from webapp.core.i18n import SPECS, district_name, get_lang, region_name
+from webapp.core.limiter import limiter
 from webapp.models.schemas import RegionItem, SpecItem
 
 router = APIRouter(prefix="/filters", tags=["filters"])
 
+#: Public static lists (regions, districts, specs). No authentication, so
+#: the bucket is the caller's IP; the app fetches each of these once per
+#: session, so 120/minute is only ever hit by a scraper.
+PUBLIC_RATE_LIMIT = "120/minute"
+
 
 @router.get("/regions", response_model=list[RegionItem])
-async def regions(db=Depends(get_db), lang: str = Depends(get_lang)) -> list[RegionItem]:
+@limiter.limit(PUBLIC_RATE_LIMIT)
+async def regions(
+    request: Request, db=Depends(get_db), lang: str = Depends(get_lang)
+) -> list[RegionItem]:
     key = make_cache_key("webapp_filters_regions")
     cached = await cache_get(key)
     if isinstance(cached, list):
@@ -33,8 +42,9 @@ async def regions(db=Depends(get_db), lang: str = Depends(get_lang)) -> list[Reg
 
 
 @router.get("/districts", response_model=list[RegionItem])
+@limiter.limit(PUBLIC_RATE_LIMIT)
 async def districts(
-    region_soato: str, db=Depends(get_db), lang: str = Depends(get_lang)
+    request: Request, region_soato: str, db=Depends(get_db), lang: str = Depends(get_lang)
 ) -> list[RegionItem]:
     key = make_cache_key("webapp_filters_districts", region_soato=region_soato)
     cached = await cache_get(key)
@@ -62,7 +72,8 @@ async def districts(
 
 
 @router.get("/specs", response_model=list[SpecItem])
-async def specs(lang: str = Depends(get_lang)) -> list[SpecItem]:
+@limiter.limit(PUBLIC_RATE_LIMIT)
+async def specs(request: Request, lang: str = Depends(get_lang)) -> list[SpecItem]:
     return [
         SpecItem(
             id=str(item["id"]),

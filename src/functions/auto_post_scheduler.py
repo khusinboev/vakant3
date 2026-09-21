@@ -20,6 +20,7 @@ from config import bot
 from src.core.timeutil import day_key, now_tz, today_start_ts
 from src.db.connection import connect
 from src.db.settings import get_admin_settings, invalidate_settings_cache
+from src.functions.bot_jobs import register_job
 from src.functions.scraping import fetch_osonish_detail, fetch_osonish_list
 from src.functions.vacancy_format import format_vacancy_message_html
 from src.i18n import DEFAULT_LANG, normalize_lang
@@ -158,6 +159,131 @@ async def _pick_unposted_vacancy(
     return None
 
 
+async def _log_attempt(
+    conn: aiosqlite.Connection,
+    *,
+    uid: str | None,
+    channel: str,
+    message_id: int | None,
+    status: str,
+    error: str | None,
+) -> None:
+    """Every post attempt (scheduled tick or admin "post now") gets one row here."""
+    await conn.execute(
+        "INSERT INTO auto_post_log (uid, channel, message_id, status, error, posted_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (uid, channel, message_id, status, error, int(time.time())),
+    )
+    await conn.commit()
+
+
+async def _get_or_fetch_vacancy(conn: aiosqlite.Connection, uid: str) -> dict | None:
+    """``vacancy_cache`` first, then a live osonish.uz detail fetch (used by "post now")."""
+    cursor = await conn.execute(
+        "SELECT data_json FROM vacancy_cache WHERE uid = ?", (uid,)
+    )
+    row = await cursor.fetchone()
+    if row is not None:
+        try:
+            data = json.loads(row[0])
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            return data
+
+    try:
+        raw_id = int(uid.split("_", 1)[1])
+    except (IndexError, ValueError):
+        return None
+    detail = await fetch_osonish_detail(raw_id)
+    return detail if isinstance(detail, dict) else None
+
+
+async def pick_and_post(
+    conn: aiosqlite.Connection,
+    *,
+    channel: str,
+    min_salary: int,
+    lang: str,
+    uid: str | None = None,
+) -> dict:
+    """Pick (or use the given) vacancy, send it to ``channel``, log the attempt.
+
+    Never raises: every outcome — sent, skipped (nothing to post) or failed
+    (send error) — is written to ``auto_post_log`` before returning. Shared by
+    the scheduler tick and the ``auto_post.post_now`` bot job.
+
+    Returns ``{"status": "sent"|"skipped"|"failed", "uid", "message_id", "error"}``.
+    """
+    now_ts = int(time.time())
+
+    if uid:
+        data = await _get_or_fetch_vacancy(conn, uid)
+        pick = (uid, data) if isinstance(data, dict) else None
+    else:
+        pick = await _pick_unposted_vacancy(conn, channel, min_salary)
+
+    if pick is None:
+        await _log_attempt(
+            conn, uid=uid, channel=channel, message_id=None, status="skipped", error="no_vacancy"
+        )
+        return {"status": "skipped", "uid": uid, "message_id": None, "error": "no_vacancy"}
+
+    picked_uid, data = pick
+    try:
+        text = format_vacancy_message_html(picked_uid, data, lang)
+        message = await bot.send_message(
+            chat_id=channel,
+            text=text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+        try:
+            message_id = int(getattr(message, "message_id", None))
+        except (TypeError, ValueError):
+            message_id = None  # unit tests stub `bot` with a generic mock
+        await conn.execute(
+            "INSERT OR REPLACE INTO posted_vacancies (vacancy_uid, channel, posted_at) "
+            "VALUES (?, ?, ?)",
+            (picked_uid, channel, now_ts),
+        )
+        await _log_attempt(
+            conn, uid=picked_uid, channel=channel, message_id=message_id, status="sent", error=None
+        )
+        logger.info("auto_post: yuborildi %s → %s", picked_uid, channel)
+        return {"status": "sent", "uid": picked_uid, "message_id": message_id, "error": None}
+    except Exception as exc:
+        logger.error("auto_post: yuborishda xato %s: %s", picked_uid, exc)
+        await _log_attempt(
+            conn, uid=picked_uid, channel=channel, message_id=None, status="failed", error=str(exc)
+        )
+        return {"status": "failed", "uid": picked_uid, "message_id": None, "error": str(exc)}
+
+
+@register_job("auto_post.post_now")
+async def _handle_post_now(payload: dict) -> dict:
+    """``bot_jobs`` handler: admin "post now" (payload ``{uid?: str}``)."""
+    async with connect() as conn:
+        settings = await get_admin_settings(conn, force=True)
+        channel = str(settings.get("auto_post_channel") or "").strip()
+        if not channel:
+            raise RuntimeError("auto_post_channel sozlanmagan")
+        min_salary = int(settings.get("auto_post_min_salary") or 0)
+        lang = normalize_lang(settings.get("channel_lang") or DEFAULT_LANG)
+
+        result = await pick_and_post(
+            conn,
+            channel=channel,
+            min_salary=min_salary,
+            lang=lang,
+            uid=(payload or {}).get("uid") or None,
+        )
+
+    if result["status"] != "sent":
+        raise RuntimeError(result.get("error") or "vakansiya topilmadi")
+    return {"message_id": result["message_id"], "uid": result["uid"]}
+
+
 async def _save_schedule(
     conn: aiosqlite.Connection, schedule: list[dict], day: str | None = None
 ) -> None:
@@ -235,7 +361,14 @@ async def _run_auto_post(conn: aiosqlite.Connection, settings: dict) -> None:
     if stale:
         for item in stale:
             item["done"] = True
-            item["skipped"] = True
+            await _log_attempt(
+                conn,
+                uid=item.get("uid"),
+                channel=channel,
+                message_id=None,
+                status="skipped",
+                error="stale_slot",
+            )
         logger.info("auto_post: %d ta eskirgan slot o'tkazib yuborildi", len(stale))
         await _save_schedule(conn, schedule)
         pending = [item for item in schedule if not item.get("done")]
@@ -256,33 +389,16 @@ async def _run_auto_post(conn: aiosqlite.Connection, settings: dict) -> None:
     if cached_count < 5:
         await _refresh_vacancy_cache(conn, min_salary)
 
-    try:
-        pick = await _pick_unposted_vacancy(conn, channel, min_salary)
-        if pick is None:
-            due["done"] = True
-            logger.warning("auto_post: mos vakansiya topilmadi, slot o'tkazib yuborildi")
-        else:
-            uid, data = pick
-            # Formatlash ham try ichida: xato bo'lsa ham slot yopiladi.
-            text = format_vacancy_message_html(uid, data, lang)
-            await bot.send_message(
-                chat_id=channel,
-                text=text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-            await conn.execute(
-                "INSERT OR REPLACE INTO posted_vacancies (vacancy_uid, channel, posted_at) "
-                "VALUES (?, ?, ?)",
-                (uid, channel, now_ts),
-            )
-            due["done"] = True
-            due["uid"] = uid
-            logger.info("auto_post: yuborildi %s → %s", uid, channel)
-    except Exception as exc:
-        logger.error("auto_post: slot bajarilmadi: %s", exc)
-        due["done"] = True  # cheksiz qayta urinishning oldini olamiz
-        due["failed"] = True
+    # pick_and_post never raises and always writes one auto_post_log row —
+    # the slot is closed either way so a broken pick/send is not retried.
+    result = await pick_and_post(conn, channel=channel, min_salary=min_salary, lang=lang)
+    due["done"] = True
+    if result["status"] == "sent":
+        due["uid"] = result["uid"]
+    elif result["status"] == "skipped":
+        logger.warning("auto_post: mos vakansiya topilmadi, slot o'tkazib yuborildi")
+    else:
+        logger.error("auto_post: slot bajarilmadi: %s", result.get("error"))
 
     await _save_schedule(conn, schedule)
 

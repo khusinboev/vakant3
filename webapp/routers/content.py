@@ -1,14 +1,21 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
-from src.data.law_articles import get_article, get_articles, get_categories
-from webapp.core import errors
+from webapp.core import content_repo, errors
+from webapp.core.database import get_db
 from webapp.core.i18n import get_lang
+from webapp.core.limiter import limiter
 
 router = APIRouter(prefix="/content", tags=["content"])
 
+#: These two endpoints are public (no ``current_user``), so their bucket is
+#: the caller's IP. The content is small and cached client-side for ten
+#: minutes; 120/minute is far above any real Mini App session and still
+#: stops an anonymous caller from hammering the article tables.
+PUBLIC_RATE_LIMIT = "120/minute"
 
-# ── Response schemas ────────────────────────────────────────
+
+# ── Response schemas (unchanged shape — see webapp/frontend/src/pages/Laws.tsx) ──
 
 
 class ArticleSummary(BaseModel):
@@ -34,49 +41,30 @@ class LawsListResponse(BaseModel):
     articles: list[ArticleSummary]
 
 
-def _category_names(lang: str) -> list[str]:
-    names: list[str] = []
-    for item in get_categories(lang):
-        if isinstance(item, dict):
-            names.append(str(item.get("name") or item.get("id") or ""))
-        else:
-            names.append(str(item))
-    return [name for name in names if name]
-
-
 # ── Endpoints ───────────────────────────────────────────────
 
 
 @router.get("/laws", response_model=LawsListResponse)
-async def get_laws(lang: str = Depends(get_lang)) -> LawsListResponse:
+@limiter.limit(PUBLIC_RATE_LIMIT)
+async def get_laws(
+    request: Request, lang: str = Depends(get_lang), db=Depends(get_db)
+) -> LawsListResponse:
     """All law articles (categories plus short descriptions), localized."""
+    categories = await content_repo.list_categories_public(db, lang)
+    articles = await content_repo.list_articles_public(db, lang)
     return LawsListResponse(
-        categories=_category_names(lang),
-        articles=[
-            ArticleSummary(
-                id=str(a["id"]),
-                category=str(a.get("category") or ""),
-                title=str(a.get("title") or ""),
-                summary=str(a.get("summary") or ""),
-                source_label=str(a.get("source_label") or ""),
-            )
-            for a in get_articles(lang)
-        ],
+        categories=[c["name"] for c in categories if c.get("name")],
+        articles=[ArticleSummary(**a) for a in articles],
     )
 
 
 @router.get("/laws/{article_id}", response_model=ArticleDetail)
-async def get_law_detail(article_id: str, lang: str = Depends(get_lang)) -> ArticleDetail:
+@limiter.limit(PUBLIC_RATE_LIMIT)
+async def get_law_detail(
+    request: Request, article_id: str, lang: str = Depends(get_lang), db=Depends(get_db)
+) -> ArticleDetail:
     """Full text of a single article, localized."""
-    article = get_article(article_id, lang)
+    article = await content_repo.get_article_public(db, article_id, lang)
     if not article:
         raise errors.not_found("article")
-    return ArticleDetail(
-        id=str(article["id"]),
-        category=str(article.get("category") or ""),
-        title=str(article.get("title") or ""),
-        summary=str(article.get("summary") or ""),
-        full_text=str(article.get("full_text") or ""),
-        source_url=str(article.get("source_url") or ""),
-        source_label=str(article.get("source_label") or ""),
-    )
+    return ArticleDetail(**article)

@@ -96,6 +96,13 @@ async def _make_db():
         )"""
     )
     await conn.execute(
+        """CREATE TABLE auto_post_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uid TEXT, channel TEXT, message_id INTEGER,
+            status TEXT NOT NULL, error TEXT, posted_at INTEGER NOT NULL
+        )"""
+    )
+    await conn.execute(
         """CREATE TABLE webapp_admin_settings (
             singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
             auto_post_enabled INTEGER NOT NULL DEFAULT 0,
@@ -135,6 +142,13 @@ async def _stored_schedule(conn) -> list[dict]:
         "SELECT auto_post_scheduled_times_json FROM webapp_admin_settings WHERE singleton = 1"
     )
     return json.loads((await cur.fetchone())[0])
+
+
+async def _log_rows(conn) -> list[dict]:
+    cur = await conn.execute(
+        "SELECT uid, channel, message_id, status, error, posted_at FROM auto_post_log ORDER BY id"
+    )
+    return [dict(row) for row in await cur.fetchall()]
 
 
 # ─── _pick_unposted_vacancy ──────────────────────────────────────────────────
@@ -340,7 +354,11 @@ async def test_run_skips_stale_slots_without_sending():
     mock_bot.send_message.assert_not_called()
     stored = await _stored_schedule(conn)
     assert stored[0]["done"] is True
-    assert stored[0].get("skipped") is True
+
+    rows = await _log_rows(conn)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "skipped"
+    assert rows[0]["error"] == "stale_slot"
     await conn.close()
 
 
@@ -371,7 +389,12 @@ async def test_run_marks_slot_done_when_send_fails():
 
     stored = await _stored_schedule(conn)
     assert stored[0]["done"] is True
-    assert stored[0].get("failed") is True
+    assert stored[0].get("uid") is None
+
+    rows = await _log_rows(conn)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "failed"
+    assert "telegram down" in rows[0]["error"]
     await conn.close()
 
 
