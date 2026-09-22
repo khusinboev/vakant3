@@ -6,7 +6,7 @@ import { useT } from "../../../i18n/useT";
 import type { TranslationKey, TranslationVars } from "../../../i18n";
 import { confirmAction } from "../../../api/admin";
 import { closeConfirm, requestConfirm } from "./useConfirm";
-import { haptic } from "./useMainButton";
+import { haptic } from "./haptics";
 
 export type ConfirmedMutationOptions<TBody, TResult> = {
   /** Server-side action name, e.g. `"users.balance"` (must match the route). */

@@ -7,11 +7,9 @@ import { useAdminBack } from "../hooks/useAdminBack";
 import { useAdminHeaderConfig } from "../hooks/useAdminHeader";
 import { useHistorySheet, hasOpenSheet } from "../hooks/useHistorySheet";
 import { useIsDesktop } from "../hooks/useMediaQuery";
-import { useMainButton } from "../hooks/useMainButton";
 import type { AdminRole } from "../hooks/useAdminRole";
 import { findAdminPage } from "../registry";
 import { useAdminPageId } from "../routing";
-import ActionBar from "../ui/ActionBar";
 import Button, { IconButton } from "../ui/Button";
 import { SheetFrame } from "../ui/Sheet";
 import AdminBar from "./AdminBar";
@@ -44,7 +42,7 @@ export type AdminShellProps = {
  *
  * Pages never draw an `<h1>`: they declare their header with
  * `useAdminHeader({ title, primary, menu })`, and on a phone inside Telegram
- * the shell turns `primary` into the native MainButton.
+ * the shell renders `primary` in the header on every screen size.
  */
 export default function AdminShell({ role, children }: AdminShellProps) {
   const t = useT();
@@ -81,14 +79,17 @@ export default function AdminShell({ role, children }: AdminShellProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location, config?.back, back]);
 
-  const { native } = useMainButton({
-    text: primary?.label,
-    textKey: primary?.labelKey,
-    onClick: () => primary?.onClick(),
-    enabled: !primary?.disabled,
-    loading: primary?.loading,
-    visible: Boolean(primary) && !isDesktop,
-  });
+  // Telegram's MainButton is deliberately not used: it renders a full-width bar
+  // under our own bottom bar, which duplicates the header's primary action and
+  // eats a row of the viewport. Hide it in case another screen left it visible.
+  useEffect(() => {
+    const button = window.Telegram?.WebApp?.MainButton;
+    try {
+      button?.hide();
+    } catch {
+      // Older clients: nothing to hide.
+    }
+  }, []);
 
   const railWidth = isDesktop ? (railPinned ? 220 : 56) : 0;
 
@@ -104,34 +105,42 @@ export default function AdminShell({ role, children }: AdminShellProps) {
     >
       {isDesktop && <Rail role={role} pinned={railPinned} onPinnedChange={setRailPinned} />}
 
-      <header className="sticky top-0 z-20 flex h-10 items-center gap-1 border-b border-border bg-surface/95 px-1.5 backdrop-blur">
-        <IconButton icon={ChevronLeft} ariaLabel={t("admin.shell.back")} onClick={goBack} />
+      {/* In fullscreen Telegram floats its own back/menu/close buttons over the
+          page, so the bar starts below `contentSafeAreaInset.top`. Windowed, both
+          insets are 0 and the padding collapses. */}
+      <header
+        className="sticky top-0 z-20 border-b border-border bg-surface/95 backdrop-blur"
+        style={{ paddingTop: "var(--admin-top-inset, 0px)" }}
+      >
+        <div className="flex h-10 items-center gap-1 px-1.5">
+          <IconButton icon={ChevronLeft} ariaLabel={t("admin.shell.back")} onClick={goBack} />
 
-        <h1 className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-none">
-          {heading}
-        </h1>
+          <h1 className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-none">
+            {heading}
+          </h1>
 
-        {isDesktop && primary && (
-          <Button
-            size="sm"
-            variant="primary"
-            labelKey={primary.labelKey}
-            icon={primary.icon}
-            disabled={primary.disabled}
-            loading={primary.loading}
-            onClick={primary.onClick}
-          >
-            {primary.label}
-          </Button>
-        )}
+          {primary && (
+            <Button
+              size="sm"
+              variant="primary"
+              labelKey={primary.labelKey}
+              icon={primary.icon}
+              disabled={primary.disabled}
+              loading={primary.loading}
+              onClick={primary.onClick}
+            >
+              {primary.label}
+            </Button>
+          )}
 
-        {menu.length > 0 && (
-          <IconButton
-            icon={MoreHorizontal}
-            ariaLabel={t("admin.shell.menu")}
-            onClick={() => menuSheet.openSheet()}
-          />
-        )}
+          {menu.length > 0 && (
+            <IconButton
+              icon={MoreHorizontal}
+              ariaLabel={t("admin.shell.menu")}
+              onClick={() => menuSheet.openSheet()}
+            />
+          )}
+        </div>
       </header>
 
       <main
@@ -140,19 +149,6 @@ export default function AdminShell({ role, children }: AdminShellProps) {
         style={{ paddingBottom: "calc(var(--admin-bar-h, 0px) + var(--bottom-safe, 0px) + 12px)" }}
       >
         {children}
-
-        {!isDesktop && primary && !native && (
-          <ActionBar
-            primary={{
-              labelKey: primary.labelKey,
-              label: primary.label,
-              onClick: primary.onClick,
-              disabled: primary.disabled,
-              loading: primary.loading,
-              icon: primary.icon,
-            }}
-          />
-        )}
       </main>
 
       {!isDesktop && <AdminBar role={role} />}

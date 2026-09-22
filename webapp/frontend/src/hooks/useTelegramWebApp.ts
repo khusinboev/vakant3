@@ -105,6 +105,10 @@ export default function useTelegramWebApp() {
       webApp.requestFullscreen?.();
     }
 
+    // Published on <html> so CSS can keep a floor under Telegram's floating
+    // controls (see `--admin-top-inset`); `fullscreenChanged` keeps it fresh.
+    document.documentElement.dataset.fullscreen = webApp.isFullscreen ? "1" : "0";
+
     // ── Event handlers ──────────────────────────────────────────────────────
 
     const onViewportChanged = () => setViewportVariables(webApp);

@@ -72,6 +72,6 @@ export { useQueryState } from "../hooks/useQueryState";
 export type { QueryStateOptions } from "../hooks/useQueryState";
 export { useAdminHeader } from "../hooks/useAdminHeader";
 export type { AdminHeaderConfig, AdminMenuItem, AdminPrimaryAction } from "../hooks/useAdminHeader";
-export { useMainButton, haptic, hasNativeMainButton } from "../hooks/useMainButton";
-export type { HapticKind, MainButtonApi, MainButtonOptions } from "../hooks/useMainButton";
+export { haptic } from "../hooks/haptics";
+export type { HapticKind } from "../hooks/haptics";
 export { useIsDesktop, useIsDesktopSm, useMediaQuery } from "../hooks/useMediaQuery";

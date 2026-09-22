@@ -6,7 +6,7 @@ import type { TranslationKey } from "../../../i18n";
 import { useT } from "../../../i18n/useT";
 import useToast from "../../../hooks/useToast";
 import { useConfirmedMutation } from "../hooks/useConfirmedMutation";
-import { haptic } from "../hooks/useMainButton";
+import { haptic } from "../hooks/haptics";
 import Button from "../ui/Button";
 import { StatusChip } from "../ui/Chip";
 import KeyValue from "../ui/KeyValue";
