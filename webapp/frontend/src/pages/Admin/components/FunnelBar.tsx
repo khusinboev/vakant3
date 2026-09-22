@@ -15,8 +15,8 @@ export default function FunnelBar({ step, name }: FunnelBarProps) {
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs font-medium text-muted">{name}</span>
-        <span className="text-xs font-bold text-text">{step.completion_rate}%</span>
+        <span className="text-[11px] font-medium text-muted">{name}</span>
+        <span className="text-[11px] font-bold text-text">{step.completion_rate}%</span>
       </div>
       <div
         className="h-2 overflow-hidden rounded-full bg-surfaceAlt"
@@ -32,10 +32,10 @@ export default function FunnelBar({ step, name }: FunnelBarProps) {
         />
       </div>
       <div className="mt-1 flex justify-between">
-        <span className="text-[10px] text-muted">
+        <span className="text-[11px] text-muted">
           {t("admin.funnel.entered", { n: step.entered_users })}
         </span>
-        <span className="text-[10px] text-danger">
+        <span className="text-[11px] text-danger">
           {t("admin.funnel.dropped", { n: step.dropoff_users })}
         </span>
       </div>

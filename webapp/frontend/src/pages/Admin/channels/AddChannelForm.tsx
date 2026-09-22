@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { CheckCircle2, Loader2, PlusCircle, ShieldAlert } from "lucide-react";
+import { CheckCircle2, PlusCircle, ShieldAlert } from "lucide-react";
 
 import Field, { INPUT_CLS } from "../../../components/ui/Field";
 import { useT } from "../../../i18n/useT";
 import type { ChannelCreateResult } from "../../../api/adminTypes";
+import Button from "../ui/Button";
 import { describeAddChannelError, type ChannelFormMessage } from "./channelErrors";
 import { useAddChannel } from "./useChannels";
 
@@ -12,11 +13,14 @@ type Result =
   | { kind: "error"; message: ChannelFormMessage };
 
 /**
- * Paste a link (@name, t.me/name, t.me/+invite, -100… id), submit, and see the
- * resolved result right there — a private invite link cannot be resolved by
- * `getChat`, so the backend asks for the numeric chat id alongside it
+ * The body of the "channels.add" sheet (`ChannelsPage`): paste a link
+ * (@name, t.me/name, t.me/+invite, -100… id), submit, and see the resolved
+ * result right there — a private invite link cannot be resolved by `getChat`,
+ * so the backend asks for the numeric chat id alongside it
  * (CHANNEL_INVALID{reason: "invite_link_requires_chat_id"}); this form reveals
- * that second field only when the server actually asks for it.
+ * that second field only when the server actually asks for it. The sheet
+ * itself stays open after success so the admin can see the result before
+ * closing it (back / Esc / the sheet's own close button).
  */
 export default function AddChannelForm() {
   const t = useT();
@@ -61,6 +65,7 @@ export default function AddChannelForm() {
           placeholder={t("adminChannels.add.linkPlaceholder")}
           autoComplete="off"
           spellCheck={false}
+          autoFocus
         />
       </Field>
 
@@ -76,34 +81,32 @@ export default function AddChannelForm() {
         </Field>
       )}
 
-      <button
+      <Button
         type="submit"
-        disabled={addChannel.isPending || !link.trim()}
-        className="tap-target inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primaryFg disabled:opacity-60"
-      >
-        {addChannel.isPending ? (
-          <Loader2 size={15} className="animate-spin" aria-hidden="true" />
-        ) : (
-          <PlusCircle size={15} aria-hidden="true" />
-        )}
-        {addChannel.isPending ? t("adminChannels.add.checking") : t("adminChannels.add.submit")}
-      </button>
+        size="md"
+        variant="primary"
+        full
+        icon={PlusCircle}
+        loading={addChannel.isPending}
+        disabled={!link.trim()}
+        labelKey={addChannel.isPending ? "adminChannels.add.checking" : "adminChannels.add.submit"}
+      />
 
       <div aria-live="polite">
         {result?.kind === "success" && (
-          <div className="flex items-start gap-2 rounded-xl border border-success/40 bg-success/10 p-3 text-sm">
-            <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-success" aria-hidden="true" />
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-success/40 bg-success/10 p-3 text-[13px]">
+            <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-success" aria-hidden="true" />
             <div className="min-w-0">
               <p className="font-semibold text-text">
                 {result.data.channel.title || result.data.channel.username || result.data.channel.id}
               </p>
-              <p className="text-success">{t("adminChannels.add.success.admin")}</p>
+              <p className="text-[11px] text-success">{t("adminChannels.add.success.admin")}</p>
             </div>
           </div>
         )}
         {result?.kind === "error" && (
-          <div className="flex items-start gap-2 rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
-            <ShieldAlert size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-danger/40 bg-danger/10 p-3 text-[13px] text-danger">
+            <ShieldAlert size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
             <p className="min-w-0">{t(result.message.key, result.message.vars)}</p>
           </div>
         )}

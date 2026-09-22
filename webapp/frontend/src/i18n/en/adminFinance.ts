@@ -3,11 +3,10 @@ import type { AdminFinanceDict } from "../uz/adminFinance";
 const adminFinance: Record<keyof AdminFinanceDict, string> = {
   "adminFinance.title": "Finance",
 
-  "adminFinance.period.aria": "Period",
-  "adminFinance.period.7d": "7 days",
-  "adminFinance.period.30d": "30 days",
-  "adminFinance.period.90d": "90 days",
-  "adminFinance.period.365d": "365 days",
+  "adminFinance.tab.summary": "Summary",
+  "adminFinance.tab.transactions": "Transactions",
+  "adminFinance.tab.referrals": "Referrals",
+
 
   "adminFinance.stat.revenue": "Revenue",
   "adminFinance.stat.activations": "Activations",
@@ -20,7 +19,6 @@ const adminFinance: Record<keyof AdminFinanceDict, string> = {
   "adminFinance.chart.activations": "Activations",
   "adminFinance.chart.empty": "No data for this period.",
 
-  "adminFinance.transactions.title": "Transactions",
   "adminFinance.transactions.export": "Download CSV",
   "adminFinance.transactions.empty": "No transactions found.",
   "adminFinance.transactions.userIdPlaceholder": "User ID",
@@ -34,6 +32,8 @@ const adminFinance: Record<keyof AdminFinanceDict, string> = {
   "adminFinance.transactions.col.date": "Date",
 
   "adminFinance.filter.kindLabel": "Kind",
+  "adminFinance.filter.userId": "User ID",
+  "adminFinance.filter.dateLabel": "Date range",
 
   "adminFinance.kind.pro_activation": "Pro activation",
   "adminFinance.kind.referral_reward": "Referral reward",
@@ -41,10 +41,7 @@ const adminFinance: Record<keyof AdminFinanceDict, string> = {
   "adminFinance.kind.admin_reset": "Admin reset",
   "adminFinance.kind.adjustment": "Adjustment",
 
-  "adminFinance.referrals.title": "Referrals",
   "adminFinance.referrals.empty": "No referrals found.",
-  "adminFinance.referrals.col.inviter": "Inviter",
-  "adminFinance.referrals.col.invitedCount": "Invited",
-  "adminFinance.referrals.col.paidSum": "Paid sum",
+  "adminFinance.referrals.invitedSuffix": "invited",
 };
 export default adminFinance;

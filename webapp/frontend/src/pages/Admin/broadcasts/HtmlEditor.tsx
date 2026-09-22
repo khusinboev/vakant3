@@ -4,6 +4,7 @@ import { Bold, Code, Italic, Link2, Underline } from "lucide-react";
 import type { TranslationKey } from "../../../i18n";
 import { useT } from "../../../i18n/useT";
 import { useLocale } from "../../../i18n/useLocale";
+import { IconButton } from "../ui";
 import { escapeHtml, isAllowedLink, type HtmlCheck } from "./telegramHtml";
 
 export type HtmlEditorProps = {
@@ -12,26 +13,17 @@ export type HtmlEditorProps = {
   labelKey: TranslationKey;
   limit: number;
   check: HtmlCheck;
-  /** Rendered under the preview (e.g. the inline buttons mock-up). */
-  previewFooter?: React.ReactNode;
 };
 
 type Wrap = { open: string; close: string };
 
 /**
- * A plain textarea over Telegram's HTML source plus a small toolbar that wraps
- * the selection. Deliberately *not* a contentEditable WYSIWYG: the server
- * validates the raw HTML, so the admin should see exactly what it will get —
- * and a textarea keeps the Telegram in-app keyboard predictable.
+ * A plain textarea over Telegram's HTML source plus five 32px toolbar icons
+ * that wrap the selection. Deliberately *not* a contentEditable WYSIWYG: the
+ * server validates the raw HTML, so the admin should see exactly what it will
+ * get — and a textarea keeps the Telegram in-app keyboard predictable.
  */
-export default function HtmlEditor({
-  value,
-  onChange,
-  labelKey,
-  limit,
-  check,
-  previewFooter,
-}: HtmlEditorProps) {
+export default function HtmlEditor({ value, onChange, labelKey, limit, check }: HtmlEditorProps) {
   const t = useT();
   const { formatNumber } = useLocale();
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -71,15 +63,17 @@ export default function HtmlEditor({
   ];
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <label htmlFor={textareaId} className="text-xs font-semibold text-muted">
-          {t(labelKey)}
-        </label>
+    <div className="space-y-2">
+      <div className="flex items-center gap-0.5" role="toolbar" aria-label={t(labelKey)}>
+        {tools.map(({ key, icon, onClick }) => (
+          <IconButton key={key} icon={icon} variant="ghost" ariaLabel={t(key)} onClick={onClick} />
+        ))}
         <span
           id={counterId}
           aria-live="polite"
-          className={`text-xs tabular-nums ${over > 0 ? "font-semibold text-danger" : "text-muted"}`}
+          className={`ml-auto shrink-0 pr-1 text-[11px] tabular-nums ${
+            over > 0 ? "font-semibold text-danger" : "text-muted"
+          }`}
         >
           {t("adminBroadcasts.composer.counter", {
             count: formatNumber(check.length),
@@ -88,64 +82,30 @@ export default function HtmlEditor({
         </span>
       </div>
 
-      <div className="rounded-xl border border-border bg-surface">
-        <div className="flex flex-wrap items-center gap-1 border-b border-border px-2 py-1.5" role="toolbar" aria-label={t(labelKey)}>
-          {tools.map(({ key, icon: Icon, onClick }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={onClick}
-              title={t(key)}
-              aria-label={t(key)}
-              className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surfaceAlt hover:text-text focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <Icon size={15} aria-hidden="true" />
-            </button>
-          ))}
-        </div>
-
-        <textarea
-          id={textareaId}
-          ref={areaRef}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          rows={7}
-          spellCheck={false}
-          aria-describedby={counterId}
-          aria-invalid={over > 0 || check.reason !== null}
-          placeholder={t("adminBroadcasts.composer.textPlaceholder")}
-          className="w-full resize-y rounded-b-xl bg-transparent px-3 py-2.5 font-mono text-sm text-text placeholder:text-muted/70 focus:outline-none"
-        />
-      </div>
+      <textarea
+        id={textareaId}
+        ref={areaRef}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={6}
+        spellCheck={false}
+        aria-label={t(labelKey)}
+        aria-describedby={counterId}
+        aria-invalid={over > 0 || check.reason !== null}
+        placeholder={t("adminBroadcasts.composer.textPlaceholder")}
+        className="w-full resize-y rounded-xl border border-border bg-surface px-2.5 py-2 font-mono text-[13px] text-text placeholder:text-muted/70 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+      />
 
       {over > 0 && (
-        <p role="alert" className="text-xs text-danger">
+        <p role="alert" className="text-[11px] text-danger">
           {t("adminBroadcasts.composer.counterOver", { over: formatNumber(over) })}
         </p>
       )}
       {check.reason && (
-        <p role="alert" className="text-xs text-danger">
+        <p role="alert" className="text-[11px] text-danger">
           {t("adminBroadcasts.error.badHtml", { reason: check.reason })}
         </p>
       )}
-
-      <div>
-        <p className="mb-1.5 text-xs font-semibold text-muted">{t("adminBroadcasts.composer.preview")}</p>
-        <div className="rounded-xl border border-border bg-surfaceAlt p-3">
-          {check.html ? (
-            // Safe: `check.html` was rebuilt from the Telegram allowlist in
-            // telegramHtml.ts — every text node is escaped and no attribute
-            // other than a validated `href` / `class="tg-spoiler"` survives.
-            <div
-              className="whitespace-pre-wrap break-words text-sm text-text [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:font-mono"
-              dangerouslySetInnerHTML={{ __html: check.html }}
-            />
-          ) : (
-            <p className="text-sm text-muted">{t("adminBroadcasts.composer.previewEmpty")}</p>
-          )}
-          {previewFooter}
-        </div>
-      </div>
     </div>
   );
 }

@@ -17,9 +17,9 @@ export default function LatencyChip({ label, ms }: LatencyChipProps) {
   const t = useT();
   return (
     <div className={`rounded-xl border px-2 py-2 text-center ${tone(ms)}`}>
-      <p className="text-sm font-bold">{ms > 0 ? ms : "–"}</p>
-      <p className="text-[9px] font-medium">{t("admin.latency.unit")}</p>
-      <p className="mt-0.5 text-[10px] opacity-80">{label}</p>
+      <p className="text-[13px] font-bold">{ms > 0 ? ms : "–"}</p>
+      <p className="text-[11px] font-medium">{t("admin.latency.unit")}</p>
+      <p className="mt-0.5 text-[11px] opacity-80">{label}</p>
     </div>
   );
 }

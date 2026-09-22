@@ -31,6 +31,37 @@ declare global {
     offClick: (callback: () => void) => void;
   }
 
+  interface TelegramMainButton {
+    text: string;
+    color: string;
+    textColor: string;
+    isVisible: boolean;
+    isActive: boolean;
+    isProgressVisible: boolean;
+    setText: (text: string) => void;
+    onClick: (callback: () => void) => void;
+    offClick: (callback: () => void) => void;
+    show: () => void;
+    hide: () => void;
+    enable: () => void;
+    disable: () => void;
+    showProgress: (leaveActive?: boolean) => void;
+    hideProgress: () => void;
+    setParams: (params: {
+      text?: string;
+      color?: string;
+      text_color?: string;
+      is_active?: boolean;
+      is_visible?: boolean;
+    }) => void;
+  }
+
+  interface TelegramHapticFeedback {
+    impactOccurred: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => void;
+    notificationOccurred: (type: "error" | "success" | "warning") => void;
+    selectionChanged: () => void;
+  }
+
   interface TelegramWebApp {
     initData: string;
     initDataUnsafe?: TelegramWebAppInitDataUnsafe;
@@ -46,6 +77,8 @@ declare global {
     contentSafeAreaInset: { top: number; bottom: number; left: number; right: number };
     isVersionAtLeast: (version: string) => boolean;
     BackButton: TelegramBackButton;
+    MainButton?: TelegramMainButton;
+    HapticFeedback?: TelegramHapticFeedback;
     ready: () => void;
     expand: () => void;
     close: () => void;

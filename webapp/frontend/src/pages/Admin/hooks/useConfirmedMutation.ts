@@ -6,6 +6,7 @@ import { useT } from "../../../i18n/useT";
 import type { TranslationKey, TranslationVars } from "../../../i18n";
 import { confirmAction } from "../../../api/admin";
 import { closeConfirm, requestConfirm } from "./useConfirm";
+import { haptic } from "./useMainButton";
 
 export type ConfirmedMutationOptions<TBody, TResult> = {
   /** Server-side action name, e.g. `"users.balance"` (must match the route). */
@@ -103,10 +104,12 @@ export function useConfirmedMutation<TBody = Record<string, unknown>, TResult = 
         for (const key of invalidate ?? []) {
           void queryClient.invalidateQueries({ queryKey: key });
         }
+        haptic("success");
         if (successKey) toast.success(t(successKey));
         onSuccess?.(result);
         return result;
       } catch (error) {
+        haptic("error");
         toast.apiError(error);
         onError?.(error);
         return undefined;

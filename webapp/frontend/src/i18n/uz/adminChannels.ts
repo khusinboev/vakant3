@@ -1,10 +1,8 @@
 /** adminChannels namespace — owned by the corresponding admin page agent. uz is the source. */
 const adminChannels = {
   "adminChannels.title": "Kanallar",
-  "adminChannels.subtitle":
-    "Foydalanuvchi ilovaga kirishidan oldin obuna bo'lishi shart bo'lgan kanallar ro'yxati.",
 
-  // ── Gate explainer card ──────────────────────────────────────────────────
+  // ── Gate explainer (closed Accordion item at the bottom) ─────────────────
   "adminChannels.info.title": "Kirish shartlari qanday ishlaydi",
   "adminChannels.info.step.start": "Bot start",
   "adminChannels.info.step.subscribe": "Obuna",
@@ -12,7 +10,7 @@ const adminChannels = {
   "adminChannels.info.description": "Referral shartini yoqish va talab qilinadigan son",
   "adminChannels.info.settingsLink": "Sozlamalar sahifasida sozlanadi",
 
-  // ── Add form ─────────────────────────────────────────────────────────────
+  // ── Add sheet ────────────────────────────────────────────────────────────
   "adminChannels.add.title": "Kanal qo'shish",
   "adminChannels.add.linkLabel": "Kanal havolasi",
   "adminChannels.add.linkHint": "@nomi, t.me/nomi, t.me/+taklif yoki -100 ID",
@@ -33,17 +31,13 @@ const adminChannels = {
   "adminChannels.add.error.upstream": "Telegram bilan bog'lanib bo'lmadi. Birozdan so'ng qayta urinib ko'ring.",
   "adminChannels.add.error.generic": "Kanalni qo'shib bo'lmadi. Qayta urinib ko'ring.",
 
-  // ── List ─────────────────────────────────────────────────────────────────
-  "adminChannels.table.caption": "Majburiy obuna kanallari",
-  "adminChannels.column.channel": "Kanal",
-  "adminChannels.column.status": "Holat",
-  "adminChannels.column.enabled": "Yoqilgan",
-  "adminChannels.column.actions": "Amallar",
+  // ── List row ─────────────────────────────────────────────────────────────
   "adminChannels.status.never": "Hali tekshirilmagan",
-  "adminChannels.status.ok": "OK — {time}",
-  "adminChannels.status.failed": "Muammo bor — {time}",
-  "adminChannels.status.enabled": "Yoqilgan",
-  "adminChannels.status.disabled": "O'chirilgan",
+  "adminChannels.chip.ok": "OK",
+  "adminChannels.chip.fail": "Xato",
+  "adminChannels.chip.unknown": "—",
+  "adminChannels.toggle.enable": "{name} — yoqish",
+  "adminChannels.toggle.disable": "{name} — o'chirish",
   "adminChannels.action.check": "{name} — hozir tekshirish",
   "adminChannels.action.delete": "{name} — o'chirish",
   "adminChannels.check.ok": "Kanal holati yaxshi — bot admin.",

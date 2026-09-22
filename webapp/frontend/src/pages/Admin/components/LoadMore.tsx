@@ -1,4 +1,5 @@
 import { useT } from "../../../i18n/useT";
+import Button from "../ui/Button";
 
 export type LoadMoreProps = {
   onLoadMore: () => void;
@@ -24,21 +25,20 @@ export default function LoadMore({
   if (!hasMore && total === null) return null;
 
   return (
-    <div className={`flex items-center justify-center gap-3 py-3 ${className}`}>
+    <div className={`flex items-center justify-center gap-2 py-2 ${className}`}>
       {total !== null && (
-        <span className="text-xs text-muted">
+        <span className="text-[11px] tabular-nums text-muted">
           {loaded !== undefined ? `${loaded} / ${total}` : t("admin.table.total", { total })}
         </span>
       )}
       {hasMore && (
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="secondary"
+          labelKey={loading ? "admin.table.loadingMore" : "admin.table.loadMore"}
+          loading={loading}
           onClick={onLoadMore}
-          disabled={loading}
-          className="tap-target rounded-xl border border-border bg-surface px-4 py-2 text-xs font-semibold text-text disabled:opacity-60"
-        >
-          {loading ? t("admin.table.loadingMore") : t("admin.table.loadMore")}
-        </button>
+        />
       )}
     </div>
   );

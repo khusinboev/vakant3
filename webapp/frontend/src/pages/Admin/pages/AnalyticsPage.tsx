@@ -1,14 +1,12 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3 } from "lucide-react";
 
 import { adminKeys, getAnalyticsOverview } from "../../../api/admin";
-import { useT } from "../../../i18n/useT";
-import PeriodSelector, { type AnalyticsPeriod } from "../analytics/PeriodSelector";
 import ResumeKpiSection from "../analytics/ResumeKpiSection";
 import StatsGrid from "../analytics/StatsGrid";
-import EmptyState from "../components/EmptyState";
 import QueryState from "../components/QueryState";
+import { EmptyState, PeriodSelector, Skeleton, periodDays, useAdminHeader, useQueryState, type PeriodValue } from "../ui";
 
 // The dashboard's own chart set (`analytics/Charts.tsx`) is loaded lazily so
 // its recharts import gets its own chunk, same reasoning as
@@ -16,24 +14,22 @@ import QueryState from "../components/QueryState";
 const Charts = lazy(() => import("../analytics/Charts"));
 
 function ChartsFallback() {
-  return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-[268px] animate-pulse rounded-2xl bg-surfaceAlt" />
-      ))}
-    </div>
-  );
+  return <Skeleton rows={4} />;
 }
 
 /**
- * `daily_stats` dashboard: today's live counters as `StatCard`s (with deltas
- * against the period average), the historical series as charts, and the
- * existing resume-builder KPIs folded in underneath so admins don't have to
- * jump to a separate page for them.
+ * `daily_stats` dashboard: today's live counters as `StatTile`s (with deltas
+ * against the period average), the historical series as charts inside an
+ * accordion, and the existing resume-builder KPIs folded in underneath as a
+ * separate collapsible so admins don't have to jump to a separate page for
+ * them.
  */
 export default function AnalyticsPage() {
-  const t = useT();
-  const [days, setDays] = useState<AnalyticsPeriod>(30);
+  const [period, setPeriod] = useQueryState<PeriodValue>("period", "30");
+  const days = periodDays(period);
+
+  useAdminHeader({ titleKey: "admin.nav.analytics" });
+
   const overview = useQuery({
     queryKey: adminKeys.analyticsOverview(days),
     queryFn: () => getAnalyticsOverview(days),
@@ -41,15 +37,12 @@ export default function AnalyticsPage() {
   });
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="sr-only">{t("admin.nav.analytics")}</h1>
-        <PeriodSelector value={days} onChange={setDays} />
-      </div>
+    <div className="space-y-3">
+      <PeriodSelector value={period} onChange={setPeriod} periods={["7", "30", "90"]} />
 
       <QueryState query={overview} skeletonClassName="h-40">
         {(data) => (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <StatsGrid overview={data} />
 
             {data.series.length === 0 ? (

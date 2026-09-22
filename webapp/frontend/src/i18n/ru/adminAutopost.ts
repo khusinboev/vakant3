@@ -1,7 +1,6 @@
 import type { AdminAutopostDict } from "../uz/adminAutopost";
 
 const adminAutopost: Record<keyof AdminAutopostDict, string> = {
-  "adminAutopost.status.title": "Статус автопостинга",
   "adminAutopost.status.enabledLabel": "Статус",
   "adminAutopost.status.enabled": "Включено",
   "adminAutopost.status.disabled": "Выключено",
@@ -16,19 +15,14 @@ const adminAutopost: Record<keyof AdminAutopostDict, string> = {
   "adminAutopost.status.failed": "Ошибка",
   "adminAutopost.status.skipped": "Пропущено",
 
-  "adminAutopost.schedule.title": "Расписание на сегодня",
   "adminAutopost.schedule.postedOf": "Опубликовано: {posted} / {total}",
   "adminAutopost.schedule.empty": "На сегодня слотов нет",
-  "adminAutopost.schedule.done": "Готово",
-  "adminAutopost.schedule.pending": "Ожидает",
 
   "adminAutopost.postNow.title": "Опубликовать сейчас",
   "adminAutopost.postNow.description": "Введите UID вакансии или оставьте пустым — будет выбрана следующая подходящая вакансия.",
   "adminAutopost.postNow.uidLabel": "UID вакансии",
-  "adminAutopost.postNow.uidHint": "необязательно",
   "adminAutopost.postNow.uidPlaceholder": "osonish_12345",
   "adminAutopost.postNow.button": "Опубликовать сейчас",
-  "adminAutopost.postNow.sending": "Отправка…",
   "adminAutopost.postNow.confirmTitle": "Подтвердите немедленную публикацию",
   "adminAutopost.postNow.confirmDescription": "{uid} будет опубликован в канале прямо сейчас. Продолжить?",
   "adminAutopost.postNow.confirmButton": "Опубликовать",
@@ -39,20 +33,14 @@ const adminAutopost: Record<keyof AdminAutopostDict, string> = {
   "adminAutopost.postNow.jobStatus.running": "Выполняется",
   "adminAutopost.postNow.jobStatus.done": "Готово",
   "adminAutopost.postNow.jobStatus.failed": "Ошибка",
+  "adminAutopost.postNow.jobStatusLabel": "Статус задачи",
   "adminAutopost.postNow.resultUid": "Вакансия",
   "adminAutopost.postNow.resultMessageId": "ID сообщения",
   "adminAutopost.postNow.resultError": "Ошибка",
-  "adminAutopost.postNow.dismiss": "Закрыть",
 
   "adminAutopost.history.title": "История публикаций",
   "adminAutopost.history.empty": "Публикаций пока нет",
-  "adminAutopost.history.col.uid": "Вакансия",
-  "adminAutopost.history.col.channel": "Канал",
-  "adminAutopost.history.col.status": "Статус",
-  "adminAutopost.history.col.error": "Ошибка",
-  "adminAutopost.history.col.time": "Время",
   "adminAutopost.history.filter.status": "По статусу",
-  "adminAutopost.history.filter.all": "Все",
 };
 
 export default adminAutopost;

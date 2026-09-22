@@ -1,7 +1,6 @@
 import type { AdminAutopostDict } from "../uz/adminAutopost";
 
 const adminAutopost: Record<keyof AdminAutopostDict, string> = {
-  "adminAutopost.status.title": "Auto-post status",
   "adminAutopost.status.enabledLabel": "Status",
   "adminAutopost.status.enabled": "Enabled",
   "adminAutopost.status.disabled": "Disabled",
@@ -16,19 +15,14 @@ const adminAutopost: Record<keyof AdminAutopostDict, string> = {
   "adminAutopost.status.failed": "Failed",
   "adminAutopost.status.skipped": "Skipped",
 
-  "adminAutopost.schedule.title": "Today's schedule",
   "adminAutopost.schedule.postedOf": "Posted: {posted} / {total}",
   "adminAutopost.schedule.empty": "No slots for today",
-  "adminAutopost.schedule.done": "Done",
-  "adminAutopost.schedule.pending": "Pending",
 
   "adminAutopost.postNow.title": "Post now",
   "adminAutopost.postNow.description": "Enter a vacancy UID, or leave it blank to post the next matching vacancy.",
   "adminAutopost.postNow.uidLabel": "Vacancy UID",
-  "adminAutopost.postNow.uidHint": "optional",
   "adminAutopost.postNow.uidPlaceholder": "osonish_12345",
   "adminAutopost.postNow.button": "Post now",
-  "adminAutopost.postNow.sending": "Sending…",
   "adminAutopost.postNow.confirmTitle": "Confirm immediate post",
   "adminAutopost.postNow.confirmDescription": "{uid} will be posted to the channel right now. Continue?",
   "adminAutopost.postNow.confirmButton": "Post",
@@ -39,20 +33,14 @@ const adminAutopost: Record<keyof AdminAutopostDict, string> = {
   "adminAutopost.postNow.jobStatus.running": "Running",
   "adminAutopost.postNow.jobStatus.done": "Done",
   "adminAutopost.postNow.jobStatus.failed": "Failed",
+  "adminAutopost.postNow.jobStatusLabel": "Job status",
   "adminAutopost.postNow.resultUid": "Vacancy",
   "adminAutopost.postNow.resultMessageId": "Message ID",
   "adminAutopost.postNow.resultError": "Error",
-  "adminAutopost.postNow.dismiss": "Dismiss",
 
   "adminAutopost.history.title": "Post history",
   "adminAutopost.history.empty": "No posts yet",
-  "adminAutopost.history.col.uid": "Vacancy",
-  "adminAutopost.history.col.channel": "Channel",
-  "adminAutopost.history.col.status": "Status",
-  "adminAutopost.history.col.error": "Error",
-  "adminAutopost.history.col.time": "Time",
   "adminAutopost.history.filter.status": "By status",
-  "adminAutopost.history.filter.all": "All",
 };
 
 export default adminAutopost;

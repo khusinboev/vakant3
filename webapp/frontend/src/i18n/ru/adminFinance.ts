@@ -3,11 +3,10 @@ import type { AdminFinanceDict } from "../uz/adminFinance";
 const adminFinance: Record<keyof AdminFinanceDict, string> = {
   "adminFinance.title": "Финансы",
 
-  "adminFinance.period.aria": "Период",
-  "adminFinance.period.7d": "7 дней",
-  "adminFinance.period.30d": "30 дней",
-  "adminFinance.period.90d": "90 дней",
-  "adminFinance.period.365d": "365 дней",
+  "adminFinance.tab.summary": "Сводка",
+  "adminFinance.tab.transactions": "Транзакции",
+  "adminFinance.tab.referrals": "Рефералы",
+
 
   "adminFinance.stat.revenue": "Доход",
   "adminFinance.stat.activations": "Активации",
@@ -20,7 +19,6 @@ const adminFinance: Record<keyof AdminFinanceDict, string> = {
   "adminFinance.chart.activations": "Активации",
   "adminFinance.chart.empty": "Нет данных за этот период.",
 
-  "adminFinance.transactions.title": "Транзакции",
   "adminFinance.transactions.export": "Скачать CSV",
   "adminFinance.transactions.empty": "Транзакции не найдены.",
   "adminFinance.transactions.userIdPlaceholder": "ID пользователя",
@@ -34,6 +32,8 @@ const adminFinance: Record<keyof AdminFinanceDict, string> = {
   "adminFinance.transactions.col.date": "Дата",
 
   "adminFinance.filter.kindLabel": "Тип",
+  "adminFinance.filter.userId": "ID пользователя",
+  "adminFinance.filter.dateLabel": "Диапазон дат",
 
   "adminFinance.kind.pro_activation": "Активация Pro",
   "adminFinance.kind.referral_reward": "Реферальная награда",
@@ -41,10 +41,7 @@ const adminFinance: Record<keyof AdminFinanceDict, string> = {
   "adminFinance.kind.admin_reset": "Сброс админом",
   "adminFinance.kind.adjustment": "Корректировка",
 
-  "adminFinance.referrals.title": "Рефералы",
   "adminFinance.referrals.empty": "Рефералы не найдены.",
-  "adminFinance.referrals.col.inviter": "Пригласивший",
-  "adminFinance.referrals.col.invitedCount": "Приглашено",
-  "adminFinance.referrals.col.paidSum": "Выплачено",
+  "adminFinance.referrals.invitedSuffix": "приглаш.",
 };
 export default adminFinance;

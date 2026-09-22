@@ -2,7 +2,6 @@ import type { AdminChannelsDict } from "../uz/adminChannels";
 
 const adminChannels: Record<keyof AdminChannelsDict, string> = {
   "adminChannels.title": "Channels",
-  "adminChannels.subtitle": "Channels a user must subscribe to before the app lets them in.",
 
   "adminChannels.info.title": "How the entry gate works",
   "adminChannels.info.step.start": "Bot start",
@@ -31,16 +30,12 @@ const adminChannels: Record<keyof AdminChannelsDict, string> = {
   "adminChannels.add.error.upstream": "Couldn't reach Telegram. Try again in a moment.",
   "adminChannels.add.error.generic": "Couldn't add the channel. Try again.",
 
-  "adminChannels.table.caption": "Required subscription channels",
-  "adminChannels.column.channel": "Channel",
-  "adminChannels.column.status": "Status",
-  "adminChannels.column.enabled": "Enabled",
-  "adminChannels.column.actions": "Actions",
   "adminChannels.status.never": "Never checked",
-  "adminChannels.status.ok": "OK — {time}",
-  "adminChannels.status.failed": "Issue found — {time}",
-  "adminChannels.status.enabled": "Enabled",
-  "adminChannels.status.disabled": "Disabled",
+  "adminChannels.chip.ok": "OK",
+  "adminChannels.chip.fail": "Fail",
+  "adminChannels.chip.unknown": "—",
+  "adminChannels.toggle.enable": "Enable {name}",
+  "adminChannels.toggle.disable": "Disable {name}",
   "adminChannels.action.check": "Check {name} now",
   "adminChannels.action.delete": "Delete {name}",
   "adminChannels.check.ok": "All good — the bot is an admin.",

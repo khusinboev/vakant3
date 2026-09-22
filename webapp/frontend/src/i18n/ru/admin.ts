@@ -2,69 +2,65 @@ import type { AdminDict } from "../uz/admin";
 
 const admin: Record<keyof AdminDict, string> = {
   // ── Shell ──────────────────────────────────────────────────────────────────
-  "admin.brand": "Bandlik.uz",
   "admin.title": "Админ-панель",
-  "admin.online": "Онлайн",
   "admin.accessDenied": "Админ-панель доступна только администраторам.",
-  "admin.sectionError": "Не удалось загрузить данные.",
 
-  "admin.tab.overview": "Обзор",
-  "admin.tab.settings": "Настройки",
-  "admin.tab.analytics": "Аналитика",
-  "admin.tab.users": "Пользователи",
 
   "admin.status.on": "Включено",
   "admin.status.off": "Выключено",
 
+  "admin.dash.sparklineAria": "График новых пользователей за последние 7 дней",
+  "admin.dash.sparklineLabel": "Новые пользователи — 7 дней",
+  "admin.dash.systemOk": "Система в порядке",
+  "admin.dash.systemDegraded": "Проблема с системой",
+  "admin.dash.systemUnknown": "Статус системы неизвестен",
+  "admin.dash.autoPostLabel": "Авто-пост",
+  "admin.dash.postedTodayLabel": "Опубликовано сегодня",
+  "admin.dash.referralLabel": "Реферал",
+  "admin.dash.minReferralsLabel": "Мин. рефералов",
+
   // ── Overview ───────────────────────────────────────────────────────────────
-  "admin.overview.autoPost": "Автопостинг",
-  "admin.overview.referral": "Рефералы",
-  "admin.overview.postedToday": "сегодня {posted}/{total}",
-  "admin.overview.minRefs": "Минимум {count} реферала",
-  "admin.overview.scheduleTitle": "Расписание на сегодня",
-  "admin.overview.scheduleEmpty": "На сегодня расписание не составлено.",
-  "admin.overview.slotPosted": "{time} — опубликовано",
-  "admin.overview.slotSkipped": "{time} — пропущено",
-  "admin.overview.slotPending": "{time} — в очереди",
   "admin.overview.kpiTitle": "KPI-цели резюме",
 
   "admin.kpi.completion": "Завершение",
   "admin.kpi.sendSuccess": "Успешная отправка",
   "admin.kpi.pdfExport": "Экспорт PDF",
   "admin.kpi.creationTime": "Время создания",
-  "admin.kpi.target": "Цель: {target}",
   "admin.kpi.minutesShort": "мин",
   "admin.kpi.openedUsers": "Открыли",
   "admin.kpi.completedUsers": "Завершили",
   "admin.kpi.sendAttempts": "Отправили",
 
   // ── Settings ───────────────────────────────────────────────────────────────
-  "admin.group.autoPost": "Автопостинг",
-  "admin.group.referralGate": "Реферальное условие",
-  "admin.group.pro": "Тариф Pro",
-  "admin.group.resumeKpi": "KPI-цели резюме",
+  "admin.settings.group.autoPost": "Автопостинг",
+  "admin.settings.group.referralGate": "Реферальное условие",
+  "admin.settings.group.pro": "Тариф Pro",
+  "admin.settings.group.resumeKpi": "KPI-цели резюме",
 
-  "admin.field.enabled": "Включено",
-  "admin.field.channel": "Канал",
-  "admin.field.channelLang": "Язык канала",
-  "admin.field.autoPostMinSalary": "Минимальная зарплата (сум)",
-  "admin.field.perDayMin": "Минимум в день",
-  "admin.field.perDayMax": "Максимум в день",
-  "admin.field.requiredRefs": "Требуется рефералов",
-  "admin.field.proPrice": "Цена Pro (сум)",
-  "admin.field.referralReward": "Награда за реферала (сум)",
-  "admin.field.proMinSalary": "Минимальная зарплата для Pro (сум)",
-  "admin.field.targetCreationMinutes": "Время создания (мин)",
-  "admin.field.targetCompletionRate": "Доля завершения (%)",
-  "admin.field.targetSendRate": "Успешная отправка (%)",
-  "admin.field.targetExportRate": "Успешный экспорт PDF (%)",
+  "admin.settings.field.enabled": "Включено",
+  "admin.settings.field.channel": "Канал",
+  "admin.settings.field.channelLang": "Язык канала",
+  "admin.settings.field.autoPostMinSalary": "Минимальная зарплата (сум)",
+  "admin.settings.field.perDayMin": "Минимум в день",
+  "admin.settings.field.perDayMax": "Максимум в день",
+  "admin.settings.field.requiredRefs": "Требуется рефералов",
+  "admin.settings.field.proPrice": "Цена Pro (сум)",
+  "admin.settings.field.referralReward": "Награда за реферала (сум)",
+  "admin.settings.field.proMinSalary": "Минимальная зарплата для Pro (сум)",
+  "admin.settings.field.targetCreationMinutes": "Время создания (мин)",
+  "admin.settings.field.targetCompletionRate": "Доля завершения (%)",
+  "admin.settings.field.targetSendRate": "Успешная отправка (%)",
+  "admin.settings.field.targetExportRate": "Успешный экспорт PDF (%)",
 
-  "admin.edit.aria": "{label} — изменить",
+  "admin.settings.editAria": "{label} — изменить",
   "admin.settings.saved": "Настройка сохранена.",
-  "admin.validation.number": "{label}: введите число.",
-  "admin.validation.negative": "{label}: не может быть отрицательным.",
-  "admin.validation.empty": "{label}: значение не может быть пустым.",
-  "admin.validation.perDayRange":
+  "admin.settings.saving": "Сохранение…",
+  "admin.settings.conflict.message": "Настройка была изменена в другом месте.",
+  "admin.settings.conflict.reload": "Обновить",
+  "admin.settings.validation.number": "{label}: введите число.",
+  "admin.settings.validation.negative": "{label}: не может быть отрицательным.",
+  "admin.settings.validation.empty": "{label}: значение не может быть пустым.",
+  "admin.settings.validation.perDayRange":
     "Минимум в день не должен превышать максимум ({min} > {max}).",
 
   // ── Analytics ──────────────────────────────────────────────────────────────
@@ -101,29 +97,9 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.funnel.step.final": "Финал",
 
   // ── Users ──────────────────────────────────────────────────────────────────
-  "admin.users.addTitle": "Пополнить баланс",
-  "admin.users.telegramId": "Telegram ID",
-  "admin.users.amount": "Сумма (сум)",
-  "admin.users.addPreview": "На ID {id} будет зачислено {amount}.",
-  "admin.users.addSubmit": "Пополнить баланс",
-  "admin.users.adding": "Пополняем...",
-  "admin.users.addSuccess": "Новый баланс: {balance}",
-  "admin.users.invalidAmount": "Сумма должна быть целым числом больше нуля.",
-  "admin.users.invalidId": "Неверный Telegram ID.",
-  "admin.users.inspectTitle": "Проверить пользователя",
-  "admin.users.inspectPlaceholder": "Telegram user ID",
-  "admin.users.inspectSubmit": "Показать",
-  "admin.users.hasResume": "Резюме есть",
-  "admin.users.noResume": "Резюме нет",
-  "admin.users.template": "Шаблон",
-  "admin.users.updatedAt": "Обновлено",
-  "admin.users.recentEvents": "Последние события",
-  "admin.users.noEvents": "Событий нет.",
 
   // ── Shell v2 (AdminLayout / registry / shared components) ─────────────────
   "admin.nav.aria": "Разделы админ-панели",
-  "admin.nav.more": "Ещё",
-  "admin.nav.allPages": "Все разделы",
   "admin.nav.group.main": "Главное",
   "admin.nav.group.people": "Пользователи",
   "admin.nav.group.content": "Контент и каналы",
@@ -134,7 +110,6 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.nav.analytics": "Аналитика",
   "admin.nav.resume": "Аналитика резюме",
   "admin.nav.users": "Пользователи",
-  "admin.nav.quick": "Быстрые действия",
   "admin.nav.broadcasts": "Рассылки",
   "admin.nav.channels": "Каналы",
   "admin.nav.autopost": "Автопостинг",
@@ -149,15 +124,11 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.role.viewer": "Наблюдатель",
   "admin.role.required": "Для этого раздела нужна роль не ниже «{role}».",
 
-  "admin.shell.langToggle": "Язык",
-  "admin.shell.themeToggle": "Тема",
-  "admin.shell.loading": "Загрузка...",
   "admin.shell.openPanel": "Открыть админ-панель",
 
   "admin.table.empty": "Данных нет.",
   "admin.table.loadMore": "Показать ещё",
   "admin.table.loadingMore": "Загрузка...",
-  "admin.table.sort": "Сортировать по «{label}»",
   "admin.table.total": "Всего: {total}",
 
   "admin.confirm.title": "Подтвердить действие?",
@@ -165,31 +136,17 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.confirm.cancel": "Отмена",
   "admin.confirm.working": "Выполняется...",
 
-  "admin.filter.aria": "Фильтры",
   "admin.filter.searchPlaceholder": "Поиск...",
   "admin.filter.all": "Все",
   "admin.filter.from": "С даты",
   "admin.filter.to": "По дату",
-  "admin.filter.reset": "Сбросить",
 
   "admin.empty.default": "Пока ничего нет.",
   "admin.stat.deltaUp": "рост на {value}",
   "admin.stat.deltaDown": "снижение на {value}",
 
-  "admin.danger.title": "Опасная зона",
-  "admin.danger.desc": "Баланс пользователя обнулится, а Pro будет отключён.",
-  "admin.danger.submit": "Сбросить",
-  "admin.danger.confirm":
-    "ID {id}: баланс обнулится, Pro будет снят. Подтверждаете?",
-  "admin.danger.confirmYes": "Да, сбросить",
-  "admin.danger.success": "ID {id} сброшен: баланс 0, Pro отключён.",
 
   // ── Analytics dashboard (daily_stats rollup) ────────────────────────────────
-  "admin.analytics2.period.label": "Период",
-  "admin.analytics2.period.7": "7 дней",
-  "admin.analytics2.period.30": "30 дней",
-  "admin.analytics2.period.90": "90 дней",
-
   "admin.analytics2.stat.groupLabel": "Показатели за сегодня",
   "admin.analytics2.stat.hintToday": "сегодня",
   "admin.analytics2.stat.newUsers": "Новые пользователи",
@@ -222,5 +179,49 @@ const admin: Record<keyof AdminDict, string> = {
     "Ежедневный расчёт (rollup) ещё не запускался — графики появятся после завершения первого дня.",
 
   "admin.analytics2.resumeKpi.title": "KPI резюме",
+
+  // ── Shell v3 (AdminShell / AdminBar / Rail / ui kit) ─────────────────────
+  "admin.shell.back": "Назад",
+  "admin.shell.menu": "Ещё действия",
+  "admin.shell.actions": "Действия",
+  "admin.shell.content": "Содержимое админки",
+
+  "admin.bar.home": "Главная",
+  "admin.bar.users": "Люди",
+  "admin.bar.broadcasts": "Рассылка",
+  "admin.bar.more": "Ещё",
+
+  "admin.more.title": "Разделы",
+  "admin.more.quickActions": "Быстрые действия",
+  "admin.more.quick.postNow": "Опубликовать сейчас",
+  "admin.more.quick.newBroadcast": "Новая рассылка",
+  "admin.more.quick.addChannel": "Добавить канал",
+
+  "admin.rail.pin": "Закрепить меню",
+  "admin.rail.unpin": "Свернуть меню",
+
+  "admin.sheet.close": "Закрыть",
+
+  "admin.filter.title": "Фильтры",
+  "admin.filter.open": "Фильтры",
+  "admin.filter.openCount": "Фильтры ({count})",
+  "admin.filter.apply": "Применить",
+  "admin.filter.clear": "Сбросить",
+  "admin.filter.removeAria": "Убрать фильтр «{label}»",
+  "admin.filter.on": "Включён",
+
+  "admin.search.clear": "Очистить поиск",
+
+  "admin.tabs.aria": "Разделы",
+  "admin.toolbar.more": "Ещё",
+  "admin.toolbar.moreAria": "Дополнительные действия",
+
+  "admin.period.aria": "Период",
+  "admin.period.7": "7 дней",
+  "admin.period.30": "30 дней",
+  "admin.period.90": "90 дней",
+  "admin.period.365": "1 год",
+
+
 };
 export default admin;

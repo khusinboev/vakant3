@@ -1,98 +1,111 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { getAuditLog } from "../../../api/admin";
 import type { AuditLogItem } from "../../../api/adminTypes";
 import { useLocale } from "../../../i18n/useLocale";
-import { useDebouncedValue } from "../../ResumeStudio/lib/useDebouncedValue";
-import DataTable, { type Column } from "../components/DataTable";
-import FilterBar from "../components/FilterBar";
+import ErrorCard from "../components/ErrorCard";
+import LoadMore from "../components/LoadMore";
 import { useCursorQuery } from "../hooks/useCursorQuery";
-import JsonDetails from "./JsonDetails";
+import { useHistorySheet } from "../hooks/useHistorySheet";
+import {
+  EmptyState,
+  FilterChips,
+  JsonDetails,
+  List,
+  ListRow,
+  Sheet,
+  Skeleton,
+  useAdminFilters,
+  type FilterDef,
+} from "../ui";
 
 const PAGE_LIMIT = 30;
+const DETAIL_SHEET = "system.audit.detail";
+
+const FILTERS: FilterDef[] = [
+  {
+    key: "actor",
+    labelKey: "adminSystem.audit.filterActorLabel",
+    type: "text",
+    placeholderKey: "adminSystem.audit.filterActorPlaceholder",
+  },
+  {
+    key: "action",
+    labelKey: "adminSystem.audit.filterActionLabel",
+    type: "text",
+    placeholderKey: "adminSystem.audit.filterActionPlaceholder",
+  },
+];
+
+function targetOf(row: AuditLogItem): string | null {
+  if (!row.target_type) return null;
+  return row.target_id ? `${row.target_type}:${row.target_id}` : row.target_type;
+}
 
 /** `admin_audit_log` browser — filterable by actor id and an action-name prefix. */
 export default function AuditTab() {
   const { formatDateTime } = useLocale();
+  const filters = useAdminFilters(FILTERS, "system.audit.filters");
+  const detail = useHistorySheet<AuditLogItem>(DETAIL_SHEET);
 
-  const [actorInput, setActorInput] = useState("");
-  const [actionInput, setActionInput] = useState("");
-  const actor = useDebouncedValue(actorInput, 350);
-  const action = useDebouncedValue(actionInput, 350);
+  const actorRaw = (filters.values.actor ?? "").trim();
+  const actorId = /^\d+$/.test(actorRaw) ? Number(actorRaw) : undefined;
+  const actionPrefix = (filters.values.action ?? "").trim() || undefined;
 
-  const actorId = /^\d+$/.test(actor.trim()) ? Number(actor.trim()) : undefined;
-  const actionPrefix = action.trim() || undefined;
+  const query = useMemo(() => ({ actor: actorId, action: actionPrefix, limit: PAGE_LIMIT }), [actorId, actionPrefix]);
 
-  const query = useMemo(
-    () => ({ actor: actorId, action: actionPrefix, limit: PAGE_LIMIT }),
-    [actorId, actionPrefix],
+  const audit = useCursorQuery<AuditLogItem>(["admin", "audit", query], (cursor) =>
+    getAuditLog({ ...query, cursor: cursor ?? undefined }),
   );
-
-  const audit = useCursorQuery<AuditLogItem>(
-    ["admin", "audit", query],
-    (cursor) => getAuditLog({ ...query, cursor: cursor ?? undefined }),
-  );
-
-  const columns: Column<AuditLogItem>[] = [
-    {
-      key: "created_at",
-      labelKey: "adminSystem.audit.col.time",
-      render: (row) => formatDateTime(row.created_at),
-    },
-    { key: "actor_id", labelKey: "adminSystem.audit.col.actor" },
-    {
-      key: "action",
-      labelKey: "adminSystem.audit.col.action",
-      render: (row) => <code className="text-xs">{row.action}</code>,
-    },
-    {
-      key: "target",
-      labelKey: "adminSystem.audit.col.target",
-      hideOnCard: true,
-      render: (row) =>
-        row.target_type ? `${row.target_type}${row.target_id ? `:${row.target_id}` : ""}` : "—",
-    },
-    {
-      key: "payload",
-      labelKey: "adminSystem.audit.col.payload",
-      render: (row) => <JsonDetails data={row.payload} labelKey="adminSystem.audit.viewPayload" />,
-    },
-  ];
 
   return (
-    <div className="space-y-3">
-      <FilterBar
-        onReset={() => {
-          setActorInput("");
-          setActionInput("");
-        }}
-      >
-        <FilterBar.Search
-          value={actorInput}
-          onChange={setActorInput}
-          placeholderKey="adminSystem.audit.filterActor"
-        />
-        <FilterBar.Search
-          value={actionInput}
-          onChange={setActionInput}
-          placeholderKey="adminSystem.audit.filterAction"
-        />
-      </FilterBar>
+    <div className="space-y-2">
+      <FilterChips defs={FILTERS} state={filters} />
 
-      <DataTable
-        columns={columns}
-        rows={audit.items}
-        getRowId={(row) => row.id}
-        loading={audit.isLoading}
-        error={audit.error}
-        onRetry={audit.refetch}
+      {audit.isLoading && <Skeleton rows={5} />}
+      {Boolean(audit.error) && <ErrorCard error={audit.error} onRetry={audit.refetch} />}
+      {!audit.isLoading &&
+        !audit.error &&
+        (audit.items.length === 0 ? (
+          <EmptyState labelKey="admin.table.empty" />
+        ) : (
+          <List>
+            {audit.items.map((row) => (
+              <ListRow
+                key={row.id}
+                title={<code className="text-[13px]">{row.action}</code>}
+                subtitle={`#${row.actor_id}${targetOf(row) ? ` · ${targetOf(row)}` : ""}`}
+                meta={formatDateTime(row.created_at)}
+                onClick={() => detail.openSheet(row)}
+              />
+            ))}
+          </List>
+        ))}
+
+      <LoadMore
         hasMore={audit.hasMore}
         onLoadMore={audit.loadMore}
-        loadingMore={audit.isFetchingMore}
+        loading={audit.isFetchingMore}
         total={audit.total}
-        captionKey="adminSystem.audit.title"
-        stickyHeader
+        loaded={audit.items.length}
       />
+
+      <Sheet name={DETAIL_SHEET} titleKey="adminSystem.audit.detailTitle">
+        {detail.payload && (
+          <div className="space-y-2">
+            <p className="text-[11px] text-muted">{formatDateTime(detail.payload.created_at)}</p>
+            <p className="text-[13px] font-medium text-text">
+              <code>{detail.payload.action}</code>
+            </p>
+            <p className="text-[11px] text-muted">
+              #{detail.payload.actor_id}
+              {targetOf(detail.payload) ? ` · ${targetOf(detail.payload)}` : ""}
+              {detail.payload.ip ? ` · ${detail.payload.ip}` : ""}
+            </p>
+            <JsonDetails data={detail.payload.payload} labelKey="adminSystem.audit.viewPayload" />
+          </div>
+        )}
+      </Sheet>
     </div>
   );
 }

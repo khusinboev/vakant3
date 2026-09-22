@@ -1,11 +1,8 @@
 /** adminBroadcasts namespace — owned by the corresponding admin page agent. uz is the source. */
 const adminBroadcasts = {
   "adminBroadcasts.title": "Tarqatmalar",
-  "adminBroadcasts.subtitle": "Foydalanuvchilarga ommaviy xabar yuborish.",
-  "adminBroadcasts.tab.list": "Ro'yxat",
-  "adminBroadcasts.tab.compose": "Yangi tarqatma",
-  "adminBroadcasts.refresh": "Yangilash",
   "adminBroadcasts.live": "Jonli yangilanmoqda",
+  "adminBroadcasts.refresh": "Yangilash",
 
   "adminBroadcasts.status.draft": "Qoralama",
   "adminBroadcasts.status.queued": "Navbatda",
@@ -21,12 +18,6 @@ const adminBroadcasts = {
   "adminBroadcasts.kind.document": "Hujjat",
   "adminBroadcasts.kind.forward": "Forward",
 
-  "adminBroadcasts.col.id": "ID",
-  "adminBroadcasts.col.status": "Holat",
-  "adminBroadcasts.col.kind": "Turi",
-  "adminBroadcasts.col.segment": "Segment",
-  "adminBroadcasts.col.progress": "Jarayon",
-  "adminBroadcasts.col.created": "Yaratilgan",
   "adminBroadcasts.list.caption": "Tarqatmalar ro'yxati",
   "adminBroadcasts.list.empty": "Hali birorta tarqatma yaratilmagan.",
 
@@ -34,10 +25,14 @@ const adminBroadcasts = {
   "adminBroadcasts.progress.sent": "Yuborildi",
   "adminBroadcasts.progress.failed": "Xato",
   "adminBroadcasts.progress.blocked": "Bloklagan",
-  "adminBroadcasts.progress.total": "Jami",
   "adminBroadcasts.progress.pending": "Kutilmoqda",
 
-  "adminBroadcasts.composer.title": "Xabar tayyorlash",
+  "adminBroadcasts.section.text": "Matn",
+  "adminBroadcasts.section.media": "Media",
+  "adminBroadcasts.section.buttons": "Tugmalar",
+  "adminBroadcasts.section.target": "Auditoriya",
+
+  "adminBroadcasts.composer.title": "Yangi tarqatma",
   "adminBroadcasts.composer.kind": "Xabar turi",
   "adminBroadcasts.composer.text": "Matn (HTML)",
   "adminBroadcasts.composer.caption": "Izoh (HTML)",
@@ -56,7 +51,7 @@ const adminBroadcasts = {
   "adminBroadcasts.toolbar.code": "Kod",
   "adminBroadcasts.toolbar.linkPrompt": "Havola manzili (https:// yoki t.me/)",
 
-  "adminBroadcasts.media.label": "Media fayl",
+  "adminBroadcasts.media.none": "Yuklanmagan",
   "adminBroadcasts.media.drop": "Faylni bu yerga tashlang yoki tanlang",
   "adminBroadcasts.media.browse": "Fayl tanlash",
   "adminBroadcasts.media.replace": "Almashtirish",
@@ -67,12 +62,12 @@ const adminBroadcasts = {
   "adminBroadcasts.media.badType": "Bu fayl turi qo'llab-quvvatlanmaydi.",
   "adminBroadcasts.media.uploaded": "Fayl yuklandi.",
 
-  "adminBroadcasts.buttons.label": "Inline tugmalar",
+  "adminBroadcasts.buttons.count": "{count} ta",
   "adminBroadcasts.buttons.add": "Tugma qo'shish",
   "adminBroadcasts.buttons.remove": "{index}-tugmani o'chirish",
   "adminBroadcasts.buttons.text": "Tugma matni",
   "adminBroadcasts.buttons.url": "Havola",
-  "adminBroadcasts.buttons.hint": "Ko'pi bilan 6 ta tugma, har biri alohida qatorda.",
+  "adminBroadcasts.buttons.hint": "Ko'pi bilan 6 ta.",
   "adminBroadcasts.buttons.invalidUrl": "Havola http(s):// yoki t.me/ bo'lishi kerak.",
   "adminBroadcasts.buttons.textRequired": "Tugma matni bo'sh bo'lmasin.",
 
@@ -87,37 +82,33 @@ const adminBroadcasts = {
   "adminBroadcasts.target.langValue": "Til",
   "adminBroadcasts.target.regionValue": "Viloyat",
   "adminBroadcasts.target.daysValue": "Kunlar soni",
-  "adminBroadcasts.target.excludeBlocked": "Botni bloklaganlarni chiqarib tashlash",
+  "adminBroadcasts.target.excludeBlocked": "Botni bloklaganlarsiz",
   "adminBroadcasts.target.estimate": "Qabul qiluvchilar: {count}",
   "adminBroadcasts.target.estimateHint": "Aniq son navbatga qo'yilgandan keyin ko'rinadi.",
 
+  "adminBroadcasts.action.new": "Yangi xabar",
   "adminBroadcasts.action.saveDraft": "Qoralama saqlash",
-  "adminBroadcasts.action.sendTest": "O'zimga test yuborish",
+  "adminBroadcasts.action.sendTest": "Test yuborish",
   "adminBroadcasts.action.queue": "Navbatga qo'yish",
   "adminBroadcasts.action.cancel": "To'xtatish",
+
   "adminBroadcasts.ok.draftSaved": "Qoralama saqlandi.",
   "adminBroadcasts.ok.testSent": "Test xabar yuborildi.",
   "adminBroadcasts.ok.queued": "Tarqatma navbatga qo'yildi.",
   "adminBroadcasts.ok.cancelled": "Tarqatma bekor qilindi.",
 
-  "adminBroadcasts.confirm.createTitle": "Tarqatma yaratilsinmi?",
-  "adminBroadcasts.confirm.createDesc": "\"{segment}\" segmenti uchun {kind} turidagi qoralama yaratiladi. Yuborish alohida tasdiqlanadi.",
   "adminBroadcasts.confirm.queueTitle": "Tarqatma yuborilsinmi?",
   "adminBroadcasts.confirm.queueDesc": "\"{segment}\" segmentidagi barcha foydalanuvchilarga xabar yuboriladi. Bu amalni qaytarib bo'lmaydi.",
   "adminBroadcasts.confirm.cancelTitle": "Tarqatma to'xtatilsinmi?",
   "adminBroadcasts.confirm.cancelDesc": "#{id} tarqatma to'xtatiladi va qolgan xabarlar yuborilmaydi.",
 
   "adminBroadcasts.detail.title": "Tarqatma #{id}",
-  "adminBroadcasts.detail.counters": "Hisoblagichlar",
   "adminBroadcasts.detail.message": "Xabar",
   "adminBroadcasts.detail.errors": "Oxirgi xatolar",
   "adminBroadcasts.detail.noErrors": "Xatolar yo'q.",
-  "adminBroadcasts.detail.errorUser": "Foydalanuvchi",
-  "adminBroadcasts.detail.errorReason": "Sabab",
   "adminBroadcasts.detail.created": "Yaratilgan",
   "adminBroadcasts.detail.started": "Boshlangan",
   "adminBroadcasts.detail.finished": "Tugagan",
-  "adminBroadcasts.detail.close": "Yopish",
   "adminBroadcasts.detail.lastError": "Umumiy xato: {error}",
 
   "adminBroadcasts.error.textRequired": "Matn kiritilishi shart.",

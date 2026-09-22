@@ -125,7 +125,8 @@ export default function App() {
             <Route path="/hub/resume" element={<ErrorBoundary><ResumeStudio /></ErrorBoundary>} />
             <Route path="/hub/laws" element={<Layout><ErrorBoundary><Laws /></ErrorBoundary></Layout>} />
             <Route path="/wallet" element={<Layout><ErrorBoundary><Wallet /></ErrorBoundary></Layout>} />
-            <Route path="/admin/*" element={<Layout><ErrorBoundary><Admin /></ErrorBoundary></Layout>} />
+            {/* The admin panel owns the whole viewport: no app header, no BottomNav. */}
+            <Route path="/admin/*" element={<ErrorBoundary><Admin /></ErrorBoundary>} />
             <Route path="/referral" element={<Layout><ErrorBoundary><Referral /></ErrorBoundary></Layout>} />
             <Route path="*" element={<Navigate to="/app" replace />} />
           </Routes>

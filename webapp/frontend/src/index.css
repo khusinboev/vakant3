@@ -182,3 +182,56 @@ button:disabled,
     transform: none;
   }
 }
+
+/* ── Admin panel density scale (docs/ADMIN_UI_V3_SPEC.md §1.4) ─────────────
+   Scoped to `.admin-root`, which `AdminShell` puts on the panel's root (and
+   on its desktop modals). 13px body / 11px meta / 32px controls / 40px rows;
+   nothing below 11px. Additive: no app-wide rule changes. */
+.admin-root {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.admin-root .admin-meta {
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.admin-root .admin-num,
+.admin-root table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The panel is flat: the app's hover lift makes dense rows jump. */
+.admin-root button,
+.admin-root [role="button"],
+.admin-root a {
+  box-shadow: none;
+}
+
+@media (hover: hover) {
+  .admin-root button:hover:not(:disabled),
+  .admin-root [role="button"]:hover:not(:disabled),
+  .admin-root a:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+.admin-root button:active:not(:disabled),
+.admin-root [role="button"]:active:not(:disabled) {
+  transform: none;
+  opacity: 0.85;
+}
+
+@layer components {
+  /* A single card level — never a card inside a card (spec §1.4). */
+  .admin-card {
+    @apply rounded-xl border border-border bg-surface p-3;
+  }
+
+  /* 40px list/table row, 56px when it carries a subtitle. */
+  .admin-row {
+    @apply flex min-h-[40px] items-center gap-2 px-3;
+  }
+}

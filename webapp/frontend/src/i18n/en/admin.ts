@@ -2,69 +2,65 @@ import type { AdminDict } from "../uz/admin";
 
 const admin: Record<keyof AdminDict, string> = {
   // ── Shell ──────────────────────────────────────────────────────────────────
-  "admin.brand": "Bandlik.uz",
   "admin.title": "Admin panel",
-  "admin.online": "Online",
   "admin.accessDenied": "The admin panel is for administrators only.",
-  "admin.sectionError": "Could not load the data.",
 
-  "admin.tab.overview": "Overview",
-  "admin.tab.settings": "Settings",
-  "admin.tab.analytics": "Analytics",
-  "admin.tab.users": "Users",
 
   "admin.status.on": "On",
   "admin.status.off": "Off",
 
+  "admin.dash.sparklineAria": "New users chart for the last 7 days",
+  "admin.dash.sparklineLabel": "New users — 7 days",
+  "admin.dash.systemOk": "System healthy",
+  "admin.dash.systemDegraded": "System issue",
+  "admin.dash.systemUnknown": "System status unknown",
+  "admin.dash.autoPostLabel": "Auto-post",
+  "admin.dash.postedTodayLabel": "Posted today",
+  "admin.dash.referralLabel": "Referral",
+  "admin.dash.minReferralsLabel": "Min. referrals",
+
   // ── Overview ───────────────────────────────────────────────────────────────
-  "admin.overview.autoPost": "Auto-post",
-  "admin.overview.referral": "Referrals",
-  "admin.overview.postedToday": "{posted}/{total} today",
-  "admin.overview.minRefs": "At least {count} referrals",
-  "admin.overview.scheduleTitle": "Today's schedule",
-  "admin.overview.scheduleEmpty": "No schedule has been planned for today.",
-  "admin.overview.slotPosted": "{time} — posted",
-  "admin.overview.slotSkipped": "{time} — skipped",
-  "admin.overview.slotPending": "{time} — queued",
   "admin.overview.kpiTitle": "Resume KPI targets",
 
   "admin.kpi.completion": "Completion",
   "admin.kpi.sendSuccess": "Send success",
   "admin.kpi.pdfExport": "PDF export",
   "admin.kpi.creationTime": "Creation time",
-  "admin.kpi.target": "Target: {target}",
   "admin.kpi.minutesShort": "min",
   "admin.kpi.openedUsers": "Opened",
   "admin.kpi.completedUsers": "Completed",
   "admin.kpi.sendAttempts": "Sent",
 
   // ── Settings ───────────────────────────────────────────────────────────────
-  "admin.group.autoPost": "Auto-post",
-  "admin.group.referralGate": "Referral gate",
-  "admin.group.pro": "Pro plan",
-  "admin.group.resumeKpi": "Resume KPI targets",
+  "admin.settings.group.autoPost": "Auto-post",
+  "admin.settings.group.referralGate": "Referral gate",
+  "admin.settings.group.pro": "Pro plan",
+  "admin.settings.group.resumeKpi": "Resume KPI targets",
 
-  "admin.field.enabled": "Enabled",
-  "admin.field.channel": "Channel",
-  "admin.field.channelLang": "Channel language",
-  "admin.field.autoPostMinSalary": "Minimum salary (UZS)",
-  "admin.field.perDayMin": "Min per day",
-  "admin.field.perDayMax": "Max per day",
-  "admin.field.requiredRefs": "Referrals required",
-  "admin.field.proPrice": "Pro price (UZS)",
-  "admin.field.referralReward": "Referral reward (UZS)",
-  "admin.field.proMinSalary": "Pro minimum salary (UZS)",
-  "admin.field.targetCreationMinutes": "Creation time (min)",
-  "admin.field.targetCompletionRate": "Completion rate (%)",
-  "admin.field.targetSendRate": "Send success rate (%)",
-  "admin.field.targetExportRate": "PDF export success rate (%)",
+  "admin.settings.field.enabled": "Enabled",
+  "admin.settings.field.channel": "Channel",
+  "admin.settings.field.channelLang": "Channel language",
+  "admin.settings.field.autoPostMinSalary": "Minimum salary (UZS)",
+  "admin.settings.field.perDayMin": "Min per day",
+  "admin.settings.field.perDayMax": "Max per day",
+  "admin.settings.field.requiredRefs": "Referrals required",
+  "admin.settings.field.proPrice": "Pro price (UZS)",
+  "admin.settings.field.referralReward": "Referral reward (UZS)",
+  "admin.settings.field.proMinSalary": "Pro minimum salary (UZS)",
+  "admin.settings.field.targetCreationMinutes": "Creation time (min)",
+  "admin.settings.field.targetCompletionRate": "Completion rate (%)",
+  "admin.settings.field.targetSendRate": "Send success rate (%)",
+  "admin.settings.field.targetExportRate": "PDF export success rate (%)",
 
-  "admin.edit.aria": "Edit {label}",
+  "admin.settings.editAria": "Edit {label}",
   "admin.settings.saved": "Setting saved.",
-  "admin.validation.number": "{label}: enter a number.",
-  "admin.validation.negative": "{label}: cannot be negative.",
-  "admin.validation.empty": "{label}: the value cannot be empty.",
-  "admin.validation.perDayRange":
+  "admin.settings.saving": "Saving…",
+  "admin.settings.conflict.message": "This setting was changed elsewhere.",
+  "admin.settings.conflict.reload": "Reload",
+  "admin.settings.validation.number": "{label}: enter a number.",
+  "admin.settings.validation.negative": "{label}: cannot be negative.",
+  "admin.settings.validation.empty": "{label}: the value cannot be empty.",
+  "admin.settings.validation.perDayRange":
     "The daily minimum must not exceed the maximum ({min} > {max}).",
 
   // ── Analytics ──────────────────────────────────────────────────────────────
@@ -101,29 +97,9 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.funnel.step.final": "Final",
 
   // ── Users ──────────────────────────────────────────────────────────────────
-  "admin.users.addTitle": "Add balance",
-  "admin.users.telegramId": "Telegram ID",
-  "admin.users.amount": "Amount (UZS)",
-  "admin.users.addPreview": "{amount} will be added to ID {id}.",
-  "admin.users.addSubmit": "Add balance",
-  "admin.users.adding": "Adding...",
-  "admin.users.addSuccess": "New balance: {balance}",
-  "admin.users.invalidAmount": "The amount must be a whole number above zero.",
-  "admin.users.invalidId": "Invalid Telegram ID.",
-  "admin.users.inspectTitle": "Inspect a user",
-  "admin.users.inspectPlaceholder": "Telegram user ID",
-  "admin.users.inspectSubmit": "Show",
-  "admin.users.hasResume": "Has a resume",
-  "admin.users.noResume": "No resume",
-  "admin.users.template": "Template",
-  "admin.users.updatedAt": "Updated",
-  "admin.users.recentEvents": "Recent events",
-  "admin.users.noEvents": "No events.",
 
   // ── Shell v2 (AdminLayout / registry / shared components) ─────────────────
   "admin.nav.aria": "Admin sections",
-  "admin.nav.more": "More",
-  "admin.nav.allPages": "All sections",
   "admin.nav.group.main": "Overview",
   "admin.nav.group.people": "People",
   "admin.nav.group.content": "Content & channels",
@@ -134,7 +110,6 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.nav.analytics": "Analytics",
   "admin.nav.resume": "Resume analytics",
   "admin.nav.users": "Users",
-  "admin.nav.quick": "Quick actions",
   "admin.nav.broadcasts": "Broadcasts",
   "admin.nav.channels": "Channels",
   "admin.nav.autopost": "Auto-post",
@@ -149,15 +124,11 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.role.viewer": "Viewer",
   "admin.role.required": "This section needs the \"{role}\" role or higher.",
 
-  "admin.shell.langToggle": "Language",
-  "admin.shell.themeToggle": "Theme",
-  "admin.shell.loading": "Loading...",
   "admin.shell.openPanel": "Open the admin panel",
 
   "admin.table.empty": "No data found.",
   "admin.table.loadMore": "Load more",
   "admin.table.loadingMore": "Loading...",
-  "admin.table.sort": "Sort by {label}",
   "admin.table.total": "Total: {total}",
 
   "admin.confirm.title": "Confirm this action?",
@@ -165,31 +136,17 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.confirm.cancel": "Cancel",
   "admin.confirm.working": "Working...",
 
-  "admin.filter.aria": "Filters",
   "admin.filter.searchPlaceholder": "Search...",
   "admin.filter.all": "All",
   "admin.filter.from": "From",
   "admin.filter.to": "To",
-  "admin.filter.reset": "Reset",
 
   "admin.empty.default": "Nothing here yet.",
   "admin.stat.deltaUp": "up {value}",
   "admin.stat.deltaDown": "down {value}",
 
-  "admin.danger.title": "Danger zone",
-  "admin.danger.desc": "The user's balance drops to 0 and Pro is switched off.",
-  "admin.danger.submit": "Reset",
-  "admin.danger.confirm":
-    "ID {id}: the balance goes to 0 and Pro is removed. Confirm?",
-  "admin.danger.confirmYes": "Yes, reset",
-  "admin.danger.success": "ID {id} reset: balance 0, Pro disabled.",
 
   // ── Analytics dashboard (daily_stats rollup) ────────────────────────────────
-  "admin.analytics2.period.label": "Period",
-  "admin.analytics2.period.7": "7 days",
-  "admin.analytics2.period.30": "30 days",
-  "admin.analytics2.period.90": "90 days",
-
   "admin.analytics2.stat.groupLabel": "Today's numbers",
   "admin.analytics2.stat.hintToday": "today",
   "admin.analytics2.stat.newUsers": "New users",
@@ -222,5 +179,49 @@ const admin: Record<keyof AdminDict, string> = {
     "The daily rollup hasn't run yet — charts will appear once the first day is complete.",
 
   "admin.analytics2.resumeKpi.title": "Resume KPIs",
+
+  // ── Shell v3 (AdminShell / AdminBar / Rail / ui kit) ─────────────────────
+  "admin.shell.back": "Back",
+  "admin.shell.menu": "More actions",
+  "admin.shell.actions": "Actions",
+  "admin.shell.content": "Admin content",
+
+  "admin.bar.home": "Home",
+  "admin.bar.users": "People",
+  "admin.bar.broadcasts": "Broadcast",
+  "admin.bar.more": "More",
+
+  "admin.more.title": "Sections",
+  "admin.more.quickActions": "Quick actions",
+  "admin.more.quick.postNow": "Post now",
+  "admin.more.quick.newBroadcast": "New broadcast",
+  "admin.more.quick.addChannel": "Add channel",
+
+  "admin.rail.pin": "Pin the menu",
+  "admin.rail.unpin": "Collapse the menu",
+
+  "admin.sheet.close": "Close",
+
+  "admin.filter.title": "Filters",
+  "admin.filter.open": "Filters",
+  "admin.filter.openCount": "Filters ({count})",
+  "admin.filter.apply": "Apply",
+  "admin.filter.clear": "Clear",
+  "admin.filter.removeAria": "Remove the {label} filter",
+  "admin.filter.on": "On",
+
+  "admin.search.clear": "Clear the search",
+
+  "admin.tabs.aria": "Sections",
+  "admin.toolbar.more": "More",
+  "admin.toolbar.moreAria": "More actions",
+
+  "admin.period.aria": "Period",
+  "admin.period.7": "7 days",
+  "admin.period.30": "30 days",
+  "admin.period.90": "90 days",
+  "admin.period.365": "1 year",
+
+
 };
 export default admin;

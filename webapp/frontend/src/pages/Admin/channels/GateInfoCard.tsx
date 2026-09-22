@@ -1,4 +1,4 @@
-import { ArrowRight, Info } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import type { TranslationKey } from "../../../i18n";
@@ -8,8 +8,9 @@ import { adminPagePath } from "../routing";
 /**
  * The entry gate (CONTRACT_P12 §m006, `require_entry`) is checked in order:
  * bot start -> subscription to every enabled channel below -> the referral
- * gate configured on the Settings page. This card explains that chain so an
- * admin adding a channel here understands what it plugs into.
+ * gate configured on the Settings page. Rendered as the body of a closed
+ * `Accordion` item on `ChannelsPage` (spec §4/§4b) — the item's own header
+ * already carries the title, so this component is body content only.
  */
 export default function GateInfoCard() {
   const t = useT();
@@ -21,31 +22,23 @@ export default function GateInfoCard() {
   ];
 
   return (
-    <section className="card p-4">
-      <div className="flex items-start gap-2.5">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <Info size={14} aria-hidden="true" />
-        </span>
-        <div className="min-w-0 space-y-2">
-          <h2 className="text-sm font-semibold text-text">{t("adminChannels.info.title")}</h2>
-          <ol className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
-            {steps.map((step, index) => (
-              <li key={step.key} className="flex items-center gap-1.5">
-                <span className="rounded-full bg-surfaceAlt px-2 py-1 font-medium text-text">
-                  {t(step.labelKey)}
-                </span>
-                {index < steps.length - 1 && <ArrowRight size={12} aria-hidden="true" />}
-              </li>
-            ))}
-          </ol>
-          <p className="text-xs text-muted">
-            {t("adminChannels.info.description")}{" "}
-            <Link to={adminPagePath("settings")} className="font-semibold text-primary underline-offset-2 hover:underline">
-              {t("adminChannels.info.settingsLink")}
-            </Link>
-          </p>
-        </div>
-      </div>
-    </section>
+    <div className="space-y-2">
+      <ol className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+        {steps.map((step, index) => (
+          <li key={step.key} className="flex items-center gap-1.5">
+            <span className="rounded-full bg-surfaceAlt px-2 py-1 font-medium text-text">
+              {t(step.labelKey)}
+            </span>
+            {index < steps.length - 1 && <ArrowRight size={11} aria-hidden="true" />}
+          </li>
+        ))}
+      </ol>
+      <p className="text-[11px] text-muted">
+        {t("adminChannels.info.description")}{" "}
+        <Link to={adminPagePath("settings")} className="font-semibold text-primary underline-offset-2 hover:underline">
+          {t("adminChannels.info.settingsLink")}
+        </Link>
+      </p>
+    </div>
   );
 }

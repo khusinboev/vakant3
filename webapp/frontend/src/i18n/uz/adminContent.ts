@@ -1,35 +1,39 @@
 /** adminContent namespace — Content page (articles/tips/categories CRUD). uz is the source. */
 const adminContent = {
-  // ── Sub-tabs ───────────────────────────────────────────────────────────────
+  // ── List screen ────────────────────────────────────────────────────────────
   "adminContent.tabs.aria": "Kontent bo'limlari",
   "adminContent.tab.articles": "Maqolalar",
   "adminContent.tab.tips": "Maslahatlar",
   "adminContent.tab.categories": "Kategoriyalar",
 
-  // ── Lists ──────────────────────────────────────────────────────────────────
-  "adminContent.list.id": "ID",
-  "adminContent.list.title": "Sarlavha",
-  "adminContent.list.name": "Nomi",
+  "adminContent.list.searchPlaceholder": "ID yoki sarlavha bo'yicha qidirish",
   "adminContent.list.category": "Kategoriya",
   "adminContent.list.published": "Chop etilgan",
   "adminContent.list.unpublished": "Chop etilmagan",
   "adminContent.list.sort": "Tartib",
-  "adminContent.list.actions": "Amallar",
-  "adminContent.list.edit": "Tahrirlash",
 
-  "adminContent.new.article": "Yangi maqola",
-  "adminContent.new.tip": "Yangi maslahat",
-  "adminContent.new.category": "Yangi kategoriya",
+  "adminContent.filter.yes": "Ha",
+  "adminContent.filter.no": "Yo'q",
+
+  "adminContent.new.article": "Yangi",
+  "adminContent.new.tip": "Yangi",
+  "adminContent.new.category": "Yangi",
 
   "adminContent.empty.articles": "Hozircha maqolalar yo'q.",
   "adminContent.empty.tips": "Hozircha maslahatlar yo'q.",
   "adminContent.empty.categories": "Hozircha kategoriyalar yo'q.",
 
+  // ── Editor sections ──────────────────────────────────────────────────────
+  "adminContent.section.basic": "Asosiy",
+  "adminContent.section.titles": "Sarlavha va qisqacha",
+  "adminContent.section.name": "Nomi",
+  "adminContent.section.body": "Matn",
+  "adminContent.section.source": "Manba",
+
   // ── Editor chrome ────────────────────────────────────────────────────────
   "adminContent.editor.backToList": "Ro'yxatga qaytish",
-  "adminContent.editor.unsavedBadge": "Saqlanmagan",
+  "adminContent.editor.unsavedBadge": "Saqlanmagan o'zgarishlar bor",
   "adminContent.editor.save": "Saqlash",
-  "adminContent.editor.saving": "Saqlanmoqda...",
   "adminContent.editor.delete": "O'chirish",
   "adminContent.editor.deleteTitle": "O'chirishni tasdiqlaysizmi?",
   "adminContent.editor.deleteDesc": "\"{id}\" butunlay o'chiriladi. Bu amalni ortga qaytarib bo'lmaydi.",
@@ -51,7 +55,7 @@ const adminContent = {
   "adminContent.editor.sourceUrlLabel": "Manba havolasi",
   "adminContent.editor.optionalHint": "(ixtiyoriy)",
   "adminContent.editor.publishedLabel": "Chop etilgan",
-  "adminContent.editor.langTabs": "Til tanlash",
+  "adminContent.editor.langTabs": "Til",
   "adminContent.editor.copyFromUz": "O'zbekchadan nusxalash",
 
   "adminContent.editor.created": "Yaratildi.",

@@ -10,18 +10,29 @@ import QueryState from "../components/QueryState";
 import { useChartColors } from "../components/chartColors";
 import { useResumeDiagnostics, useResumeFunnel, useResumeMetrics } from "../useAdminQueries";
 
+export type AnalyticsTabProps = {
+  /**
+   * `true` when rendered as `Accordion` content (`analytics/ResumeKpiSection.tsx`):
+   * the accordion item is already the one card level, so the internal
+   * sections drop their own `admin-card` border/background (spec §3.6 — no
+   * card inside card). Standalone (`views/ResumeAnalyticsView.tsx`) keeps it.
+   */
+  nested?: boolean;
+};
+
 /**
  * The only tab that imports recharts. `src/pages/Admin/index.tsx` loads it with
  * React.lazy so the ~300 KB charting library gets its own chunk instead of
  * riding along in the Admin entry chunk.
  */
-export default function AnalyticsTab() {
+export default function AnalyticsTab({ nested = false }: AnalyticsTabProps) {
   const t = useT();
   const { formatDateTime } = useLocale();
   const colors = useChartColors();
   const metrics = useResumeMetrics();
   const funnel = useResumeFunnel();
   const diagnostics = useResumeDiagnostics();
+  const sectionClass = nested ? "" : "admin-card";
 
   const stepName = (step: string) => {
     const key = `admin.funnel.step.${step}` as TranslationKey;
@@ -34,11 +45,11 @@ export default function AnalyticsTab() {
       <QueryState query={metrics} skeletonClassName="h-48">
         {(data) => (
           <>
-            <section className="card p-4">
+            <section className={sectionClass}>
               <h2 className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted">
                 {t("admin.analytics.opsTitle")}
               </h2>
-              <div className="mb-3 flex gap-4 text-xs text-muted">
+              <div className="mb-3 flex gap-4 text-[11px] text-muted">
                 <span className="flex items-center gap-1.5">
                   <span aria-hidden="true" className="h-2 w-2 rounded-full bg-success" />
                   {t("admin.analytics.success")}
@@ -111,21 +122,21 @@ export default function AnalyticsTab() {
               </ResponsiveContainer>
               <div className="mt-3 grid grid-cols-3 divide-x divide-border border-t border-border pt-3 text-center">
                 <div>
-                  <p className="text-lg font-bold text-text">{data.unique_users_24h}</p>
-                  <p className="text-[10px] text-muted">{t("admin.analytics.activeUsers")}</p>
+                  <p className="text-[15px] font-bold text-text">{data.unique_users_24h}</p>
+                  <p className="text-[11px] text-muted">{t("admin.analytics.activeUsers")}</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold text-text">{data.opened_24h}</p>
-                  <p className="text-[10px] text-muted">{t("admin.analytics.opened")}</p>
+                  <p className="text-[15px] font-bold text-text">{data.opened_24h}</p>
+                  <p className="text-[11px] text-muted">{t("admin.analytics.opened")}</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold text-text">{data.ready_24h}</p>
-                  <p className="text-[10px] text-muted">{t("admin.analytics.ready")}</p>
+                  <p className="text-[15px] font-bold text-text">{data.ready_24h}</p>
+                  <p className="text-[11px] text-muted">{t("admin.analytics.ready")}</p>
                 </div>
               </div>
             </section>
 
-            <section className="card p-4">
+            <section className={sectionClass}>
               <h2 className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted">
                 <Clock size={11} aria-hidden="true" />
                 {t("admin.analytics.latencyTitle")}
@@ -141,7 +152,7 @@ export default function AnalyticsTab() {
         )}
       </QueryState>
 
-      <section className="card p-4">
+      <section className={sectionClass}>
         <QueryState query={funnel} skeletonClassName="h-40">
           {(data) => (
             <>
@@ -149,7 +160,7 @@ export default function AnalyticsTab() {
                 {t("admin.analytics.funnelTitle", { hours: data.window_hours })}
               </h2>
               {data.steps.length === 0 ? (
-                <p className="text-xs text-muted">{t("admin.analytics.funnelEmpty")}</p>
+                <p className="text-[11px] text-muted">{t("admin.analytics.funnelEmpty")}</p>
               ) : (
                 <div className="space-y-4">
                   {data.steps.map((step) => (
@@ -165,12 +176,12 @@ export default function AnalyticsTab() {
       <QueryState query={diagnostics} skeletonClassName="h-24">
         {(data) =>
           data.items.length === 0 ? (
-            <div className="flex items-center gap-3 rounded-2xl border border-success/30 bg-success/10 p-4">
+            <div className="flex items-center gap-3 rounded-xl border border-success/30 bg-success/10 p-3">
               <CheckCircle size={18} className="shrink-0 text-success" aria-hidden="true" />
-              <p className="text-sm text-success">{t("admin.analytics.noErrors")}</p>
+              <p className="text-[13px] text-success">{t("admin.analytics.noErrors")}</p>
             </div>
           ) : (
-            <section className="rounded-2xl border border-danger/30 bg-surface p-4 shadow-sm">
+            <section className="rounded-xl border border-danger/30 bg-surface p-3 shadow-sm">
               <h2 className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-danger">
                 <AlertTriangle size={11} aria-hidden="true" />
                 {t("admin.analytics.diagTitle")}
@@ -182,15 +193,15 @@ export default function AnalyticsTab() {
                     className="rounded-xl border border-danger/30 bg-danger/10 p-3"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-xs font-semibold text-danger">
+                      <p className="text-[11px] font-semibold text-danger">
                         {item.source} / {item.status}
                       </p>
-                      <span className="shrink-0 rounded-full bg-danger/15 px-1.5 py-0.5 text-[10px] font-bold text-danger">
+                      <span className="shrink-0 rounded-full bg-danger/15 px-1.5 py-0.5 text-[11px] font-bold text-danger">
                         {t("admin.analytics.diagCount", { n: item.count_24h })}
                       </span>
                     </div>
-                    <p className="mt-1 break-words text-xs text-danger">{item.error_text}</p>
-                    <p className="mt-1 text-[10px] text-muted">
+                    <p className="mt-1 break-words text-[11px] text-danger">{item.error_text}</p>
+                    <p className="mt-1 text-[11px] text-muted">
                       {formatDateTime(item.last_seen_at)}
                     </p>
                   </li>

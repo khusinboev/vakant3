@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
-import { Eraser, Loader2, Send, Save, TestTube2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { Eraser, Save, Send, TestTube2 } from "lucide-react";
 
 import type {
   Broadcast,
@@ -8,42 +10,42 @@ import type {
   BroadcastKind,
   UploadResult,
 } from "../../../api/adminTypes";
-import { previewBroadcast } from "../../../api/admin";
+import { createBroadcast, previewBroadcast } from "../../../api/admin";
 import type { TranslationKey } from "../../../i18n";
 import { useT } from "../../../i18n/useT";
 import useToast from "../../../hooks/useToast";
-import { INPUT_CLS } from "../../../components/ui/Field";
 import { useConfirmedMutation } from "../hooks/useConfirmedMutation";
+import { Accordion, Chip, SegmentedControl, haptic, useAdminHeader, type AccordionItem } from "../ui";
 import ButtonsEditor from "./ButtonsEditor";
 import HtmlEditor from "./HtmlEditor";
 import MediaUpload from "./MediaUpload";
+import MessagePreview from "./MessagePreview";
 import TargetPicker from "./TargetPicker";
-import { createBroadcastWithToken, queueBroadcastWithToken } from "./api";
+import { queueBroadcastWithToken } from "./api";
 import { COMPOSABLE_KINDS, KIND_LABEL_KEY } from "./labels";
-import { buildSegment, isValidSegment, SEGMENT_LABEL_KEY, type SegmentKind } from "./segments";
 import {
-  checkTelegramHtml,
-  isAllowedButtonUrl,
-  limitForKind,
-} from "./telegramHtml";
-
-export type ComposerProps = {
-  /** Called once a broadcast is queued, so the list next to it can refresh. */
-  onQueued: () => void;
-};
+  PARAMETRIC_KINDS,
+  buildSegment,
+  isValidSegment,
+  SEGMENT_LABEL_KEY,
+  type SegmentKind,
+} from "./segments";
+import { checkTelegramHtml, isAllowedButtonUrl, limitForKind } from "./telegramHtml";
 
 /**
- * Compose → save draft → test → queue.
+ * `/admin/broadcasts/new` — compose → (draft) → test → queue.
  *
- * The draft is a real server row: `POST /admin/broadcasts` creates it (behind
- * the confirm dialog, action `broadcast.create` bound to `kind` + `segment`),
+ * The draft is a real server row: `POST /admin/broadcasts` creates it,
  * `/preview` sends it to the acting admin only, and `/queue` materializes the
- * targets and hands the job to the bot worker. Nothing reaches a user before
- * that last step, which is why only the *create* is confirmed here.
+ * targets and hands the job to the bot worker. Only that last step reaches
+ * users, so it is the one the header's primary action performs — behind the
+ * `broadcast.queue` confirm token (spec §4 Broadcasts).
  */
-export default function Composer({ onQueued }: ComposerProps) {
+export default function Composer() {
   const t = useT();
   const toast = useToast();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [kind, setKind] = useState<BroadcastKind>("text");
   const [text, setText] = useState("");
@@ -54,7 +56,7 @@ export default function Composer({ onQueued }: ComposerProps) {
   const [excludeBlocked, setExcludeBlocked] = useState(true);
   const [draft, setDraft] = useState<Broadcast | null>(null);
   const [estimate, setEstimate] = useState<number | null>(null);
-  const [busy, setBusy] = useState<"preview" | null>(null);
+  const [busy, setBusy] = useState<"draft" | "preview" | null>(null);
 
   const limit = limitForKind(kind);
   const check = useMemo(() => checkTelegramHtml(text), [text]);
@@ -84,45 +86,60 @@ export default function Composer({ onQueued }: ComposerProps) {
 
   // Any edit invalidates the saved draft: the row on the server no longer
   // matches what is on screen, so it must be re-created before sending.
-  const edited = <T,>(setter: (value: T) => void) => (value: T) => {
-    setDraft(null);
-    setEstimate(null);
-    setter(value);
-  };
+  const edited =
+    <T,>(setter: (value: T) => void) =>
+    (value: T) => {
+      setDraft(null);
+      setEstimate(null);
+      setter(value);
+    };
 
-  const create = useConfirmedMutation<BroadcastCreateBody, Broadcast>({
-    action: "broadcast.create",
-    paramKeys: ["kind", "segment"],
-    titleKey: "adminBroadcasts.confirm.createTitle",
-    descriptionKey: "adminBroadcasts.confirm.createDesc",
-    confirmLabelKey: "adminBroadcasts.action.saveDraft",
-    successKey: "adminBroadcasts.ok.draftSaved",
-    invalidate: [["admin", "broadcasts"]],
-    mutationFn: (body, token) => createBroadcastWithToken(body, token),
-    onSuccess: (created) => setDraft(created),
+  const body = (): BroadcastCreateBody => ({
+    kind,
+    text: check.html || undefined,
+    buttons: cleanButtons,
+    media_path: media?.path,
+    segment,
+    exclude_blocked: excludeBlocked,
   });
 
-  const saveDraft = () =>
-    create.run(
-      { kind, segment },
-      {
-        kind,
-        text: check.html || undefined,
-        buttons: cleanButtons,
-        media_path: media?.path,
-        segment,
-        exclude_blocked: excludeBlocked,
-      },
-      { kind: t(KIND_LABEL_KEY[kind]), segment: t(SEGMENT_LABEL_KEY[segmentKind]) },
-    );
+  /**
+   * The draft row the test send and the queue call both need. Creating it is
+   * not destructive (nothing is sent), and `createBroadcast` mints its own
+   * `broadcast.create` token — so no second dialog in front of the queue one.
+   */
+  const ensureDraft = async (announce: boolean): Promise<Broadcast | null> => {
+    if (draft) return draft;
+    if (!canSave) return null;
+    setBusy("draft");
+    try {
+      const created = await createBroadcast(body());
+      setDraft(created);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "broadcasts"] });
+      if (announce) {
+        haptic("success");
+        toast.success(t("adminBroadcasts.ok.draftSaved"));
+      }
+      return created;
+    } catch (error) {
+      haptic("error");
+      toast.apiError(error);
+      return null;
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const sendTest = async () => {
-    if (!draft) return;
+    const row = await ensureDraft(false);
+    if (!row) return;
     setBusy("preview");
     try {
-      await previewBroadcast(draft.id);
+      await previewBroadcast(row.id);
+      haptic("success");
       toast.success(t("adminBroadcasts.ok.testSent"));
     } catch (error) {
+      haptic("error");
       toast.apiError(error);
     } finally {
       setBusy(null);
@@ -130,8 +147,7 @@ export default function Composer({ onQueued }: ComposerProps) {
   };
 
   // `/queue` is the step that actually reaches users, so the server requires a
-  // confirmation token bound to this exact broadcast id (`broadcast.queue`) —
-  // the dialog is no longer just a client-side courtesy.
+  // confirmation token bound to this exact broadcast id (`broadcast.queue`).
   const queueMutation = useConfirmedMutation<
     { broadcast_id: number },
     { id: number; status: string; total: number }
@@ -144,19 +160,20 @@ export default function Composer({ onQueued }: ComposerProps) {
     successKey: "adminBroadcasts.ok.queued",
     danger: true,
     invalidate: [["admin", "broadcasts"]],
-    mutationFn: (body, token) => queueBroadcastWithToken(body.broadcast_id, token),
-    onSuccess: (result) => {
-      setEstimate(result.total);
-      setDraft(null);
-      onQueued();
-    },
+    mutationFn: (payload, token) => queueBroadcastWithToken(payload.broadcast_id, token),
+    onSuccess: (result) => setEstimate(result.total),
   });
 
-  const queue = () => {
-    if (!draft) return;
-    void queueMutation.run({ broadcast_id: draft.id }, { broadcast_id: draft.id }, {
+  const queue = async () => {
+    const row = await ensureDraft(false);
+    if (!row) return;
+    const result = await queueMutation.run({ broadcast_id: row.id }, { broadcast_id: row.id }, {
       segment: t(SEGMENT_LABEL_KEY[segmentKind]),
     });
+    if (result) {
+      setDraft(null);
+      navigate(`/admin/broadcasts/${row.id}`, { replace: true });
+    }
   };
 
   const reset = () => {
@@ -167,70 +184,84 @@ export default function Composer({ onQueued }: ComposerProps) {
     setEstimate(null);
   };
 
-  return (
-    <section className="space-y-4" aria-label={t("adminBroadcasts.composer.title")}>
-      <div className="rounded-2xl border border-border bg-surface p-4 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-text">{t("adminBroadcasts.composer.title")}</h2>
-          {draft && (
-            <span className="rounded-full bg-surfaceAlt px-2 py-0.5 text-xs text-muted">
-              {t("adminBroadcasts.composer.draftId", { id: draft.id })}
-            </span>
-          )}
+  const pending = busy !== null || queueMutation.isPending;
+
+  useAdminHeader({
+    titleKey: "adminBroadcasts.composer.title",
+    primary: {
+      labelKey: "adminBroadcasts.action.queue",
+      icon: Send,
+      onClick: () => void queue(),
+      disabled: !canSave || pending,
+      loading: queueMutation.isPending,
+    },
+    menu: [
+      {
+        labelKey: "adminBroadcasts.action.sendTest",
+        icon: TestTube2,
+        onClick: () => void sendTest(),
+        disabled: !canSave || pending,
+      },
+      {
+        labelKey: "adminBroadcasts.action.saveDraft",
+        icon: Save,
+        onClick: () => void ensureDraft(true),
+        disabled: !canSave || pending || draft !== null,
+      },
+      { labelKey: "adminBroadcasts.composer.reset", icon: Eraser, onClick: reset },
+    ],
+  });
+
+  const segmentSummary = PARAMETRIC_KINDS.includes(segmentKind)
+    ? `${t(SEGMENT_LABEL_KEY[segmentKind])}: ${segmentValue || "—"}`
+    : t(SEGMENT_LABEL_KEY[segmentKind]);
+
+  const sections: AccordionItem[] = [
+    {
+      id: "text",
+      titleKey: "adminBroadcasts.section.text",
+      summary: `${check.length} / ${limit}`,
+      content: (
+        <div className="space-y-2">
+          <HtmlEditor
+            value={text}
+            onChange={edited(setText)}
+            labelKey={
+              kind === "text" ? "adminBroadcasts.composer.text" : "adminBroadcasts.composer.caption"
+            }
+            limit={limit}
+            check={check}
+          />
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+            {t("adminBroadcasts.composer.preview")}
+          </p>
+          <MessagePreview html={check.html} buttons={cleanButtons} />
         </div>
+      ),
+    },
+  ];
 
-        <div className="space-y-1.5">
-          <label htmlFor="broadcast-kind" className="block text-xs font-semibold text-muted">
-            {t("adminBroadcasts.composer.kind")}
-          </label>
-          <select
-            id="broadcast-kind"
-            value={kind}
-            onChange={(event) => {
-              const next = event.target.value as BroadcastKind;
-              setDraft(null);
-              setEstimate(null);
-              setKind(next);
-              if (next === "text") setMedia(null);
-            }}
-            className={INPUT_CLS}
-          >
-            {COMPOSABLE_KINDS.map((option) => (
-              <option key={option} value={option}>
-                {t(KIND_LABEL_KEY[option])}
-              </option>
-            ))}
-          </select>
-        </div>
+  if (kind !== "text") {
+    sections.push({
+      id: "media",
+      titleKey: "adminBroadcasts.section.media",
+      summary: media ? media.path.split("/").pop() : t("adminBroadcasts.media.none"),
+      content: <MediaUpload value={media} onChange={edited(setMedia)} />,
+    });
+  }
 
-        {kind !== "text" && <MediaUpload value={media} onChange={edited(setMedia)} />}
-
-        <HtmlEditor
-          value={text}
-          onChange={edited(setText)}
-          labelKey={kind === "text" ? "adminBroadcasts.composer.text" : "adminBroadcasts.composer.caption"}
-          limit={limit}
-          check={check}
-          previewFooter={
-            cleanButtons.length > 0 ? (
-              <div className="mt-3 space-y-1.5">
-                {cleanButtons.map((row, index) => (
-                  <div
-                    key={index}
-                    className="truncate rounded-lg bg-surface px-3 py-2 text-center text-sm font-medium text-primary"
-                  >
-                    {row.text || row.url}
-                  </div>
-                ))}
-              </div>
-            ) : null
-          }
-        />
-
-        <ButtonsEditor value={buttons} onChange={edited(setButtons)} />
-      </div>
-
-      <div className="rounded-2xl border border-border bg-surface p-4">
+  sections.push(
+    {
+      id: "buttons",
+      titleKey: "adminBroadcasts.section.buttons",
+      summary: t("adminBroadcasts.buttons.count", { count: cleanButtons.length }),
+      content: <ButtonsEditor value={buttons} onChange={edited(setButtons)} />,
+    },
+    {
+      id: "target",
+      titleKey: "adminBroadcasts.section.target",
+      summary: segmentSummary,
+      content: (
         <TargetPicker
           kind={segmentKind}
           value={segmentValue}
@@ -240,57 +271,37 @@ export default function Composer({ onQueued }: ComposerProps) {
           onExcludeBlockedChange={edited(setExcludeBlocked)}
           estimate={estimate}
         />
-      </div>
+      ),
+    },
+  );
 
-      {blockedReason && (
-        <p role="status" className="text-xs text-muted">
+  return (
+    <div className="space-y-2">
+      <SegmentedControl
+        full
+        options={COMPOSABLE_KINDS.map((option) => ({
+          value: option,
+          labelKey: KIND_LABEL_KEY[option],
+        }))}
+        value={kind}
+        onChange={(next) => {
+          setDraft(null);
+          setEstimate(null);
+          setKind(next as BroadcastKind);
+          if (next === "text") setMedia(null);
+        }}
+        ariaLabel={t("adminBroadcasts.composer.kind")}
+      />
+
+      <Accordion queryKey="sec" defaultOpen="text" items={sections} />
+
+      {draft ? (
+        <Chip tone="primary" label={t("adminBroadcasts.composer.draftId", { id: draft.id })} />
+      ) : blockedReason ? (
+        <p role="status" className="text-[11px] text-muted">
           {t(blockedReason)}
         </p>
-      )}
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => void saveDraft()}
-          disabled={!canSave || create.isPending || busy !== null || queueMutation.isPending}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-sm font-semibold text-primaryFg disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          {create.isPending ? <Spinner /> : <Save size={15} aria-hidden="true" />}
-          {t("adminBroadcasts.action.saveDraft")}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => void sendTest()}
-          disabled={!draft || busy !== null || queueMutation.isPending}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3.5 py-2 text-sm font-medium text-text hover:bg-surfaceAlt disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          {busy === "preview" ? <Spinner /> : <TestTube2 size={15} aria-hidden="true" />}
-          {t("adminBroadcasts.action.sendTest")}
-        </button>
-
-        <button
-          type="button"
-          onClick={queue}
-          disabled={!draft || busy !== null || queueMutation.isPending}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-success px-3.5 py-2 text-sm font-semibold text-primaryFg disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          {queueMutation.isPending ? <Spinner /> : <Send size={15} aria-hidden="true" />}
-          {t("adminBroadcasts.action.queue")}
-        </button>
-
-        <button
-          type="button"
-          onClick={reset}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-muted hover:bg-surfaceAlt hover:text-text focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          <Eraser size={15} aria-hidden="true" /> {t("adminBroadcasts.composer.reset")}
-        </button>
-      </div>
-    </section>
+      ) : null}
+    </div>
   );
-}
-
-function Spinner() {
-  return <Loader2 size={15} className="animate-spin" aria-hidden="true" />;
 }

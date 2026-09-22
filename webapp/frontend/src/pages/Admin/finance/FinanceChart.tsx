@@ -11,9 +11,9 @@ export type FinanceChartProps = {
 
 /**
  * Revenue (line, left axis, money) vs. activations (bars, right axis, count)
- * over the selected period. The only recharts user on this page — it rides
- * inside `FinancePage`'s own lazy chunk (see `registry.ts`), so recharts never
- * loads for pages other than Finance/Analytics.
+ * over the selected period. Rendered lazily (`React.lazy`) inside the
+ * Summary tab's `Accordion`, which already supplies the section chrome and
+ * heading — this component owns only the legend + plot, no card of its own.
  */
 export default function FinanceChart({ series }: FinanceChartProps) {
   const t = useT();
@@ -23,11 +23,8 @@ export default function FinanceChart({ series }: FinanceChartProps) {
   const hasData = series.some((point) => point.revenue > 0 || point.activations > 0);
 
   return (
-    <section className="card p-4">
-      <h2 className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted">
-        {t("adminFinance.chart.title")}
-      </h2>
-      <div className="mb-3 flex gap-4 text-xs text-muted">
+    <div>
+      <div className="mb-2 flex gap-3 text-[11px] text-muted">
         <span className="flex items-center gap-1.5">
           <span aria-hidden="true" className="h-2 w-2 rounded-full bg-success" />
           {t("adminFinance.chart.revenue")}
@@ -39,7 +36,7 @@ export default function FinanceChart({ series }: FinanceChartProps) {
       </div>
 
       {!hasData ? (
-        <p className="py-10 text-center text-xs text-muted">{t("adminFinance.chart.empty")}</p>
+        <p className="py-8 text-center text-[11px] text-muted">{t("adminFinance.chart.empty")}</p>
       ) : (
         <ResponsiveContainer width="100%" height={220}>
           <ComposedChart data={series} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
@@ -106,6 +103,6 @@ export default function FinanceChart({ series }: FinanceChartProps) {
           </ComposedChart>
         </ResponsiveContainer>
       )}
-    </section>
+    </div>
   );
 }

@@ -13,7 +13,7 @@ export type ToggleRowProps = {
 export default function ToggleRow({ label, checked, disabled, onChange }: ToggleRowProps) {
   return (
     <div className="flex items-center justify-between py-2.5">
-      <span className="text-sm text-text">{label}</span>
+      <span className="text-[13px] text-text">{label}</span>
       <button
         type="button"
         role="switch"

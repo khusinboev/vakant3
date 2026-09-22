@@ -1,16 +1,19 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+
+import { adminBackAction } from "../pages/Admin/hooks/useAdminBack";
 import { runBackInterceptor } from "./useBackInterceptor";
 
 /**
- * Shows / hides Telegram's native back button (in the app header) depending
- * on whether the user is on the root page or a deeper route.
+ * Shows / hides Telegram's native back button and decides what one press does.
  *
  * Behaviour on press:
- *  1. If an input/textarea has focus → blur it (dismiss keyboard). Stop.
- *  2. If a page-level interceptor is registered → call it. If it returns
- *     true the interceptor handled the action (e.g. wizard step back). Stop.
- *  3. Default → navigate(-1).
+ *  1. An input/textarea has focus -> blur it (dismiss the keyboard). Stop.
+ *  2. Inside `/admin/*` -> `adminBackAction`: pop the topmost sheet, else one
+ *     history step, else leave the panel for `/app`. The button is always
+ *     visible there (spec §1.1), including on the panel's root.
+ *  3. A page-level interceptor is registered -> call it; `true` means handled.
+ *  4. Default -> `navigate(-1)`.
  */
 const TOP_LEVEL_PATHS = ["/app", "/saves", "/profile", "/referral", "/"];
 
@@ -22,25 +25,26 @@ export default function useTelegramBackButton() {
     const btn = window.Telegram?.WebApp?.BackButton;
     if (!btn) return;
 
-    const isTopLevel = TOP_LEVEL_PATHS.includes(location.pathname);
+    const isAdmin = location.pathname === "/admin" || location.pathname.startsWith("/admin/");
+    const isTopLevel = !isAdmin && TOP_LEVEL_PATHS.includes(location.pathname);
 
     const handleBack = () => {
-      // 1. Close keyboard / blur focused input first
       const active = document.activeElement as HTMLElement | null;
       if (
         active &&
-        (active.tagName === "INPUT" ||
-          active.tagName === "TEXTAREA" ||
-          active.tagName === "SELECT")
+        (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")
       ) {
         active.blur();
         return;
       }
 
-      // 2. Page-level interceptor (e.g. wizard step navigation)
-      if (runBackInterceptor()) return;
+      if (isAdmin) {
+        if (runBackInterceptor()) return;
+        adminBackAction(navigate, location);
+        return;
+      }
 
-      // 3. Default navigation
+      if (runBackInterceptor()) return;
       navigate(-1);
     };
 
@@ -54,5 +58,5 @@ export default function useTelegramBackButton() {
     return () => {
       btn.offClick(handleBack);
     };
-  }, [location.pathname, navigate]);
+  }, [location, navigate]);
 }

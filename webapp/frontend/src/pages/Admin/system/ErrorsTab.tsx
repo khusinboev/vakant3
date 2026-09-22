@@ -1,115 +1,118 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { getErrorLog } from "../../../api/admin";
 import type { ErrorLogItem, ErrorLogSource } from "../../../api/adminTypes";
 import { useLocale } from "../../../i18n/useLocale";
-import { useT } from "../../../i18n/useT";
-import type { TranslationKey } from "../../../i18n";
-import DataTable, { type Column } from "../components/DataTable";
-import FilterBar from "../components/FilterBar";
+import ErrorCard from "../components/ErrorCard";
+import LoadMore from "../components/LoadMore";
 import { useCursorQuery } from "../hooks/useCursorQuery";
-import JsonDetails from "./JsonDetails";
+import { useHistorySheet } from "../hooks/useHistorySheet";
+import {
+  EmptyState,
+  FilterChips,
+  JsonDetails,
+  List,
+  ListRow,
+  Sheet,
+  Skeleton,
+  StatusChip,
+  useAdminFilters,
+  type FilterDef,
+  type Tone,
+} from "../ui";
 
 const PAGE_LIMIT = 30;
+const DETAIL_SHEET = "system.errors.detail";
 
-const SOURCE_LABEL: Record<ErrorLogSource, TranslationKey> = {
-  api: "adminSystem.errors.source.api",
-  bot: "adminSystem.errors.source.bot",
-  scheduler: "adminSystem.errors.source.scheduler",
-};
+const LEVEL_TONE: Record<string, Tone> = { error: "danger", warning: "warning", info: "neutral" };
 
-const LEVEL_CLASS: Record<string, string> = {
-  error: "bg-danger/10 text-danger",
-  warning: "bg-warning/10 text-warning",
-  info: "bg-surfaceAlt text-muted",
-};
+const FILTERS: FilterDef[] = [
+  {
+    key: "source",
+    labelKey: "adminSystem.errors.filterSource",
+    type: "select",
+    options: [
+      { value: "api", labelKey: "adminSystem.errors.source.api" },
+      { value: "bot", labelKey: "adminSystem.errors.source.bot" },
+      { value: "scheduler", labelKey: "adminSystem.errors.source.scheduler" },
+    ],
+  },
+  {
+    key: "level",
+    labelKey: "adminSystem.errors.filterLevel",
+    type: "select",
+    options: [
+      { value: "error", labelKey: "adminSystem.errors.level.error" },
+      { value: "warning", labelKey: "adminSystem.errors.level.warning" },
+      { value: "info", labelKey: "adminSystem.errors.level.info" },
+    ],
+  },
+];
 
-/** `error_log` browser — filterable by source, newest first. */
+/** `error_log` browser — filterable by source (server-side) and level (client-side: `admin_system.py` only filters on `source`). */
 export default function ErrorsTab() {
-  const t = useT();
   const { formatDateTime } = useLocale();
-  const [source, setSource] = useState<ErrorLogSource | "">("");
+  const filters = useAdminFilters(FILTERS, "system.errors.filters");
+  const detail = useHistorySheet<ErrorLogItem>(DETAIL_SHEET);
 
-  const query = useMemo(
-    () => ({ source: (source || undefined) as ErrorLogSource | undefined, limit: PAGE_LIMIT }),
-    [source],
+  const source = (filters.values.source || undefined) as ErrorLogSource | undefined;
+  const level = filters.values.level || undefined;
+
+  const query = useMemo(() => ({ source, limit: PAGE_LIMIT }), [source]);
+
+  const errors = useCursorQuery<ErrorLogItem>(["admin", "errors", query], (cursor) =>
+    getErrorLog({ ...query, cursor: cursor ?? undefined }),
   );
 
-  const errors = useCursorQuery<ErrorLogItem>(
-    ["admin", "errors", query],
-    (cursor) => getErrorLog({ ...query, cursor: cursor ?? undefined }),
+  const items = useMemo(
+    () => (level ? errors.items.filter((row) => row.level === level) : errors.items),
+    [errors.items, level],
   );
-
-  const columns: Column<ErrorLogItem>[] = [
-    {
-      key: "created_at",
-      labelKey: "adminSystem.errors.col.time",
-      render: (row) => formatDateTime(row.created_at),
-    },
-    {
-      key: "source",
-      labelKey: "adminSystem.errors.col.source",
-      render: (row) => (
-        <span className="inline-flex rounded-full bg-surfaceAlt px-2 py-0.5 text-[11px] font-semibold text-muted">
-          {t(SOURCE_LABEL[row.source])}
-        </span>
-      ),
-    },
-    {
-      key: "level",
-      labelKey: "adminSystem.errors.col.level",
-      render: (row) => (
-        <span
-          className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-            LEVEL_CLASS[row.level] ?? LEVEL_CLASS.info
-          }`}
-        >
-          {row.level}
-        </span>
-      ),
-    },
-    {
-      key: "message",
-      labelKey: "adminSystem.errors.col.message",
-      render: (row) => <span className="line-clamp-2 max-w-sm">{row.message}</span>,
-    },
-    {
-      key: "context",
-      labelKey: "adminSystem.errors.col.context",
-      render: (row) => <JsonDetails data={row.context} labelKey="adminSystem.errors.viewContext" />,
-    },
-  ];
 
   return (
-    <div className="space-y-3">
-      <FilterBar onReset={() => setSource("")}>
-        <FilterBar.Select
-          value={source}
-          onChange={(value) => setSource(value as ErrorLogSource | "")}
-          options={[
-            { value: "api", labelKey: "adminSystem.errors.source.api" },
-            { value: "bot", labelKey: "adminSystem.errors.source.bot" },
-            { value: "scheduler", labelKey: "adminSystem.errors.source.scheduler" },
-          ]}
-          allKey="admin.filter.all"
-          labelKey="adminSystem.errors.filterSource"
-        />
-      </FilterBar>
+    <div className="space-y-2">
+      <FilterChips defs={FILTERS} state={filters} />
 
-      <DataTable
-        columns={columns}
-        rows={errors.items}
-        getRowId={(row) => row.id}
-        loading={errors.isLoading}
-        error={errors.error}
-        onRetry={errors.refetch}
+      {errors.isLoading && <Skeleton rows={5} />}
+      {Boolean(errors.error) && <ErrorCard error={errors.error} onRetry={errors.refetch} />}
+      {!errors.isLoading &&
+        !errors.error &&
+        (items.length === 0 ? (
+          <EmptyState labelKey="admin.table.empty" />
+        ) : (
+          <List>
+            {items.map((row) => (
+              <ListRow
+                key={row.id}
+                title={<span className="line-clamp-1">{row.message}</span>}
+                subtitle={row.source}
+                meta={formatDateTime(row.created_at)}
+                trailing={<StatusChip status={row.level} tone={LEVEL_TONE[row.level]} />}
+                onClick={() => detail.openSheet(row)}
+              />
+            ))}
+          </List>
+        ))}
+
+      <LoadMore
         hasMore={errors.hasMore}
         onLoadMore={errors.loadMore}
-        loadingMore={errors.isFetchingMore}
+        loading={errors.isFetchingMore}
         total={errors.total}
-        captionKey="adminSystem.errors.title"
-        stickyHeader
+        loaded={errors.items.length}
       />
+
+      <Sheet name={DETAIL_SHEET} titleKey="adminSystem.errors.detailTitle">
+        {detail.payload && (
+          <div className="space-y-2">
+            <p className="text-[11px] text-muted">
+              {formatDateTime(detail.payload.created_at)} · {detail.payload.source} · {detail.payload.level}
+            </p>
+            <p className="text-[13px] text-text">{detail.payload.message}</p>
+            <JsonDetails data={detail.payload.context} labelKey="adminSystem.errors.viewContext" />
+          </div>
+        )}
+      </Sheet>
     </div>
   );
 }

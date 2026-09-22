@@ -1,69 +1,66 @@
 /** Admin namespace — uz is the source language (see src/i18n/index.ts). */
 const admin = {
   // ── Shell ──────────────────────────────────────────────────────────────────
-  "admin.brand": "Bandlik.uz",
   "admin.title": "Admin panel",
-  "admin.online": "Onlayn",
   "admin.accessDenied": "Admin panel faqat adminlar uchun.",
-  "admin.sectionError": "Ma'lumotlarni yuklab bo'lmadi.",
 
-  "admin.tab.overview": "Asosiy",
-  "admin.tab.settings": "Sozlamalar",
-  "admin.tab.analytics": "Analitika",
-  "admin.tab.users": "Foydalanuvchilar",
 
   "admin.status.on": "Faol",
   "admin.status.off": "O'chiq",
 
+  // ── Dashboard (v3) ─────────────────────────────────────────────────────────
+  "admin.dash.sparklineAria": "Oxirgi 7 kunlik yangi foydalanuvchilar grafigi",
+  "admin.dash.sparklineLabel": "Yangi foydalanuvchilar — 7 kun",
+  "admin.dash.systemOk": "Tizim barqaror",
+  "admin.dash.systemDegraded": "Tizimda muammo bor",
+  "admin.dash.systemUnknown": "Tizim holati noma'lum",
+  "admin.dash.autoPostLabel": "Avto-post",
+  "admin.dash.postedTodayLabel": "Bugun joylandi",
+  "admin.dash.referralLabel": "Referral",
+  "admin.dash.minReferralsLabel": "Min. referal",
+
   // ── Overview ───────────────────────────────────────────────────────────────
-  "admin.overview.autoPost": "Avto-post",
-  "admin.overview.referral": "Referral",
-  "admin.overview.postedToday": "bugun {posted}/{total}",
-  "admin.overview.minRefs": "Kamida {count} ta referal",
-  "admin.overview.scheduleTitle": "Bugungi jadval",
-  "admin.overview.scheduleEmpty": "Bugunga jadval tuzilmagan.",
-  "admin.overview.slotPosted": "{time} — joylandi",
-  "admin.overview.slotSkipped": "{time} — o'tkazib yuborildi",
-  "admin.overview.slotPending": "{time} — navbatda",
   "admin.overview.kpiTitle": "Rezyume KPI maqsadlari",
 
   "admin.kpi.completion": "Yakunlash",
   "admin.kpi.sendSuccess": "Yuborish muvaffaqiyati",
   "admin.kpi.pdfExport": "PDF eksport",
   "admin.kpi.creationTime": "Tayyorlash vaqti",
-  "admin.kpi.target": "Maqsad: {target}",
   "admin.kpi.minutesShort": "daq",
   "admin.kpi.openedUsers": "Ochgan",
   "admin.kpi.completedUsers": "Yakunlagan",
   "admin.kpi.sendAttempts": "Yuborgan",
 
   // ── Settings ───────────────────────────────────────────────────────────────
-  "admin.group.autoPost": "Avto-post",
-  "admin.group.referralGate": "Referral shart",
-  "admin.group.pro": "Pro tarif",
-  "admin.group.resumeKpi": "Rezyume KPI maqsadlari",
+  "admin.settings.group.autoPost": "Avto-post",
+  "admin.settings.group.referralGate": "Referral shart",
+  "admin.settings.group.pro": "Pro tarif",
+  "admin.settings.group.resumeKpi": "Rezyume KPI maqsadlari",
 
-  "admin.field.enabled": "Faol",
-  "admin.field.channel": "Kanal",
-  "admin.field.channelLang": "Kanal tili",
-  "admin.field.autoPostMinSalary": "Eng kam maosh (so'm)",
-  "admin.field.perDayMin": "Kuniga eng kam",
-  "admin.field.perDayMax": "Kuniga eng ko'p",
-  "admin.field.requiredRefs": "Talab qilinadigan referallar",
-  "admin.field.proPrice": "Pro narxi (so'm)",
-  "admin.field.referralReward": "Referal mukofoti (so'm)",
-  "admin.field.proMinSalary": "Pro uchun eng kam maosh (so'm)",
-  "admin.field.targetCreationMinutes": "Tayyorlash vaqti (daq)",
-  "admin.field.targetCompletionRate": "Yakunlash darajasi (%)",
-  "admin.field.targetSendRate": "Yuborish muvaffaqiyati (%)",
-  "admin.field.targetExportRate": "PDF eksport muvaffaqiyati (%)",
+  "admin.settings.field.enabled": "Faol",
+  "admin.settings.field.channel": "Kanal",
+  "admin.settings.field.channelLang": "Kanal tili",
+  "admin.settings.field.autoPostMinSalary": "Eng kam maosh (so'm)",
+  "admin.settings.field.perDayMin": "Kuniga eng kam",
+  "admin.settings.field.perDayMax": "Kuniga eng ko'p",
+  "admin.settings.field.requiredRefs": "Talab qilinadigan referallar",
+  "admin.settings.field.proPrice": "Pro narxi (so'm)",
+  "admin.settings.field.referralReward": "Referal mukofoti (so'm)",
+  "admin.settings.field.proMinSalary": "Pro uchun eng kam maosh (so'm)",
+  "admin.settings.field.targetCreationMinutes": "Tayyorlash vaqti (daq)",
+  "admin.settings.field.targetCompletionRate": "Yakunlash darajasi (%)",
+  "admin.settings.field.targetSendRate": "Yuborish muvaffaqiyati (%)",
+  "admin.settings.field.targetExportRate": "PDF eksport muvaffaqiyati (%)",
 
-  "admin.edit.aria": "{label} — tahrirlash",
+  "admin.settings.editAria": "{label} — tahrirlash",
   "admin.settings.saved": "Sozlama saqlandi.",
-  "admin.validation.number": "{label}: raqam kiriting.",
-  "admin.validation.negative": "{label}: manfiy bo'lishi mumkin emas.",
-  "admin.validation.empty": "{label}: qiymat bo'sh bo'lishi mumkin emas.",
-  "admin.validation.perDayRange":
+  "admin.settings.saving": "Saqlanmoqda…",
+  "admin.settings.conflict.message": "Sozlama boshqa joyda o'zgartirildi.",
+  "admin.settings.conflict.reload": "Qayta yuklash",
+  "admin.settings.validation.number": "{label}: raqam kiriting.",
+  "admin.settings.validation.negative": "{label}: manfiy bo'lishi mumkin emas.",
+  "admin.settings.validation.empty": "{label}: qiymat bo'sh bo'lishi mumkin emas.",
+  "admin.settings.validation.perDayRange":
     "Kuniga eng kam qiymat eng ko'pdan katta bo'lmasligi kerak ({min} > {max}).",
 
   // ── Analytics ──────────────────────────────────────────────────────────────
@@ -100,29 +97,9 @@ const admin = {
   "admin.funnel.step.final": "Yakuniy",
 
   // ── Users ──────────────────────────────────────────────────────────────────
-  "admin.users.addTitle": "Balans qo'shish",
-  "admin.users.telegramId": "Telegram ID",
-  "admin.users.amount": "Miqdor (so'm)",
-  "admin.users.addPreview": "{id} ID ga {amount} qo'shiladi.",
-  "admin.users.addSubmit": "Balans qo'shish",
-  "admin.users.adding": "Qo'shilmoqda...",
-  "admin.users.addSuccess": "Yangi balans: {balance}",
-  "admin.users.invalidAmount": "Miqdor 0 dan katta butun son bo'lishi kerak.",
-  "admin.users.invalidId": "Telegram ID noto'g'ri.",
-  "admin.users.inspectTitle": "Foydalanuvchini tekshirish",
-  "admin.users.inspectPlaceholder": "Telegram user ID",
-  "admin.users.inspectSubmit": "Ko'rish",
-  "admin.users.hasResume": "Rezyume bor",
-  "admin.users.noResume": "Rezyume yo'q",
-  "admin.users.template": "Shablon",
-  "admin.users.updatedAt": "Yangilangan",
-  "admin.users.recentEvents": "Oxirgi hodisalar",
-  "admin.users.noEvents": "Hodisalar yo'q.",
 
   // ── Shell v2 (AdminLayout / registry / shared components) ─────────────────
   "admin.nav.aria": "Admin bo'limlari",
-  "admin.nav.more": "Yana",
-  "admin.nav.allPages": "Barcha bo'limlar",
   "admin.nav.group.main": "Asosiy",
   "admin.nav.group.people": "Foydalanuvchilar",
   "admin.nav.group.content": "Kontent va kanallar",
@@ -133,7 +110,6 @@ const admin = {
   "admin.nav.analytics": "Analitika",
   "admin.nav.resume": "Rezyume analitikasi",
   "admin.nav.users": "Foydalanuvchilar",
-  "admin.nav.quick": "Tezkor amallar",
   "admin.nav.broadcasts": "Xabar yuborish",
   "admin.nav.channels": "Kanallar",
   "admin.nav.autopost": "Avto-post",
@@ -148,15 +124,11 @@ const admin = {
   "admin.role.viewer": "Kuzatuvchi",
   "admin.role.required": "Bu bo'lim uchun kamida \"{role}\" roli kerak.",
 
-  "admin.shell.langToggle": "Til",
-  "admin.shell.themeToggle": "Mavzu",
-  "admin.shell.loading": "Yuklanmoqda...",
   "admin.shell.openPanel": "Admin panelni ochish",
 
   "admin.table.empty": "Ma'lumot topilmadi.",
   "admin.table.loadMore": "Yana yuklash",
   "admin.table.loadingMore": "Yuklanmoqda...",
-  "admin.table.sort": "{label} bo'yicha saralash",
   "admin.table.total": "Jami: {total}",
 
   "admin.confirm.title": "Amalni tasdiqlaysizmi?",
@@ -164,31 +136,17 @@ const admin = {
   "admin.confirm.cancel": "Bekor qilish",
   "admin.confirm.working": "Bajarilmoqda...",
 
-  "admin.filter.aria": "Filtrlar",
   "admin.filter.searchPlaceholder": "Qidirish...",
   "admin.filter.all": "Barchasi",
   "admin.filter.from": "Sanadan",
   "admin.filter.to": "Sanagacha",
-  "admin.filter.reset": "Tozalash",
 
   "admin.empty.default": "Hozircha hech nima yo'q.",
   "admin.stat.deltaUp": "{value} o'sish",
   "admin.stat.deltaDown": "{value} pasayish",
 
-  "admin.danger.title": "Xavfli zona",
-  "admin.danger.desc": "Foydalanuvchi balansi 0 ga tushadi va Pro o'chiriladi.",
-  "admin.danger.submit": "Tozalash",
-  "admin.danger.confirm":
-    "{id} ID: balans 0 ga tushadi, Pro olib qo'yiladi. Tasdiqlaysizmi?",
-  "admin.danger.confirmYes": "Ha, tozalansin",
-  "admin.danger.success": "{id} ID tozalandi: balans 0, Pro o'chirildi.",
 
   // ── Analytics dashboard (daily_stats rollup) ────────────────────────────────
-  "admin.analytics2.period.label": "Davr",
-  "admin.analytics2.period.7": "7 kun",
-  "admin.analytics2.period.30": "30 kun",
-  "admin.analytics2.period.90": "90 kun",
-
   "admin.analytics2.stat.groupLabel": "Bugungi ko'rsatkichlar",
   "admin.analytics2.stat.hintToday": "bugun",
   "admin.analytics2.stat.newUsers": "Yangi foydalanuvchilar",
@@ -221,6 +179,50 @@ const admin = {
     "Kunlik yig'ish (rollup) hali ishga tushmagan — grafiklar birinchi kun yakunlangach paydo bo'ladi.",
 
   "admin.analytics2.resumeKpi.title": "Rezyume KPI ko'rsatkichlari",
+
+  // ── Shell v3 (AdminShell / AdminBar / Rail / ui kit) ─────────────────────
+  "admin.shell.back": "Orqaga",
+  "admin.shell.menu": "Yana amallar",
+  "admin.shell.actions": "Amallar",
+  "admin.shell.content": "Admin kontenti",
+
+  "admin.bar.home": "Bosh",
+  "admin.bar.users": "Odamlar",
+  "admin.bar.broadcasts": "Xabar",
+  "admin.bar.more": "Ko'proq",
+
+  "admin.more.title": "Bo'limlar",
+  "admin.more.quickActions": "Tezkor amallar",
+  "admin.more.quick.postNow": "Hozir joylash",
+  "admin.more.quick.newBroadcast": "Yangi xabar",
+  "admin.more.quick.addChannel": "Kanal qo'shish",
+
+  "admin.rail.pin": "Menyuni qotirish",
+  "admin.rail.unpin": "Menyuni yig'ish",
+
+  "admin.sheet.close": "Yopish",
+
+  "admin.filter.title": "Filtrlar",
+  "admin.filter.open": "Filtrlar",
+  "admin.filter.openCount": "Filtrlar ({count})",
+  "admin.filter.apply": "Qo'llash",
+  "admin.filter.clear": "Tozalash",
+  "admin.filter.removeAria": "{label} filtrini olib tashlash",
+  "admin.filter.on": "Yoqilgan",
+
+  "admin.search.clear": "Qidiruvni tozalash",
+
+  "admin.tabs.aria": "Bo'limlar",
+  "admin.toolbar.more": "Yana",
+  "admin.toolbar.moreAria": "Qo'shimcha amallar",
+
+  "admin.period.aria": "Davr",
+  "admin.period.7": "7 kun",
+  "admin.period.30": "30 kun",
+  "admin.period.90": "90 kun",
+  "admin.period.365": "1 yil",
+
+
 };
 export type AdminDict = typeof admin;
 export default admin;

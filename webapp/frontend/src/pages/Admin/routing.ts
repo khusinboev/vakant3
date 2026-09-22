@@ -5,22 +5,20 @@ import { DEFAULT_ADMIN_PAGE, findAdminPage, type AdminPageId } from "./registry"
 export const ADMIN_BASE = "/admin";
 
 /**
- * The panel's pages are sub-routes of `/admin`.
- *
- * `App.tsx` registers `<Route path="/admin" …>` (no trailing splat) and is
- * owned by another agent, so a path segment such as `/admin/users` would be
- * swallowed by the `*` catch-all and bounce to `/app`. Until that route becomes
- * `/admin/*`, the page id travels in the query string — `useAdminPageId`
- * already reads both forms, so flipping `PATH_ROUTING` to `true` is the only
- * change needed on this side.
+ * The panel's pages are real sub-routes of `/admin` (App.tsx registers
+ * `/admin/*` and `index.tsx` renders the nested `<Routes>`), so every section,
+ * detail view and editor is its own URL — which is what makes back, the
+ * Telegram BackButton and a shared link all work.
  */
-export const PATH_ROUTING = false;
+export const PATH_ROUTING = true;
 
 export function adminPagePath(id: AdminPageId): string {
-  return PATH_ROUTING ? `${ADMIN_BASE}/${id}` : `${ADMIN_BASE}?page=${id}`;
+  const entry = findAdminPage(id);
+  const path = entry?.path ?? id;
+  return path ? `${ADMIN_BASE}/${path}` : ADMIN_BASE;
 }
 
-/** The page id from `/admin/<id>` or `/admin?page=<id>`, defaulted + validated. */
+/** The active page id from `/admin/<segment>` (or a legacy `?page=` link). */
 export function useAdminPageId(): AdminPageId {
   const location = useLocation();
 
@@ -29,6 +27,7 @@ export function useAdminPageId(): AdminPageId {
     : null;
   const fromPath = findAdminPage(segment);
   if (fromPath) return fromPath.id;
+  if (segment) return DEFAULT_ADMIN_PAGE;
 
   const fromQuery = findAdminPage(new URLSearchParams(location.search).get("page"));
   return fromQuery ? fromQuery.id : DEFAULT_ADMIN_PAGE;

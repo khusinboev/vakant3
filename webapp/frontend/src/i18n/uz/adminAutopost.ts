@@ -1,6 +1,5 @@
 /** adminAutopost namespace — owned by the corresponding admin page agent. uz is the source. */
 const adminAutopost = {
-  "adminAutopost.status.title": "Avtopost holati",
   "adminAutopost.status.enabledLabel": "Holati",
   "adminAutopost.status.enabled": "Yoqilgan",
   "adminAutopost.status.disabled": "O'chirilgan",
@@ -15,19 +14,14 @@ const adminAutopost = {
   "adminAutopost.status.failed": "Xatolik",
   "adminAutopost.status.skipped": "O'tkazib yuborilgan",
 
-  "adminAutopost.schedule.title": "Bugungi jadval",
   "adminAutopost.schedule.postedOf": "Joylandi: {posted} / {total}",
   "adminAutopost.schedule.empty": "Bugun uchun slotlar yo'q",
-  "adminAutopost.schedule.done": "Bajarildi",
-  "adminAutopost.schedule.pending": "Kutilmoqda",
 
   "adminAutopost.postNow.title": "Hoziroq joylash",
   "adminAutopost.postNow.description": "Vakansiya ID (uid) ni kiriting yoki bo'sh qoldiring — navbatdagi mos vakansiya tanlanadi.",
   "adminAutopost.postNow.uidLabel": "Vakansiya UID",
-  "adminAutopost.postNow.uidHint": "ixtiyoriy",
   "adminAutopost.postNow.uidPlaceholder": "osonish_12345",
   "adminAutopost.postNow.button": "Hoziroq joylash",
-  "adminAutopost.postNow.sending": "Yuborilmoqda…",
   "adminAutopost.postNow.confirmTitle": "Hoziroq joylashni tasdiqlang",
   "adminAutopost.postNow.confirmDescription": "{uid} kanalga hoziroq joylanadi. Davom etasizmi?",
   "adminAutopost.postNow.confirmButton": "Joylash",
@@ -38,20 +32,14 @@ const adminAutopost = {
   "adminAutopost.postNow.jobStatus.running": "Bajarilmoqda",
   "adminAutopost.postNow.jobStatus.done": "Bajarildi",
   "adminAutopost.postNow.jobStatus.failed": "Xatolik",
+  "adminAutopost.postNow.jobStatusLabel": "Vazifa holati",
   "adminAutopost.postNow.resultUid": "Vakansiya",
   "adminAutopost.postNow.resultMessageId": "Xabar ID",
   "adminAutopost.postNow.resultError": "Xato",
-  "adminAutopost.postNow.dismiss": "Yopish",
 
   "adminAutopost.history.title": "Joylashlar tarixi",
   "adminAutopost.history.empty": "Hali joylashlar yo'q",
-  "adminAutopost.history.col.uid": "Vakansiya",
-  "adminAutopost.history.col.channel": "Kanal",
-  "adminAutopost.history.col.status": "Holati",
-  "adminAutopost.history.col.error": "Xato",
-  "adminAutopost.history.col.time": "Vaqt",
   "adminAutopost.history.filter.status": "Holat bo'yicha",
-  "adminAutopost.history.filter.all": "Barchasi",
 };
 
 export type AdminAutopostDict = typeof adminAutopost;

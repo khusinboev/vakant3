@@ -1,23 +1,42 @@
-import { useMemo, useState } from "react";
-import { CreditCard, Download, Landmark, TrendingUp, Users, Wallet } from "lucide-react";
+import { lazy, Suspense, useMemo } from "react";
+import { Download } from "lucide-react";
 
 import type { TranslationKey } from "../../../i18n";
 import { useLocale } from "../../../i18n/useLocale";
 import { useT } from "../../../i18n/useT";
 import type {
-  FinanceReferralItem,
-  FinanceTransactionItem,
   FinanceTransactionsQuery,
   WalletTransactionKind,
 } from "../../../api/adminTypes";
-import DataTable, { type Column } from "../components/DataTable";
-import FilterBar, { type FilterOption } from "../components/FilterBar";
+import ErrorCard from "../components/ErrorCard";
+import LoadMore from "../components/LoadMore";
 import QueryState from "../components/QueryState";
-import StatCard from "../components/StatCard";
 import { downloadCsv } from "../finance/csv";
-import FinanceChart from "../finance/FinanceChart";
-import PeriodSelector, { type FinancePeriod } from "../finance/PeriodSelector";
 import { useFinanceReferrals, useFinanceSummary, useFinanceTransactions } from "../finance/useFinanceQueries";
+import {
+  Accordion,
+  EmptyState,
+  FilterChips,
+  KeyValue,
+  List,
+  ListRow,
+  PeriodSelector,
+  periodDays,
+  Skeleton,
+  StatTile,
+  StatusChip,
+  Tabs,
+  TabPanel,
+  useAdminFilters,
+  useAdminHeader,
+  useQueryState,
+  useUrlTabs,
+  type FilterDef,
+  type PeriodValue,
+  type Tone,
+} from "../ui";
+
+const FinanceChart = lazy(() => import("../finance/FinanceChart"));
 
 const KIND_LABEL: Record<WalletTransactionKind, TranslationKey> = {
   pro_activation: "adminFinance.kind.pro_activation",
@@ -27,16 +46,32 @@ const KIND_LABEL: Record<WalletTransactionKind, TranslationKey> = {
   adjustment: "adminFinance.kind.adjustment",
 };
 
-const KIND_OPTIONS: FilterOption[] = (Object.keys(KIND_LABEL) as WalletTransactionKind[]).map((kind) => ({
+const KIND_TONE: Record<WalletTransactionKind, Tone> = {
+  pro_activation: "success",
+  referral_reward: "success",
+  admin_credit: "primary",
+  admin_reset: "warning",
+  adjustment: "neutral",
+};
+
+const KIND_OPTIONS = (Object.keys(KIND_LABEL) as WalletTransactionKind[]).map((kind) => ({
   value: kind,
   labelKey: KIND_LABEL[kind],
 }));
 
-type DateRange = { from: string; to: string };
-const EMPTY_RANGE: DateRange = { from: "", to: "" };
+const FILTERS: FilterDef[] = [
+  { key: "kind", labelKey: "adminFinance.filter.kindLabel", type: "select", options: KIND_OPTIONS },
+  {
+    key: "user_id",
+    labelKey: "adminFinance.filter.userId",
+    type: "text",
+    placeholderKey: "adminFinance.transactions.userIdPlaceholder",
+  },
+  { key: "date", labelKey: "adminFinance.filter.dateLabel", type: "date-range" },
+];
 
 /** `YYYY-MM-DD` (local) -> unix seconds at the start/end of that day. */
-function dayBoundary(date: string, end: boolean): number | undefined {
+function dayBoundary(date: string | undefined, end: boolean): number | undefined {
   if (!date) return undefined;
   const time = end ? "23:59:59" : "00:00:00";
   const ms = new Date(`${date}T${time}`).getTime();
@@ -47,37 +82,30 @@ export default function FinancePage() {
   const t = useT();
   const { formatMoney, formatNumber, formatDateTime } = useLocale();
 
-  const [days, setDays] = useState<FinancePeriod>(30);
-  const summary = useFinanceSummary(days);
+  const [tab, setTab] = useUrlTabs<"summary" | "transactions" | "referrals">("tab", "summary");
+  const [period, setPeriod] = useQueryState<PeriodValue>("period", "30");
+  const summary = useFinanceSummary(periodDays(period));
 
-  const [kind, setKind] = useState("");
-  const [userIdInput, setUserIdInput] = useState("");
-  const [dateRange, setDateRange] = useState<DateRange>(EMPTY_RANGE);
+  const filters = useAdminFilters(FILTERS, "finance.filters");
 
   const transactionsQuery = useMemo<FinanceTransactionsQuery>(() => {
     const query: FinanceTransactionsQuery = {};
+    const kind = filters.values.kind;
     if (kind) query.kind = kind as WalletTransactionKind;
-    const trimmed = userIdInput.trim();
-    if (trimmed) {
-      const userId = Number(trimmed);
+    const userIdRaw = filters.values.user_id?.trim();
+    if (userIdRaw) {
+      const userId = Number(userIdRaw);
       if (Number.isFinite(userId)) query.user_id = userId;
     }
-    const from = dayBoundary(dateRange.from, false);
-    const to = dayBoundary(dateRange.to, true);
+    const from = dayBoundary(filters.values.date_from, false);
+    const to = dayBoundary(filters.values.date_to, true);
     if (from !== undefined) query.from = from;
     if (to !== undefined) query.to = to;
     return query;
-  }, [kind, userIdInput, dateRange]);
+  }, [filters.values]);
 
   const transactions = useFinanceTransactions(transactionsQuery);
   const referrals = useFinanceReferrals();
-
-  const resetFilters = () => {
-    setKind("");
-    setUserIdInput("");
-    setDateRange(EMPTY_RANGE);
-  };
-  const filtersActive = Boolean(kind || userIdInput.trim() || dateRange.from || dateRange.to);
 
   const exportTransactions = () => {
     downloadCsv(
@@ -105,188 +133,158 @@ export default function FinancePage() {
     );
   };
 
-  const transactionColumns: Column<FinanceTransactionItem>[] = [
-    { key: "id", labelKey: "adminFinance.transactions.col.id", hideOnCard: true },
-    { key: "user_id", labelKey: "adminFinance.transactions.col.user" },
-    {
-      key: "kind",
-      labelKey: "adminFinance.transactions.col.kind",
-      render: (row) => t(KIND_LABEL[row.kind]),
-    },
-    {
-      key: "amount",
-      labelKey: "adminFinance.transactions.col.amount",
-      align: "right",
-      render: (row) => (
-        <span className={row.amount < 0 ? "text-danger" : "text-success"}>
-          {row.amount > 0 ? "+" : ""}
-          {formatMoney(row.amount)}
-        </span>
-      ),
-    },
-    {
-      key: "balance_after",
-      labelKey: "adminFinance.transactions.col.balanceAfter",
-      align: "right",
-      render: (row) => formatMoney(row.balance_after),
-      hideOnCard: true,
-    },
-    {
-      key: "actor_id",
-      labelKey: "adminFinance.transactions.col.actor",
-      render: (row) => row.actor_id ?? "—",
-      hideOnCard: true,
-    },
-    {
-      key: "note",
-      labelKey: "adminFinance.transactions.col.note",
-      render: (row) => row.note ?? "—",
-      className: "max-w-[16rem] truncate",
-      hideOnCard: true,
-    },
-    {
-      key: "created_at",
-      labelKey: "adminFinance.transactions.col.date",
-      render: (row) => formatDateTime(row.created_at),
-    },
-  ];
-
-  const referralColumns: Column<FinanceReferralItem>[] = [
-    {
-      key: "inviter",
-      labelKey: "adminFinance.referrals.col.inviter",
-      render: (row) => (
-        <span>
-          {row.inviter_name} <span className="text-muted">#{row.inviter_id}</span>
-        </span>
-      ),
-    },
-    {
-      key: "invited_count",
-      labelKey: "adminFinance.referrals.col.invitedCount",
-      align: "right",
-      render: (row) => formatNumber(row.invited_count),
-    },
-    {
-      key: "paid_sum",
-      labelKey: "adminFinance.referrals.col.paidSum",
-      align: "right",
-      render: (row) => formatMoney(row.paid_sum),
-    },
-  ];
+  useAdminHeader({
+    titleKey: "adminFinance.title",
+    menu:
+      tab === "transactions"
+        ? [
+            {
+              labelKey: "adminFinance.transactions.export",
+              icon: Download,
+              onClick: exportTransactions,
+              disabled: transactions.items.length === 0,
+            },
+          ]
+        : undefined,
+  });
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-lg font-extrabold text-text">{t("adminFinance.title")}</h1>
-        <PeriodSelector value={days} onChange={setDays} />
-      </div>
+    <div className="space-y-3 pb-3">
+      <Tabs
+        tabs={[
+          { id: "summary", labelKey: "adminFinance.tab.summary" },
+          { id: "transactions", labelKey: "adminFinance.tab.transactions" },
+          { id: "referrals", labelKey: "adminFinance.tab.referrals" },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
 
-      <QueryState query={summary} skeletonClassName="h-40">
-        {(data) => (
-          <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              <StatCard
-                labelKey="adminFinance.stat.revenue"
-                value={formatMoney(data.totals.revenue)}
-                icon={Wallet}
-              />
-              <StatCard
-                labelKey="adminFinance.stat.activations"
-                value={formatNumber(data.totals.activations)}
-                icon={TrendingUp}
-              />
-              <StatCard
-                labelKey="adminFinance.stat.adminCredits"
-                value={formatMoney(data.totals.admin_credits)}
-                icon={CreditCard}
-              />
-              <StatCard
-                labelKey="adminFinance.stat.referralPayouts"
-                value={formatMoney(data.totals.referral_payouts)}
-                icon={Users}
-              />
-              <StatCard
-                labelKey="adminFinance.stat.outstandingBalance"
-                value={formatMoney(data.totals.balance_outstanding)}
-                icon={Landmark}
-              />
-            </div>
-
-            <FinanceChart series={data.series} />
-          </>
-        )}
-      </QueryState>
-
-      <section className="card space-y-3 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[11px] font-semibold uppercase tracking-widest text-muted">
-            {t("adminFinance.transactions.title")}
-          </h2>
-          <button
-            type="button"
-            onClick={exportTransactions}
-            disabled={transactions.items.length === 0}
-            className="tap-target inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-text disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Download size={13} aria-hidden="true" />
-            {t("adminFinance.transactions.export")}
-          </button>
+      <TabPanel id="summary" active={tab === "summary"}>
+        <div className="space-y-3">
+          <PeriodSelector value={period} onChange={setPeriod} periods={["7", "30", "90", "365"]} />
+          <QueryState query={summary} skeletonClassName="h-40">
+            {(data) => (
+              <>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <StatTile labelKey="adminFinance.stat.revenue" value={formatMoney(data.totals.revenue)} />
+                  <StatTile
+                    labelKey="adminFinance.stat.activations"
+                    value={formatNumber(data.totals.activations)}
+                  />
+                  <StatTile
+                    labelKey="adminFinance.stat.adminCredits"
+                    value={formatMoney(data.totals.admin_credits)}
+                  />
+                  <StatTile
+                    labelKey="adminFinance.stat.referralPayouts"
+                    value={formatMoney(data.totals.referral_payouts)}
+                  />
+                </div>
+                <KeyValue
+                  rows={[
+                    {
+                      labelKey: "adminFinance.stat.outstandingBalance",
+                      value: formatMoney(data.totals.balance_outstanding),
+                    },
+                  ]}
+                />
+                <Accordion
+                  queryKey="financeChart"
+                  items={[
+                    {
+                      id: "chart",
+                      titleKey: "adminFinance.chart.title",
+                      content: (
+                        <Suspense fallback={<Skeleton height="h-40" />}>
+                          <FinanceChart series={data.series} />
+                        </Suspense>
+                      ),
+                    },
+                  ]}
+                />
+              </>
+            )}
+          </QueryState>
         </div>
+      </TabPanel>
 
-        <FilterBar onReset={filtersActive ? resetFilters : undefined}>
-          <FilterBar.Select
-            value={kind}
-            onChange={setKind}
-            options={KIND_OPTIONS}
-            allKey="admin.filter.all"
-            labelKey="adminFinance.filter.kindLabel"
-            className="w-40"
+      <TabPanel id="transactions" active={tab === "transactions"}>
+        <div className="space-y-2">
+          <FilterChips defs={FILTERS} state={filters} />
+
+          {transactions.isLoading ? (
+            <Skeleton rows={5} />
+          ) : transactions.error ? (
+            <ErrorCard error={transactions.error} onRetry={transactions.refetch} />
+          ) : transactions.items.length === 0 ? (
+            <EmptyState labelKey="adminFinance.transactions.empty" />
+          ) : (
+            <List>
+              {transactions.items.map((row) => (
+                <ListRow
+                  key={row.id}
+                  title={
+                    <span className="inline-flex items-center gap-1.5">
+                      <StatusChip status={row.kind} tone={KIND_TONE[row.kind]} label={t(KIND_LABEL[row.kind])} />
+                      <span className={`tabular-nums ${row.amount < 0 ? "text-danger" : "text-success"}`}>
+                        {row.amount > 0 ? "+" : ""}
+                        {formatMoney(row.amount)}
+                      </span>
+                    </span>
+                  }
+                  subtitle={`#${row.user_id}`}
+                  meta={formatDateTime(row.created_at)}
+                />
+              ))}
+            </List>
+          )}
+
+          <LoadMore
+            onLoadMore={transactions.loadMore}
+            hasMore={transactions.hasMore}
+            loading={transactions.isFetchingMore}
+            total={transactions.total}
+            loaded={transactions.items.length}
           />
-          <FilterBar.Search
-            value={userIdInput}
-            onChange={setUserIdInput}
-            placeholderKey="adminFinance.transactions.userIdPlaceholder"
-            className="max-w-[12rem]"
+        </div>
+      </TabPanel>
+
+      <TabPanel id="referrals" active={tab === "referrals"}>
+        <div className="space-y-2">
+          {referrals.isLoading ? (
+            <Skeleton rows={5} />
+          ) : referrals.error ? (
+            <ErrorCard error={referrals.error} onRetry={referrals.refetch} />
+          ) : referrals.items.length === 0 ? (
+            <EmptyState labelKey="adminFinance.referrals.empty" />
+          ) : (
+            <List>
+              {referrals.items.map((row) => (
+                <ListRow
+                  key={row.inviter_id}
+                  title={row.inviter_name}
+                  subtitle={`#${row.inviter_id}`}
+                  trailing={
+                    <span className="text-[13px] font-semibold tabular-nums text-text">
+                      {formatMoney(row.paid_sum)}
+                    </span>
+                  }
+                  meta={`${formatNumber(row.invited_count)} ${t("adminFinance.referrals.invitedSuffix")}`}
+                />
+              ))}
+            </List>
+          )}
+
+          <LoadMore
+            onLoadMore={referrals.loadMore}
+            hasMore={referrals.hasMore}
+            loading={referrals.isFetchingMore}
+            total={referrals.total}
+            loaded={referrals.items.length}
           />
-          <FilterBar.DateRange from={dateRange.from} to={dateRange.to} onChange={setDateRange} />
-        </FilterBar>
-
-        <DataTable
-          columns={transactionColumns}
-          rows={transactions.items}
-          getRowId={(row) => row.id}
-          loading={transactions.isLoading}
-          error={transactions.error}
-          onRetry={transactions.refetch}
-          onLoadMore={transactions.loadMore}
-          hasMore={transactions.hasMore}
-          loadingMore={transactions.isFetchingMore}
-          total={transactions.total}
-          emptyKey="adminFinance.transactions.empty"
-          captionKey="adminFinance.transactions.title"
-        />
-      </section>
-
-      <section className="card space-y-3 p-4">
-        <h2 className="text-[11px] font-semibold uppercase tracking-widest text-muted">
-          {t("adminFinance.referrals.title")}
-        </h2>
-        <DataTable
-          columns={referralColumns}
-          rows={referrals.items}
-          getRowId={(row) => row.inviter_id}
-          loading={referrals.isLoading}
-          error={referrals.error}
-          onRetry={referrals.refetch}
-          onLoadMore={referrals.loadMore}
-          hasMore={referrals.hasMore}
-          loadingMore={referrals.isFetchingMore}
-          total={referrals.total}
-          emptyKey="adminFinance.referrals.empty"
-          captionKey="adminFinance.referrals.title"
-        />
-      </section>
+        </div>
+      </TabPanel>
     </div>
   );
 }

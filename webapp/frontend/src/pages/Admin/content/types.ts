@@ -17,11 +17,6 @@ export function setLocalizedValue(text: LocalizedText, lang: Lang, value: string
   return { ...text, [lang]: value };
 }
 
-/** Non-empty per language — drives the little dot on each `LangTabs` tab. */
-export function localizedHasContent(text: LocalizedText | undefined): Partial<Record<Lang, boolean>> {
-  return { uz: Boolean(text?.uz), ru: Boolean(text?.ru), en: Boolean(text?.en) };
-}
-
 export type FieldErrorKind = "required" | "tooLong" | "invalidHtml";
 
 /** Client-side mirror of the backend's per-field/per-language checks (soft hints only). */

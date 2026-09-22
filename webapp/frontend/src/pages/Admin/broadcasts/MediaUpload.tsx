@@ -5,6 +5,7 @@ import { useT } from "../../../i18n/useT";
 import { useLocale } from "../../../i18n/useLocale";
 import useToast from "../../../hooks/useToast";
 import type { UploadResult } from "../../../api/adminTypes";
+import { Button, IconButton, ProgressBar } from "../ui";
 import {
   ACCEPT_ATTRIBUTE,
   MAX_UPLOAD_BYTES,
@@ -30,6 +31,7 @@ export default function MediaUpload({ value, onChange }: MediaUploadProps) {
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const [percent, setPercent] = useState<number | null>(null);
+  // Not an overlay: the drag-hover highlight of the drop zone (spec §3 rule 3).
   const [dragging, setDragging] = useState(false);
 
   const upload = async (file: File) => {
@@ -58,34 +60,27 @@ export default function MediaUpload({ value, onChange }: MediaUploadProps) {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold text-muted">{t("adminBroadcasts.media.label")}</p>
-
       {value ? (
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surfaceAlt text-primary">
-            <FileText size={16} aria-hidden="true" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-text">{value.path}</p>
-            <p className="text-xs text-muted">
+        <div className="flex items-center gap-2 rounded-xl bg-surfaceAlt px-2.5 py-2">
+          <FileText size={15} aria-hidden="true" className="shrink-0 text-primary" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-medium text-text">{value.path}</span>
+            <span className="block truncate text-[11px] text-muted">
               {value.mime} · {formatNumber(Math.round(value.size / 1024))} KB
-            </p>
-          </div>
-          <button
-            type="button"
+            </span>
+          </span>
+          <Button
+            size="sm"
+            variant="secondary"
+            labelKey="adminBroadcasts.media.replace"
             onClick={() => inputRef.current?.click()}
-            className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-text hover:bg-surfaceAlt focus:outline-none focus:ring-2 focus:ring-primary/40"
-          >
-            {t("adminBroadcasts.media.replace")}
-          </button>
-          <button
-            type="button"
+          />
+          <IconButton
+            icon={Trash2}
+            variant="ghost"
+            ariaLabel={t("adminBroadcasts.media.remove")}
             onClick={() => onChange(null)}
-            aria-label={t("adminBroadcasts.media.remove")}
-            className="rounded-lg p-1.5 text-muted hover:bg-surfaceAlt hover:text-danger focus:outline-none focus:ring-2 focus:ring-primary/40"
-          >
-            <Trash2 size={15} aria-hidden="true" />
-          </button>
+          />
         </div>
       ) : (
         <div
@@ -100,44 +95,35 @@ export default function MediaUpload({ value, onChange }: MediaUploadProps) {
             const file = event.dataTransfer.files?.[0];
             if (file) void upload(file);
           }}
-          className={`rounded-xl border border-dashed p-5 text-center transition-colors ${
-            dragging ? "border-primary bg-primary/5" : "border-border bg-surface"
+          className={`flex flex-col items-center gap-1.5 rounded-xl border border-dashed p-3 text-center transition-colors ${
+            dragging ? "border-primary bg-primary/5" : "border-border"
           }`}
         >
-          <Upload size={20} className="mx-auto text-muted" aria-hidden="true" />
-          <p className="mt-2 text-sm text-text">{t("adminBroadcasts.media.drop")}</p>
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
+          <Upload size={16} className="text-muted" aria-hidden="true" />
+          <p className="text-[13px] text-text">{t("adminBroadcasts.media.drop")}</p>
+          <Button
+            size="sm"
+            variant="secondary"
+            labelKey="adminBroadcasts.media.browse"
             disabled={busy}
-            className="mt-2 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text hover:bg-surfaceAlt focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
-          >
-            {t("adminBroadcasts.media.browse")}
-          </button>
+            onClick={() => inputRef.current?.click()}
+          />
         </div>
       )}
 
       {busy && (
         <div className="space-y-1" aria-live="polite">
-          <div
-            className="h-1.5 w-full overflow-hidden rounded-full bg-surfaceAlt"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percent ?? 0}
-          >
-            <span
-              className="block h-full bg-primary transition-[width]"
-              style={{ width: `${percent ?? 0}%` }}
-            />
-          </div>
-          <p className="text-xs text-muted">
+          <ProgressBar
+            value={percent ?? 0}
+            label={t("adminBroadcasts.media.uploading", { percent: percent ?? 0 })}
+          />
+          <p className="text-[11px] tabular-nums text-muted">
             {t("adminBroadcasts.media.uploading", { percent: percent ?? 0 })}
           </p>
         </div>
       )}
 
-      <p className="text-xs text-muted">{t("adminBroadcasts.media.hint")}</p>
+      <p className="text-[11px] text-muted">{t("adminBroadcasts.media.hint")}</p>
 
       <input
         ref={inputRef}

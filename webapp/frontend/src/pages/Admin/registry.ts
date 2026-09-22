@@ -4,6 +4,7 @@ import {
   BarChart3,
   BookOpen,
   FileText,
+  Grid3x3,
   LayoutDashboard,
   Megaphone,
   Radio,
@@ -11,7 +12,6 @@ import {
   Settings,
   Users,
   Wallet,
-  Zap,
 } from "lucide-react";
 
 import type { TranslationKey } from "../../i18n";
@@ -22,20 +22,21 @@ export type AdminPageId =
   | "analytics"
   | "resume"
   | "users"
-  | "quick"
   | "broadcasts"
   | "channels"
   | "autopost"
   | "content"
   | "finance"
   | "system"
-  | "settings";
+  | "settings"
+  | "more"
+  | "kit";
 
 export type AdminGroupId = "main" | "people" | "content" | "money" | "system";
 
 export type AdminPageEntry = {
   id: AdminPageId;
-  /** URL segment (see `routing.ts`). */
+  /** URL segment under `/admin` (`""` is the panel's index route). */
   path: string;
   labelKey: TranslationKey;
   icon: ElementType;
@@ -43,21 +44,29 @@ export type AdminPageEntry = {
   minRole: AdminRole;
   group: AdminGroupId;
   component: LazyExoticComponent<ComponentType>;
+  /**
+   * Sub-routes rendered by the same page component, relative to `path`
+   * (the page reads `useParams`), e.g. `":id"` or `":id/action/:action"`.
+   */
+  children?: string[];
+  /** Kept out of the Rail and the More grid (shell-only pages). */
+  hidden?: boolean;
+  /** Only registered in `import.meta.env.DEV` (the UI kit page). */
+  devOnly?: boolean;
 };
 
 /**
- * The single source of truth for the admin panel's pages: the sidebar, the
- * mobile tabs and the router all read this array. Every page is a separate
- * lazy chunk, so opening the panel does not pull in recharts or the broadcast
- * composer.
+ * The single source of truth for the admin panel: the Rail, the More grid and
+ * the nested `<Routes>` in `index.tsx` all read this array. Every page is its
+ * own lazy chunk, so opening the panel pulls in neither recharts nor the
+ * broadcast composer.
  *
- * Page agents own their `pages/<Name>Page.tsx` file only — adding a page means
- * one line here.
+ * Page agents own `pages/<Name>Page.tsx`; adding a page is one line here.
  */
 export const ADMIN_PAGES: AdminPageEntry[] = [
   {
     id: "overview",
-    path: "overview",
+    path: "",
     labelKey: "admin.nav.overview",
     icon: LayoutDashboard,
     minRole: "viewer",
@@ -89,6 +98,7 @@ export const ADMIN_PAGES: AdminPageEntry[] = [
     icon: Users,
     minRole: "moderator",
     group: "people",
+    children: [":id", ":id/action/:action"],
     component: lazy(() => import("./pages/UsersPage")),
   },
   {
@@ -98,16 +108,8 @@ export const ADMIN_PAGES: AdminPageEntry[] = [
     icon: Megaphone,
     minRole: "admin",
     group: "people",
+    children: ["new", ":id"],
     component: lazy(() => import("./pages/BroadcastsPage")),
-  },
-  {
-    id: "quick",
-    path: "quick",
-    labelKey: "admin.nav.quick",
-    icon: Zap,
-    minRole: "admin",
-    group: "people",
-    component: lazy(() => import("./views/QuickActionsView")),
   },
   {
     id: "channels",
@@ -134,6 +136,7 @@ export const ADMIN_PAGES: AdminPageEntry[] = [
     icon: BookOpen,
     minRole: "admin",
     group: "content",
+    children: [":kind", ":kind/new", ":kind/:id"],
     component: lazy(() => import("./pages/ContentPage")),
   },
   {
@@ -163,7 +166,39 @@ export const ADMIN_PAGES: AdminPageEntry[] = [
     group: "system",
     component: lazy(() => import("./views/SettingsView")),
   },
+  {
+    id: "more",
+    path: "more",
+    labelKey: "admin.more.title",
+    icon: Grid3x3,
+    minRole: "viewer",
+    group: "system",
+    hidden: true,
+    component: lazy(() => import("./layout/MorePage")),
+  },
+  // Dev-only visual smoke page; the branch (and its chunk) is dropped in a
+  // production build.
+  ...(import.meta.env.DEV
+    ? [
+        {
+          id: "kit" as const,
+          path: "_kit",
+          labelKey: "admin.title" as const,
+          icon: Grid3x3,
+          minRole: "viewer" as const,
+          group: "system" as const,
+          hidden: true,
+          devOnly: true,
+          component: lazy(() => import("./ui/KitPage")),
+        },
+      ]
+    : []),
 ];
+
+/** The pages this build actually registers (the kit page is dev-only). */
+export const ADMIN_ROUTES: AdminPageEntry[] = ADMIN_PAGES.filter(
+  (page) => !page.devOnly || import.meta.env.DEV,
+);
 
 export const ADMIN_GROUPS: { id: AdminGroupId; labelKey: TranslationKey }[] = [
   { id: "main", labelKey: "admin.nav.group.main" },
@@ -175,15 +210,10 @@ export const ADMIN_GROUPS: { id: AdminGroupId; labelKey: TranslationKey }[] = [
 
 export const DEFAULT_ADMIN_PAGE: AdminPageId = "overview";
 
-/** Shown directly in the mobile tab bar; everything else lives behind "More". */
-export const MOBILE_PRIMARY_PAGES: AdminPageId[] = [
-  "overview",
-  "users",
-  "broadcasts",
-  "finance",
-];
+/** The three sections the mobile `AdminBar` shows next to "More". */
+export const MOBILE_PRIMARY_PAGES: AdminPageId[] = ["overview", "users", "broadcasts"];
 
 export function findAdminPage(id: string | null | undefined): AdminPageEntry | undefined {
   if (!id) return undefined;
-  return ADMIN_PAGES.find((page) => page.id === id || page.path === id);
+  return ADMIN_PAGES.find((page) => page.id === id || (page.path !== "" && page.path === id));
 }

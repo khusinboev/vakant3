@@ -1,33 +1,26 @@
 import type { ReactNode } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
 
+import Skeleton from "../ui/Skeleton";
 import ErrorCard from "./ErrorCard";
 
 export type QueryStateProps<T> = {
   query: UseQueryResult<T>;
-  /** Height/shape of the pulse placeholder, e.g. "h-40". */
+  /** Height of the pulse placeholder, e.g. "h-24". */
   skeletonClassName?: string;
   /** Rendered when the query succeeded but returned nothing useful. */
   empty?: ReactNode;
   children: (data: T) => ReactNode;
 };
 
-/**
- * Loading / error / data for one query, in one place.
- *
- * Every admin query used `retry: false` and rendered `null` on failure, so a
- * 403 or a 500 looked exactly like "no data yet". This makes all three states
- * visible.
- */
+/** Loading / error / data for one query, in one place. */
 export default function QueryState<T>({
   query,
-  skeletonClassName = "h-40",
+  skeletonClassName = "h-24",
   empty = null,
   children,
 }: QueryStateProps<T>) {
-  if (query.isPending) {
-    return <div className={`animate-pulse rounded-2xl bg-surfaceAlt ${skeletonClassName}`} />;
-  }
+  if (query.isPending) return <Skeleton height={skeletonClassName} />;
   if (query.isError) {
     return <ErrorCard error={query.error} onRetry={() => void query.refetch()} />;
   }
