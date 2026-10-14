@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SERVER="root@194.163.136.239"
+SERVER="root@193.187.129.197"  # migrated 2026-09-30; host is shared with other projects
 REMOTE_ROOT="/home/vakant"
 
 echo "[1/5] Build frontend"
@@ -20,6 +20,7 @@ rsync -azc \
   --exclude '.env' \
   --exclude '.env.*' \
   --exclude '.git' \
+  --exclude '.claude' \
   --exclude '.venv' \
   --exclude 'webapp/frontend/node_modules' \
   --exclude 'webapp/frontend/dist' \

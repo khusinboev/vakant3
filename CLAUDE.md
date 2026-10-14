@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Hard rules (read first)
+
+- **Production is one shared server** (address only in `deploy_safe.sh` `SERVER` and the `deploy.txt` runbook; never copy it anywhere else). It also runs SlaydX (docker), ~20 other bots/APIs under `/home/*`, host PostgreSQL/Redis and one nginx for all sites. Touch only `/home/vakant` and the `vakant-api`/`vakant-bot` units. Never restart/reload nginx, docker, redis or postgres, never `docker ... prune`, never build on the server (4 vCPU, ~8 GB RAM shared). Details: `.claude/deploy.md`.
+- **Production DB** `/home/vakant/data/database.sqlite3` is excluded from `deploy_safe.sh` and must never be overwritten, deleted or restored without the owner's explicit go. Before every deploy that ships a new migration run `/home/vakant/backup_db.sh` on the server.
+- **Ship policy:** after each logical step run the relevant tests and commit (conventional commits) without asking, then continue. When a task is finished and verified (`pytest`, `npm run lint`, `npm run build` green), push to `master` and deploy with `bash deploy_safe.sh` without asking, then check `/api/health` and the journals and report. Ask first only for: destroying/restoring prod data, server-wide changes (nginx, other units, packages, cron, firewall), and product/money *values* (Pro price, rewards, gate thresholds).
+- **No CI and no auto-deploy yet:** a push deploys nothing; `deploy_safe.sh` (rsync from this checkout) is the only path, so it ships the working tree, not `origin/master` — deploy only from a clean, pushed tree. Planned: CI + auto-deploy (`.claude/holat.md`).
+- **Real Telegram side effects:** tests use a dummy `TOKEN` and never reach Telegram. Never run the bot locally with the production token (it would answer real users and make the prod bot's long polling fail with `Conflict`); never trigger a broadcast or channel post against real users from local code.
+- Nothing is "done" without evidence: the exact command plus pass/fail counts. Tests are never weakened, skipped or deleted to go green.
+- Secrets: `.env` values and tokens never go into commits, logs or docs (variable names only); server addresses stay in the two files above. Personal data in tests and fixtures is synthetic (e.g. user ids from 900000000000, as in `ops/loadtest.py`).
+- Languages: talk to the owner in Uzbek; code, comments, commits, CLAUDE.md and `.claude/*.md` in English (except `.claude/holat.md`, Uzbek for `/holat`); `deploy.txt` stays the Uzbek runbook. UI text: uz is the source, every key also in ru and en.
+
 ## What this is
 
 Bandlik.uz / vakant3: an Uzbek job-vacancy product with three parts that share one SQLite file and one `.env` at the repo root.
@@ -34,8 +45,8 @@ cd webapp/frontend && npm install && npm run dev      # :5174, proxies /api -> :
 cd webapp/frontend && npm run lint                    # eslint 9 flat config (react-hooks rules)
 cd webapp/frontend && npm run build                   # tsc -b && vite build -> dist/
 
-# Tests (pytest.ini: asyncio_mode=auto, network tests deselected by default)
-pytest
+# Tests (pytest.ini: asyncio_mode=auto, pythonpath=., network tests deselected by default; ~600 tests)
+pytest                                                # full suite: run via scripts/heavy.sh (see "Heavy commands")
 pytest tests/test_bot_core.py
 pytest tests/test_notifications.py::test_name -v
 pytest -m network                                     # live osonish.uz calls, off by default
@@ -117,7 +128,51 @@ The `webapp_admin_settings` row (edited via `PATCH /api/admin/state` and the Adm
 ## Conventions
 - Commit messages follow conventional commits with optional scope: `feat(resume): ...`, `fix: ...`, `chore(deploy): ...`.
 - `src/buttons/buttuns.py` is misspelled; import it as-is.
-- The production DB at `/home/vakant/data/database.sqlite3` is excluded from `deploy_safe.sh` and must never be overwritten or deleted.
 - New env variables must also be added by hand to the server `.env` (it is not synced by deploy); `deploy_safe.sh` bootstraps `DB_PATH` and `WEBAPP_SECRET` if missing and runs `pip install`.
 - Broadcast media is stored under `<DB dir>/uploads/`; never served by the API, sent to Telegram by the bot.
 - `docs/ADMIN_PANEL_PLAN.md` records the admin v2 design decisions; `ops/` holds the server backup/logrotate scripts and the load test.
+
+## Working agreement (for the AI — binding)
+
+**Roles**
+- **Lead / PM** (main session): reads the code, splits big work into disjoint packages, reviews every diff itself, talks to the owner, merges. Large work is delegated, not typed by hand; the lead supervises.
+- **Builder agents**: each in its own git worktree + branch, only its own files ("one file, one package"), a commit after every logical step, never push to `master`. Brief: `.claude/agent-brief.md`, included in every agent prompt. Natural packages here: bot (`main.py`, `src/`), API (`webapp/core`, `webapp/routers`, `webapp/resume`), frontend (`webapp/frontend/src`), ops (`ops/`, `deploy_safe.sh`).
+- **Independent reviewer**: a separate read-only agent. Verdict APPROVE / APPROVE WITH FIXES / CHANGES REQUESTED; findings MAJOR / MINOR / NIT, each with file:line and proof. Auth, entry gate, confirm tokens, ledger/wallet and migrations get the strongest model.
+- **Models**: mechanical/doc/table work — light model (haiku/sonnet); algorithms, integration, complex UI — opus; security, money, auth and independent review — the strongest. A package that needs real tests or mutation checks never goes to a light model.
+- **Limits**: ≤ 3–4 agents at a time, ≤ 2 heavy processes (agents count). One file, one agent.
+
+**Flow**
+1. Read the code, then ask the owner ALL open questions ONCE (`AskUserQuestion`, recommendation first).
+2. After the answers, run to the end without asking: code → tests → independent review → merge → push → deploy → verify → tell the owner (see "Ship policy").
+3. Take small technical decisions yourself and list them in the report; ask only about product, money values, server-wide or irreversible decisions.
+4. If the owner says stop, stop immediately and do nothing more.
+5. Long work is tracked in `.claude/holat.md` (read it at session start); `/holat` reads, `/holats` stops everything and saves.
+
+**Evidence**
+- "Done" only with a command plus pass/fail counts. Never trust an agent report blindly: rerun on the merged tree.
+- New important assertion → mutation check: break the code on purpose, watch that test fail there, restore.
+- Say explicitly what was not verified.
+
+**Safety**
+- Before an irreversible or outward-facing action, confirm unless the ship policy above covers it; approval in one context does not carry over to another.
+- If a permission is denied, do not route around it; report it.
+
+## Testing standard
+
+- Backend (bot + API): `pytest` on a temp SQLite (`tests/conftest.py`). Every behaviour change needs a test in the matching `tests/test_*.py`; money, auth, gate and migration changes also need a negative test (wrong role, insufficient balance, replayed confirm token, re-applied migration).
+- `tests/test_e2e_flow.py` boots the real app (gate, admin, ledger, broadcast, content): run it for any change under `webapp/core` or the admin routers.
+- `pytest -m network` hits live osonish.uz: run only when `src/functions/scraping.py` or vacancy formatting changes, never in a loop.
+- Frontend has no unit tests: `npm run lint` and `npm run build` (includes `tsc -b`) are mandatory for any frontend change. Outside Telegram the app renders only `Landing`, so real UI checks happen in the Telegram Mini App after deploy; state what was checked there and what was not.
+- Before a deploy: full `pytest`, `python -m pyflakes ...` (command above), `npm run lint`, `npm run build`, all green.
+
+## Heavy commands
+
+The dev machine has 14 GB RAM shared with the editor, agents and other projects. Full `pytest`, `npm run build`, `tsc -b` and `ops/loadtest.py` run only through `scripts/heavy.sh` (cgroup `vakant3-heavy.slice`: 4G total, 3G and 900 s per command; `-m`/`-t` override). Prefer single test files while iterating; at most 2 heavy commands at a time.
+
+## Deploy
+
+`bash deploy_safe.sh` builds the frontend locally, rsyncs `dist/` and the code, ensures `DB_PATH`/`WEBAPP_SECRET`, runs `pip install`, restarts both units and curls `/api/health`. How it works, what it does not do (no rollback, no `--delete` for code) and how to roll back: `.claude/deploy.md`. Ops runbook (Uzbek): `deploy.txt`.
+
+## State and memory
+
+Long-running work state — `.claude/holat.md` (`/holat`, `/holats`); action log — `.claude/actions/`; directory map — `.claude/structure.md`. `.claude/` is git-ignored (local only). To refresh these rules: `/sozlash yangila`.

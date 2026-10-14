@@ -6,7 +6,7 @@ LOYIHA TUZILMASI
 ──────────────────
 Local:  /home/adhambek/projects/pythons/vakant3/
 GitHub: https://github.com/khusinboev/vakant3.git  (branch: master)
-Server: root@194.163.136.239  →  /home/vakant/
+Server: root@193.187.129.197  →  /home/vakant/
 
 Servislar:
   vakant-api  — FastAPI backend   (port 8001, uvicorn, 2 worker)
@@ -61,9 +61,9 @@ Har safar o'zgartirish qilingandan keyin quyidagi tartibda ishlang:
     --exclude 'webapp/frontend/node_modules' \
     --exclude 'webapp/frontend/dist' \
     --exclude 'src/database/database.sqlite3' \
-    ./ root@194.163.136.239:/home/vakant/
+    ./ root@193.187.129.197:/home/vakant/
 
-  ssh root@194.163.136.239 "systemctl restart vakant-api vakant-bot"
+  ssh root@193.187.129.197 "systemctl restart vakant-api vakant-bot"
 
 
 ========================================================
@@ -72,7 +72,7 @@ Har safar o'zgartirish qilingandan keyin quyidagi tartibda ishlang:
 
   cd webapp/frontend
   npm run build
-  rsync -az --delete dist/ root@194.163.136.239:/home/vakant/webapp/frontend/dist/
+  rsync -az --delete dist/ root@193.187.129.197:/home/vakant/webapp/frontend/dist/
   # Backend restart shart emas — statik fayllar o'zgaradi, xolos
 
 
@@ -81,7 +81,7 @@ Har safar o'zgartirish qilingandan keyin quyidagi tartibda ishlang:
 ========================================================
 
 SSH kirish:
-  ssh root@194.163.136.239
+  ssh root@193.187.129.197
 
 Servis holati tekshirish:
   systemctl status vakant-api
@@ -120,7 +120,7 @@ Paketlarni yangilash (requirements.txt o'zgarganda):
 DB joylashuvi:  /home/vakant/data/database.sqlite3
 
 DB ni serverdan localga yuklab olish (backup):
-  scp root@194.163.136.239:/home/vakant/data/database.sqlite3 \
+  scp root@193.187.129.197:/home/vakant/data/database.sqlite3 \
       /home/adhambek/projects/pythons/vakant3/backup_$(date +%Y%m%d).sqlite3
 
 SQLite konsolga kirish (serverda):
@@ -140,7 +140,7 @@ deploy_safe.sh ham DB ni exclude qiladi (tasodifan ustiga yozilmaydi).
 .env fayl deploy paytida serverga yuborilmaydi (excluded).
 Agar yangi environment variable qo'shilsa, qo'lda serverga kirish kerak:
 
-  ssh root@194.163.136.239
+  ssh root@193.187.129.197
   nano /home/vakant/.env
 
 Keyin:
@@ -187,7 +187,7 @@ pip install xatosi bo'lsa:
   .venv/bin/pip install -r requirements.txt
 
 Git pull bilan serverdan yangilash (to'g'ridan-to'g'ri):
-  ssh root@194.163.136.239 "cd /home/vakant && git pull origin master"
+  ssh root@193.187.129.197 "cd /home/vakant && git pull origin master"
   # Lekin deploy_safe.sh rsync ishlatadi — bu usul faqat qo'shimcha sifatida
 
 
@@ -203,7 +203,7 @@ DB backup:  har kuni 03:20 da /home/vakant/backup_db.sh (cron, root)
 Bot logi:   /etc/logrotate.d/vakant-bot (haftalik yoki 20M, 8 ta arxiv, copytruncate)
             manba nusxasi repo'da: ops/logrotate-vakant-bot
 
-Qo'lda backup:  ssh root@194.163.136.239 /home/vakant/backup_db.sh
+Qo'lda backup:  ssh root@193.187.129.197 /home/vakant/backup_db.sh
 Tiklash:        gunzip -c data/backups/database_YYYYMMDD.sqlite3.gz > data/database.sqlite3
                 (avval systemctl stop vakant-api vakant-bot)
 
@@ -216,7 +216,7 @@ Yangi talablar (deploy_safe.sh o'zi bajaradi, lekin bilib qo'ying):
   - requirements.txt ga python-multipart qo'shildi (media yuklash uchun).
   - Migratsiyalar: src/db/migrations/mNNN_*.py, ikkala servis ishga tushganda
     avtomatik qo'llanadi (schema_migrations jadvali). Deploy oldidan DB backup shart:
-      ssh root@194.163.136.239 /home/vakant/backup_db.sh
+      ssh root@193.187.129.197 /home/vakant/backup_db.sh
   - Broadcast media: /home/vakant/data/uploads/ (DB papkasi ichida, rsync'dan tashqarida).
   - Adminlar: birinchi kirishda ADMIN_IDS dagi user "owner" bo'lib admins jadvaliga
     yoziladi; keyin adminlar faqat paneldan (System → Admins) boshqariladi.
