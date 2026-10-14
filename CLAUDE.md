@@ -58,7 +58,7 @@ python -m pyflakes main.py config.py src webapp/main.py webapp/core webapp/route
 bash deploy_safe.sh
 ```
 
-`tests/conftest.py` pins a temp `DB_PATH` before `.env` is loaded and sets dummy `TOKEN`/`ADMIN_IDS`/`WEBAPP_SECRET`, so tests never touch a real database and do not need `.env`. `deploy.txt` is the Uzbek ops runbook (server paths, systemd, journalctl, DB backup). `ROADMAP.md` describes the five feature sprints; all are implemented.
+`tests/conftest.py` is hermetic: it never reads `.env` (`PYTHON_DOTENV_DISABLED=1`) and forces a temp `DB_PATH`, a dummy but well-formed `TOKEN`, `ADMIN_IDS=1`, a test `WEBAPP_SECRET` and `REDIS_URL=""` (in-memory cache/limiter), so tests never touch a real database, bot or Redis. A new env variable read at import time must get a test value there too. `deploy.txt` is the Uzbek ops runbook (server paths, systemd, journalctl, DB backup). `ROADMAP.md` describes the five feature sprints; all are implemented.
 
 ## Architecture: the coupling you must know
 

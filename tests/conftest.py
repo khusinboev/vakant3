@@ -1,43 +1,43 @@
 """
-Testlar uchun umumiy sozlash.
+Testlar uchun umumiy sozlash — hermetik: `.env` UMUMAN o'qilmaydi.
 
-`config` import vaqtida TOKEN bo'lmasa xato beradi — shuning uchun boshqa
-har qanday import dan OLDIN standart qiymatlarni o'rnatamiz. Haqiqiy .env
-mavjud bo'lsa, undagi qiymatlar ustun turadi (load_dotenv override qilmaydi,
-lekin biz ham faqat setdefault ishlatamiz).
+`config` va `webapp.core.config` import vaqtida muhitni o'qiydi, shuning uchun
+har qanday import dan OLDIN hamma kalitni majburan (setdefault emas) sun'iy
+qiymatga o'rnatamiz. Avval `.env` yuklanib, undagi haqiqiy TOKEN/ADMIN_IDS/
+REDIS_URL testlarga tushardi: mock qilinmagan Telegram chaqiruvi haqiqiy bot
+nomidan ketishi mumkin edi, CI esa (`.env` yo'q) "test-token" ni aiogram rad
+etgani uchun yiqilardi.
 
-Istisno: `DB_PATH` va `WEBAPP_SECRET`. Ular `load_dotenv` dan OLDIN
-majburlanadi, chunki serverdagi `.env` da `DB_PATH` real bazani ko'rsatadi —
-`setdefault` esa .env yuklangandan keyin ishlagani uchun testlar shu real
-bazaga yozib yuborishi mumkin edi.
+- `PYTHON_DOTENV_DISABLED=1` — `config.py` dagi `load_dotenv()` hech narsa qilmaydi.
+- pydantic-settings `.env` faylini o'zi o'qiydi, lekin muhit o'zgaruvchilari
+  undan ustun — shuning uchun uning har bir maydoni quyida berilgan.
+- `DB_PATH` — har sessiyaga bir martalik SQLite fayli (real bazaga hech qachon).
+- `REDIS_URL=""` — kesh va limiter o'zining in-memory zaxira yo'lida ishlaydi.
 """
 import os
 import shutil
 import tempfile
 from pathlib import Path
 
-from dotenv import load_dotenv
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-
-# --- .env dan OLDIN: baza va maxfiy kalit ------------------------------------
-# Har bir test sessiyasi o'zining bir martalik SQLite faylini oladi. Ham
-# `config.BASE_DIR` (bot), ham `webapp.core.config.DB_PATH` (API) shu
-# o'zgaruvchidan import vaqtida hisoblanadi.
 _TEST_DB_DIR = Path(tempfile.mkdtemp(prefix="vakant3-tests-"))
-os.environ["DB_PATH"] = str(_TEST_DB_DIR / "test.sqlite3")
 
-#: `webapp.main` default kalit bilan ishga tushmaydi; testlar o'z tokenlarini
-#: shu kalit bilan imzolaydi, shuning uchun haqiqiy kalit umuman kerak emas.
-os.environ.setdefault("WEBAPP_SECRET", "test-webapp-secret-not-a-real-one")
-os.environ.setdefault("ALLOW_INSECURE_SECRET", "1")
-
-# .env bo'lsa — o'qiymiz; bo'lmasa test qiymatlari ishlaydi.
-load_dotenv(_REPO_ROOT / ".env")
-
-os.environ.setdefault("TOKEN", "test-token")
-os.environ.setdefault("ADMIN_IDS", "1")
-os.environ.setdefault("BOT_USERNAME", "bandlikuzbot")
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
+os.environ.update(
+    {
+        "DB_PATH": str(_TEST_DB_DIR / "test.sqlite3"),
+        # Valid aiogram format (`<digits>:<secret>`), never a real bot.
+        "TOKEN": "123456789:TEST-dummy-token-never-valid-on-telegram",
+        "ADMIN_IDS": "1",
+        "BOT_USERNAME": "bandlikuzbot",
+        # `webapp.main` refuses the default secret; tests sign their own tokens with this one.
+        "WEBAPP_SECRET": "test-webapp-secret-not-a-real-one",
+        "ALLOW_INSECURE_SECRET": "1",
+        "WEBAPP_ORIGIN": "http://localhost:5173",
+        "WEBAPP_URL": "https://abitur24.uz/app",
+        "REDIS_URL": "",
+    }
+)
 
 #: Testlar hech qachon haqiqiy bazaga tegmasin (yuqoridagi majburlash natijasi).
 TEST_DB_PATH = Path(os.environ["DB_PATH"])
