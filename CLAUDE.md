@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Hard rules (read first)
 
 - **Production is one shared server** (address only in `deploy_safe.sh` `SERVER` and the `deploy.txt` runbook; never copy it anywhere else). It also runs SlaydX (docker), ~20 other bots/APIs under `/home/*`, host PostgreSQL/Redis and one nginx for all sites. Touch only `/home/vakant` and the `vakant-api`/`vakant-bot` units. Never restart/reload nginx, docker, redis or postgres, never `docker ... prune`, never build on the server (4 vCPU, ~8 GB RAM shared). Details: `.claude/deploy.md`.
-- **Production DB** `/home/vakant/data/database.sqlite3` is excluded from `deploy_safe.sh` and must never be overwritten, deleted or restored without the owner's explicit go. Before every deploy that ships a new migration run `/home/vakant/backup_db.sh` on the server.
-- **Ship policy:** after each logical step run the relevant tests and commit (conventional commits) without asking, then continue. When a task is finished and verified (`pytest`, `npm run lint`, `npm run build` green), push to `master` and deploy with `bash deploy_safe.sh` without asking, then check `/api/health` and the journals and report. Ask first only for: destroying/restoring prod data, server-wide changes (nginx, other units, packages, cron, firewall), and product/money *values* (Pro price, rewards, gate thresholds).
-- **No CI and no auto-deploy yet:** a push deploys nothing; `deploy_safe.sh` (rsync from this checkout) is the only path, so it ships the working tree, not `origin/master` — deploy only from a clean, pushed tree. Planned: CI + auto-deploy (`.claude/holat.md`).
+- **Production DB** `/home/vakant/data/database.sqlite3` is excluded from `deploy_safe.sh` and must never be overwritten, deleted or restored without the owner's explicit go. Both deploy paths back it up first (`data/backups/predeploy_*` by `ops/auto_deploy.sh`, `backup_db.sh` by `deploy_safe.sh`); for any manual server work run `/home/vakant/backup_db.sh` first.
+- **Ship policy:** after each logical step run the relevant tests and commit (conventional commits) without asking, then continue. When a task is finished and verified (`pytest`, `npm run lint`, `npm run build` green), push to `master` without asking, watch CI and the auto-deploy, check `/api/health` and the journals, and report. Ask first only for: destroying/restoring prod data, server-wide changes (nginx, other units, packages, cron, firewall), and product/money *values* (Pro price, rewards, gate thresholds).
+- **`git push` to `master` = production.** CI (`.github/workflows/ci.yml`) tests it and, if green, force-pushes a release (tree + built `dist` + `RELEASE` sha) to the `deploy` branch; the server's `ops/auto_deploy.sh` (cron, 2 min) ships it with snapshot, DB backup, health check and automatic rollback, and alerts `ADMIN_IDS`. Never push to `deploy` by hand. Kill switch: `touch /home/vakant/.deploy/auto-deploy.disabled`. `bash deploy_safe.sh` is the manual fallback (clean tree only). Details: `.claude/deploy.md`.
 - **Real Telegram side effects:** tests use a dummy `TOKEN` and never reach Telegram. Never run the bot locally with the production token (it would answer real users and make the prod bot's long polling fail with `Conflict`); never trigger a broadcast or channel post against real users from local code.
 - Nothing is "done" without evidence: the exact command plus pass/fail counts. Tests are never weakened, skipped or deleted to go green.
 - Secrets: `.env` values and tokens never go into commits, logs or docs (variable names only); server addresses stay in the two files above. Personal data in tests and fixtures is synthetic (e.g. user ids from 900000000000, as in `ops/loadtest.py`).
@@ -54,7 +54,7 @@ pytest tests/test_e2e_flow.py                         # boots the real app: gate
 python ops/loadtest.py --help                         # async load generator (see ops/README.md)
 python -m pyflakes main.py config.py src webapp/main.py webapp/core webapp/routers webapp/models webapp/resume tests
 
-# Deploy (build frontend, rsync code + dist, ensure DB_PATH and WEBAPP_SECRET on the server, restart, health check)
+# Deploy: `git push origin master` (CI + auto-deploy). Manual fallback from a clean tree:
 bash deploy_safe.sh
 ```
 
@@ -128,7 +128,7 @@ The `webapp_admin_settings` row (edited via `PATCH /api/admin/state` and the Adm
 ## Conventions
 - Commit messages follow conventional commits with optional scope: `feat(resume): ...`, `fix: ...`, `chore(deploy): ...`.
 - `src/buttons/buttuns.py` is misspelled; import it as-is.
-- New env variables must also be added by hand to the server `.env` (it is not synced by deploy); `deploy_safe.sh` bootstraps `DB_PATH` and `WEBAPP_SECRET` if missing and runs `pip install`.
+- New env variables must also be added by hand to the server `.env` (it is not synced by deploy); `deploy_safe.sh` bootstraps `DB_PATH` and `WEBAPP_SECRET` if missing; both deploy paths run `pip install` only when `requirements.txt` changed.
 - Broadcast media is stored under `<DB dir>/uploads/`; never served by the API, sent to Telegram by the bot.
 - `docs/ADMIN_PANEL_PLAN.md` records the admin v2 design decisions; `ops/` holds the server backup/logrotate scripts and the load test.
 
@@ -171,7 +171,7 @@ The dev machine has 14 GB RAM shared with the editor, agents and other projects.
 
 ## Deploy
 
-`bash deploy_safe.sh` builds the frontend locally, rsyncs `dist/` and the code, ensures `DB_PATH`/`WEBAPP_SECRET`, runs `pip install`, restarts both units and curls `/api/health`. How it works, what it does not do (no rollback, no `--delete` for code) and how to roll back: `.claude/deploy.md`. Ops runbook (Uzbek): `deploy.txt`.
+Normal path: push `master` → CI (`backend` ‖ `frontend` → `ci-ok` → `release`) → `deploy` branch → server cron `ops/auto_deploy.sh` (live within ~2–5 min of a green CI; state in `/home/vakant/.deploy/`, log `/var/log/vakant-deploy.log`). Fallback: `bash deploy_safe.sh` (builds locally, rsyncs, pre-deploy backup, pip only when `requirements.txt` changed, restart, health). Neither deletes server files. Rollback, kill switch and server layout: `.claude/deploy.md`; Uzbek runbook: `deploy.txt` §11.
 
 ## State and memory
 

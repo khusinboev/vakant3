@@ -8,3 +8,14 @@
     delaycompress
     copytruncate
 }
+
+/var/log/vakant-deploy.log /var/log/vakant-health.log /var/log/vakant-backup.log {
+    monthly
+    rotate 6
+    size 5M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

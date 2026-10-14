@@ -1,7 +1,8 @@
 # ops/
 
-Operational scripts. `backup_db.sh` and `logrotate-vakant-bot` run on the
-production server (see `deploy.txt`). `loadtest.py` is a local-only tool —
+Operational scripts. `backup_db.sh`, `healthcheck.sh`, `auto_deploy.sh` (pull-based
+auto-deploy of the CI `deploy` branch, root cron every 2 min) and `logrotate-vakant-bot`
+run on the production server (see `deploy.txt` §9–11). `loadtest.py` is a local-only tool —
 it is never run against production and never reads the server `.env`.
 
 ## loadtest.py

@@ -239,3 +239,24 @@ Tekshiruv (deploy'dan keyin):
 Monitoring (2026-09-21 dan): har 5 daqiqada /home/vakant/healthcheck.sh (cron) API health,
 servislar va disk (>=92%) ni tekshiradi; muammo boshlanganda va tiklanganda ADMIN_IDS ga
 bot orqali bir marta xabar yuboradi. Log: /var/log/vakant-health.log. Nusxa: ops/healthcheck.sh
+
+
+========================================================
+  11. AVTOMATIK DEPLOY (2026-10-15 dan)
+========================================================
+
+Oddiy yo'l:  git push origin master  — boshqa hech narsa kerak emas.
+  1) GitHub Actions CI (.github/workflows/ci.yml): pytest + pyflakes, eslint + build.
+  2) Hammasi yashil bo'lsa CI `deploy` branch'iga bitta release commit yozadi
+     (kod + tayyor dist + RELEASE fayli = manba commit sha). `deploy` ga qo'lda push QILINMAYDI.
+  3) Serverda har 2 daqiqada cron: /home/vakant/ops/auto_deploy.sh
+     yangi release bo'lsa: kod nusxasi (.deploy/prev) -> DB backup (data/backups/predeploy_*) ->
+     rsync -> pip (faqat requirements.txt o'zgarsa) -> restart -> health.
+     Yiqilsa o'zi oldingi kodga qaytaradi va adminlarga Telegram'da xabar beradi.
+  Push'dan prod'gacha odatda 3-5 daqiqa.
+
+Holat:        cat /home/vakant/.deploy/current; tail -20 /var/log/vakant-deploy.log
+O'chirish:    touch /home/vakant/.deploy/auto-deploy.disabled   (yoqish: faylni o'chiring)
+Qayta deploy: /home/vakant/ops/auto_deploy.sh --force
+Qo'lda deploy (zaxira yo'l, toza local daraxtdan): bash deploy_safe.sh
+Batafsil:     .claude/deploy.md (lokal) yoki ops/auto_deploy.sh boshidagi izoh.
