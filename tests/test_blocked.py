@@ -6,15 +6,26 @@ users.blocked bayrog'i testlari:
 Broadcast tomoni endi src/functions/broadcast_worker.py da — u yerdagi
 blocked=1 / blocked=0 yozuvlari tests/test_broadcast.py da tekshiriladi.
 """
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import aiosqlite
 import pytest
 from aiogram.exceptions import TelegramForbiddenError
 
+from src.core.timeutil import TZ
 from src.middleware.middlewares import StatsMiddleware
 
 MW_MODULE = "src.middleware.middlewares"
+
+
+def _after_last_slot(user_id: int):
+    """Pin the scheduler clock after the user's last slot today, so the run does not depend on the wall clock
+    (outside working hours no slot is due and the scheduler returns before sending anything)."""
+    from src.functions.notification_scheduler import today_slots
+
+    moment = datetime.fromtimestamp(today_slots(user_id)[-1], tz=TZ) + timedelta(minutes=1)
+    return patch("src.functions.notification_scheduler._now_uzb", return_value=moment)
 
 
 def _forbidden() -> TelegramForbiddenError:
@@ -72,11 +83,13 @@ async def test_notifications_skip_blocked_users():
     await conn.commit()
 
     mock_bot = AsyncMock()
-    with patch("src.functions.notification_scheduler.bot", mock_bot):
-        await _run_notifications(conn)
+    try:
+        with patch("src.functions.notification_scheduler.bot", mock_bot), _after_last_slot(999):
+            await _run_notifications(conn)
 
-    mock_bot.send_message.assert_not_called()
-    await conn.close()
+        mock_bot.send_message.assert_not_called()
+    finally:
+        await conn.close()
 
 
 @pytest.mark.asyncio
@@ -129,12 +142,15 @@ async def test_notifications_mark_blocked_on_forbidden():
 
     mock_bot = AsyncMock()
     mock_bot.send_message.side_effect = _forbidden()
-    with patch("src.functions.notification_scheduler.bot", mock_bot):
-        await _run_notifications(conn)
+    try:
+        with patch("src.functions.notification_scheduler.bot", mock_bot), _after_last_slot(888):
+            await _run_notifications(conn)
 
-    cur = await conn.execute("SELECT blocked FROM users WHERE user_id = 888")
-    assert (await cur.fetchone())[0] == 1
-    await conn.close()
+        mock_bot.send_message.assert_called_once()
+        cur = await conn.execute("SELECT blocked FROM users WHERE user_id = 888")
+        assert (await cur.fetchone())[0] == 1
+    finally:
+        await conn.close()
 
 
 # ─── StatsMiddleware: un-block on a new message ────────────────────────────
