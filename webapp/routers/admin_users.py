@@ -72,7 +72,15 @@ from pydantic import BaseModel, Field
 from src.core.timeutil import TZ
 from webapp.core import errors, ledger
 from webapp.core.audit import log_admin_action
-from webapp.core.auth import ROLES, has_enabled_owner, require_role, resolve_admin_role, role_rank
+from webapp.core.auth import (
+    ROLES,
+    USER_BANNED,
+    has_enabled_owner,
+    is_banned,
+    require_role,
+    resolve_admin_role,
+    role_rank,
+)
 from webapp.core.config import get_settings
 from webapp.core.confirm import canonical_params, require_confirmation, verify_confirm_token
 from webapp.core.database import get_db, open_connection
@@ -847,6 +855,9 @@ async def require_export_link(
         raise errors.api_error(403, errors.ADMIN_REQUIRED)
     if role_rank(role) < role_rank("admin"):
         raise errors.api_error(403, errors.ADMIN_REQUIRED, required_role="admin")
+    # The same ban check ``require_admin`` makes: this route skips that dependency.
+    if await is_banned(db, int(actor)):
+        raise errors.api_error(403, USER_BANNED)
     return {"user_id": int(actor), "role": role, "link_token": dl}
 
 
