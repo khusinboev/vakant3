@@ -22,7 +22,8 @@ from src.db.connection import connect
 from src.db.settings import get_admin_settings, invalidate_settings_cache
 from src.functions.bot_jobs import register_job
 from src.functions.scraping import fetch_osonish_detail, fetch_osonish_list
-from src.functions.vacancy_format import format_vacancy_message_html
+from src.buttons.buttuns import channel_vacancy_kb
+from src.functions.vacancy_format import format_vacancy_message_html, vacancy_deeplink
 from src.i18n import DEFAULT_LANG, normalize_lang
 
 logger = logging.getLogger(__name__)
@@ -231,12 +232,14 @@ async def pick_and_post(
 
     picked_uid, data = pick
     try:
-        text = format_vacancy_message_html(picked_uid, data, lang)
+        # Channel post: plain emoji only (custom emoji need a Fragment username there).
+        text = format_vacancy_message_html(picked_uid, data, lang, plain=True)
         message = await bot.send_message(
             chat_id=channel,
             text=text,
             parse_mode="HTML",
             disable_web_page_preview=True,
+            reply_markup=channel_vacancy_kb(lang, vacancy_deeplink(picked_uid)),
         )
         try:
             message_id = int(getattr(message, "message_id", None))

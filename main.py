@@ -4,11 +4,12 @@
 import asyncio
 import logging
 
-from config import BASE_DIR, bot, dp
+from config import ADMIN_IDS, BASE_DIR, WEBAPP_URL, bot, dp
 from src.db.connection import connect
 from src.db.migrate import run_migrations
 from src.functions.auto_post_scheduler import auto_post_loop
 from src.functions.bot_jobs import bot_jobs_loop
+from src.functions.bot_setup import setup_bot_ui
 from src.functions.broadcast_worker import broadcast_worker_loop
 from src.functions.daily_rollup import daily_rollup_loop
 from src.functions.notification_scheduler import notification_loop
@@ -70,6 +71,12 @@ async def main():
 
     # Routerlarni ulash
     include_routers(dp)
+
+    # Menu button + command lists; best effort, never fatal.
+    try:
+        await setup_bot_ui(bot, WEBAPP_URL, ADMIN_IDS)
+    except Exception as exc:
+        logger.warning("bot UI setup skipped: %s", exc)
 
     logger.info("Bot started, polling...")
 

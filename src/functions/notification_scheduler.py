@@ -23,7 +23,8 @@ from datetime import datetime, timedelta
 import aiosqlite
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 
-from config import bot
+from config import WEBAPP_URL, bot
+from src.buttons.buttuns import open_app_kb
 from src.core.timeutil import now_tz, today_start_ts
 from src.db.connection import connect
 from src.functions.vacancy_format import format_vacancy_message_html
@@ -236,6 +237,7 @@ async def _send_notification(user_id: int, lang: str, uid: str, data: dict) -> s
             text=text,
             parse_mode="HTML",
             disable_web_page_preview=True,
+            reply_markup=open_app_kb(lang, WEBAPP_URL),
         )
 
     try:

@@ -140,14 +140,12 @@ def _member(status, user, **extra):
     if status == "left":
         return ChatMemberLeft(status="left", user=user)
     if status == "restricted":
+        # Every required can_* permission flag of the installed Bot API version (newer aiogram
+        # releases add required flags such as can_react_to_messages / can_edit_tag).
         flags = {
             name: False
-            for name in (
-                "can_send_messages", "can_send_audios", "can_send_documents", "can_send_photos",
-                "can_send_videos", "can_send_video_notes", "can_send_voice_notes", "can_send_polls",
-                "can_send_other_messages", "can_add_web_page_previews", "can_change_info",
-                "can_invite_users", "can_pin_messages", "can_manage_topics",
-            )
+            for name, field in ChatMemberRestricted.model_fields.items()
+            if name.startswith("can_") and field.is_required()
         }
         return ChatMemberRestricted(
             status="restricted", user=user, is_member=extra.get("is_member", True),

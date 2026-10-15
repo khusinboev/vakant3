@@ -7,11 +7,82 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
-    WebAppInfo,
 )
 
 from src.functions.admin_roles import has_role
 from src.i18n import DEFAULT_LANG, t
+from src.ui.emoji import clip, inline_button, labelled, reply_button
+
+#: i18n label key -> icon key (``src/ui/emoji.py``). The dictionaries hold the
+#: BARE label; the icon is a custom emoji (``icon_custom_emoji_id``) or a
+#: fallback prefix, never both.
+BUTTON_ICONS: dict[str, str] = {
+    "common.back": "back",
+    "menu.laws": "laws",
+    "menu.hr": "tips",
+    "start.btn.jobs": "search",
+    "start.btn.profile": "profile",
+    "start.btn.saves": "saves",
+    "start.btn.subscribed": "success",
+    "start.btn.open_app": "app",
+    "start.btn.open_in_bot": "job",
+    "referral.btn.share": "share",
+    "content.laws.read_more": "link",
+    "btn.admin.stats": "stats",
+    "btn.admin.channels": "channel",
+    "btn.admin.ads": "broadcast",
+    "btn.admin.channel_add": "plus",
+    "btn.admin.channel_del": "error",
+    "btn.admin.channel_list": "list",
+    "btn.admin.back": "back",
+    "btn.admin.bc_new": "new",
+    "btn.admin.bc_list": "list",
+    "btn.admin.webapp": "admin",
+    "bc.btn.skip": "skip",
+    "bc.btn.cancel": "cancel",
+    "bc.btn.test": "test",
+    "bc.btn.send": "success",
+    "bc.btn.pause": "pause",
+    "bc.btn.resume": "next",
+    "bc.btn.stop": "stop",
+    "bc.btn.stop_yes": "stop",
+    "bc.btn.stop_no": "back",
+    "bc.btn.refresh": "refresh",
+}
+
+
+def button_text(lang: str, key: str, *, plain: bool = False, **kw) -> str:
+    """The exact text a button for ``key`` carries (fallback-prefixed label
+    when its icon is not a custom emoji)."""
+    return labelled(BUTTON_ICONS.get(key), t(lang, key, **kw), plain=plain)["text"]
+
+
+def key_button(lang: str, key: str, *, style: str | None = None) -> KeyboardButton:
+    """Reply-keyboard button for an i18n label key."""
+    return reply_button(BUTTON_ICONS.get(key), t(lang, key), style=style)
+
+
+def key_inline(
+    lang: str,
+    key: str,
+    *,
+    style: str | None = None,
+    plain: bool = False,
+    callback_data: str | None = None,
+    url: str | None = None,
+    web_app: str | None = None,
+    **kw,
+) -> InlineKeyboardButton:
+    """Inline button for an i18n label key (``kw`` fills the label's variables)."""
+    return inline_button(
+        BUTTON_ICONS.get(key),
+        t(lang, key, **kw),
+        callback_data=callback_data,
+        url=url,
+        web_app=web_app,
+        style=style,
+        plain=plain,
+    )
 
 # ── Admin callback data ──────────────────────────────────────────────────
 # Every admin inline button starts with ``adm:`` and stays far below
@@ -56,18 +127,22 @@ def _inline(text: str, data: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, callback_data=data)
 
 
+def _kb(lang: str, key: str, data: str, *, style: str | None = None, **kw) -> InlineKeyboardButton:
+    return key_inline(lang, key, callback_data=data, style=style, **kw)
+
+
 # ── Admin reply keyboards ────────────────────────────────────────────────
 
 def main_btn(lang: str = DEFAULT_LANG, role: str | None = "owner") -> ReplyKeyboardMarkup:
     """Admin panelining bosh menyusi. Broadcasts are shown to admin+ only."""
     rows = [
         [
-            KeyboardButton(text=t(lang, "btn.admin.stats")),
-            KeyboardButton(text=t(lang, "btn.admin.channels")),
+            key_button(lang, "btn.admin.stats"),
+            key_button(lang, "btn.admin.channels"),
         ]
     ]
     if has_role(role, "admin"):
-        rows.append([KeyboardButton(text=t(lang, "btn.admin.ads"))])
+        rows.append([key_button(lang, "btn.admin.ads")])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
@@ -77,14 +152,14 @@ def channel_btn(lang: str = DEFAULT_LANG, role: str | None = "owner") -> ReplyKe
     if has_role(role, "admin"):
         rows.append(
             [
-                KeyboardButton(text=t(lang, "btn.admin.channel_add")),
-                KeyboardButton(text=t(lang, "btn.admin.channel_del")),
+                key_button(lang, "btn.admin.channel_add"),
+                key_button(lang, "btn.admin.channel_del"),
             ]
         )
     rows.append(
         [
-            KeyboardButton(text=t(lang, "btn.admin.channel_list")),
-            KeyboardButton(text=t(lang, "btn.admin.back")),
+            key_button(lang, "btn.admin.channel_list"),
+            key_button(lang, "btn.admin.back"),
         ]
     )
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -94,10 +169,10 @@ def reklama_btn(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text=t(lang, "btn.admin.bc_new")),
-                KeyboardButton(text=t(lang, "btn.admin.bc_list")),
+                key_button(lang, "btn.admin.bc_new"),
+                key_button(lang, "btn.admin.bc_list"),
             ],
-            [KeyboardButton(text=t(lang, "btn.admin.back"))],
+            [key_button(lang, "btn.admin.back")],
         ],
         resize_keyboard=True,
     )
@@ -105,7 +180,7 @@ def reklama_btn(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
 
 def back_btn(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=t(lang, "btn.admin.back"))]],
+        keyboard=[[key_button(lang, "btn.admin.back")]],
         resize_keyboard=True,
     )
 
@@ -115,7 +190,7 @@ def back_btn(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
 def admin_webapp_kb(lang: str, url: str) -> InlineKeyboardMarkup:
     """Opens the Mini App admin panel (an inline web_app button carries initData)."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn.admin.webapp"), web_app=WebAppInfo(url=url))]]
+        inline_keyboard=[[key_inline(lang, "btn.admin.webapp", web_app=url, style="primary")]]
     )
 
 
@@ -123,8 +198,8 @@ def bc_button_step_kb(lang: str, nonce: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                _inline(t(lang, "bc.btn.skip"), cb_wizard(nonce, "skip")),
-                _inline(t(lang, "bc.btn.cancel"), cb_wizard(nonce, "x")),
+                _kb(lang, "bc.btn.skip", cb_wizard(nonce, "skip")),
+                _kb(lang, "bc.btn.cancel", cb_wizard(nonce, "x")),
             ]
         ]
     )
@@ -141,7 +216,7 @@ def bc_audience_kb(lang: str, nonce: str) -> InlineKeyboardMarkup:
             [seg("lang:uz"), seg("lang:ru"), seg("lang:en")],
             [seg("active_days:7"), seg("active_days:30")],
             [seg("test_admins")],
-            [_inline(t(lang, "bc.btn.cancel"), cb_wizard(nonce, "x"))],
+            [_kb(lang, "bc.btn.cancel", cb_wizard(nonce, "x"))],
         ]
     )
 
@@ -149,9 +224,9 @@ def bc_audience_kb(lang: str, nonce: str) -> InlineKeyboardMarkup:
 def bc_preview_kb(lang: str, broadcast_id: int, count: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [_inline(t(lang, "bc.btn.test"), cb_broadcast(broadcast_id, "test"))],
-            [_inline(t(lang, "bc.btn.send", count=count), cb_broadcast(broadcast_id, "send"))],
-            [_inline(t(lang, "bc.btn.cancel"), cb_broadcast(broadcast_id, "drop"))],
+            [_kb(lang, "bc.btn.test", cb_broadcast(broadcast_id, "test"))],
+            [_kb(lang, "bc.btn.send", cb_broadcast(broadcast_id, "send"), style="success", count=count)],
+            [_kb(lang, "bc.btn.cancel", cb_broadcast(broadcast_id, "drop"))],
         ]
     )
 
@@ -166,20 +241,20 @@ def bc_progress_kb(
         return InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    _inline(t(lang, "bc.btn.stop_yes"), cb_broadcast(broadcast_id, "stopok")),
-                    _inline(t(lang, "bc.btn.stop_no"), cb_broadcast(broadcast_id, "view")),
+                    _kb(lang, "bc.btn.stop_yes", cb_broadcast(broadcast_id, "stopok"), style="danger"),
+                    _kb(lang, "bc.btn.stop_no", cb_broadcast(broadcast_id, "view")),
                 ]
             ]
         )
     toggle = (
-        _inline(t(lang, "bc.btn.resume"), cb_broadcast(broadcast_id, "resume"))
+        _kb(lang, "bc.btn.resume", cb_broadcast(broadcast_id, "resume"))
         if status == "paused"
-        else _inline(t(lang, "bc.btn.pause"), cb_broadcast(broadcast_id, "pause"))
+        else _kb(lang, "bc.btn.pause", cb_broadcast(broadcast_id, "pause"))
     )
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [toggle, _inline(t(lang, "bc.btn.stop"), cb_broadcast(broadcast_id, "stop"))],
-            [_inline(t(lang, "bc.btn.refresh"), cb_broadcast(broadcast_id, "view"))],
+            [toggle, _kb(lang, "bc.btn.stop", cb_broadcast(broadcast_id, "stop"))],
+            [_kb(lang, "bc.btn.refresh", cb_broadcast(broadcast_id, "view"))],
         ]
     )
 
@@ -189,7 +264,7 @@ def bc_list_kb(rows: list[tuple[int, str]]) -> InlineKeyboardMarkup | None:
     if not rows:
         return None
     return InlineKeyboardMarkup(
-        inline_keyboard=[[_inline(label, cb_broadcast(bid, "open"))] for bid, label in rows]
+        inline_keyboard=[[_inline(clip(label, 60), cb_broadcast(bid, "open"))] for bid, label in rows]
     )
 
 
@@ -200,10 +275,34 @@ def user_menu_btn(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text=t(lang, "menu.laws")),
-                KeyboardButton(text=t(lang, "menu.hr")),
+                key_button(lang, "menu.laws"),
+                key_button(lang, "menu.hr"),
             ]
         ],
         resize_keyboard=True,
         is_persistent=True,
+    )
+
+
+# ── Vacancy / app keyboards ──────────────────────────────────────────────
+# The Mini App has no per-vacancy entry yet (App.tsx only knows ?go=profile|saves
+# and start_param profile|saves|home), so "open in app" opens its home screen.
+
+def open_app_kb(lang: str, webapp_url: str) -> InlineKeyboardMarkup:
+    """One primary inline web_app button (private chats only: carries initData)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[key_inline(lang, "start.btn.open_app", web_app=webapp_url, style="primary")]]
+    )
+
+
+def channel_vacancy_kb(lang: str, deeplink: str) -> InlineKeyboardMarkup:
+    """URL button under a channel post: plain emoji (no custom emoji in channels)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[key_inline(lang, "start.btn.open_in_bot", url=deeplink, plain=True)]]
+    )
+
+
+def referral_share_kb(lang: str, share_url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[key_inline(lang, "referral.btn.share", url=share_url, style="primary")]]
     )

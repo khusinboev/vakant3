@@ -9,30 +9,37 @@ STRINGS: dict[str, str] = {
     "common.available": "Есть",
     "common.unavailable": "Нет",
     "common.not_available": "Отсутствует",
-    "common.back": "◀️ Назад",
+    "common.back": "Назад",
 
     # ── Меню пользователя ─────────────────────────────────────
-    "menu.laws": "⚖️ Законодательство",
-    "menu.hr": "💡 HR-советы",
+    "menu.laws": "Законодательство",
+    "menu.hr": "HR-советы",
 
     # ── /start ────────────────────────────────────────────────
-    "start.loading_vacancy": "⏳ Загружаем данные вакансии...",
+    "start.loading_vacancy": "{e:hourglass} Загружаем данные вакансии...",
     "start.bad_vacancy_link": "❌ Неверная ссылка на вакансию.",
     "start.vacancy_not_found": "❌ Вакансия не найдена или данные получить не удалось.",
-    "start.extra_sections": "Дополнительные разделы:",
     "start.greeting": (
-        "Здравствуйте, {name}!\n"
-        "Добро пожаловать в наш бот. Выберите нужный раздел!"
+        "{e:wave} Здравствуйте, <b>{name}</b>!\n\n"
+        "В боте Bandlik.uz можно искать и сохранять вакансии и получать уведомления о новых.\n"
+        "{e:laws} Трудовое законодательство и {e:tips} HR-советы — в меню ниже."
     ),
     "start.subscribe_prompt": "Чтобы пользоваться ботом, подпишитесь на каналы ниже:",
-    "start.btn.jobs": "💼 Поиск работы",
-    "start.btn.profile": "👤 Профиль",
-    "start.btn.saves": "🗂 Избранное",
-    "start.btn.subscribed": "✅ Я подписался",
+    "start.app_prompt": "{e:job} Вакансии, профиль и избранное — в приложении:",
+    "start.btn.open_app": "Открыть в приложении",
+    "start.btn.open_in_bot": "Подробнее в боте",
+    "bot.menu_button": "Приложение",
+    "cmd.start": "Запустить бота",
+    "cmd.lang": "Сменить язык",
+    "cmd.admin": "Админ-панель",
+    "start.btn.jobs": "Поиск работы",
+    "start.btn.profile": "Профиль",
+    "start.btn.saves": "Избранное",
+    "start.btn.subscribed": "Я подписался",
     "start.channel_fallback": "Канал",
     "start.check.ok": "✅ Подтверждено!",
     "start.check.welcome": (
-        "Добро пожаловать, {name}!\n"
+        "{e:party} Добро пожаловать, <b>{name}</b>!\n"
         "Теперь бот доступен вам полностью."
     ),
     "start.check.fail": (
@@ -43,18 +50,20 @@ STRINGS: dict[str, str] = {
 
     # ── Рефералы ──────────────────────────────────────────────
     "referral.reward_notice": (
-        "🎉 По вашей ссылке присоединился новый пользователь!\n"
-        "На ваш баланс зачислено <b>{reward} сум</b>."
+        "{e:party} По вашей ссылке присоединился новый пользователь!\n"
+        "{e:wallet} На ваш баланс зачислено <b>{reward} сум</b>."
     ),
     "referral.gate": (
-        "🔒 Для доступа к боту включено условие приглашений.\n\n"
-        "📊 Прогресс: {current}/{required}\n"
-        "👥 Сначала пригласите друзей:\n"
+        "{e:lock} Для доступа к боту включено условие приглашений.\n\n"
+        "{e:stats} Прогресс: {current}/{required}\n"
+        "{e:group} Сначала пригласите друзей:\n"
         "{link}"
     ),
+    "referral.btn.share": "Поделиться с друзьями",
+    "referral.share_text": "Bandlik.uz — бот с вакансиями и объявлениями о работе. Присоединяйтесь!",
 
     # ── Выбор языка ───────────────────────────────────────────
-    "lang.choose": "🌐 Выберите язык:",
+    "lang.choose": "{e:lang} Выберите язык:",
     "lang.saved": "✅ Язык изменён: Русский",
     "lang.name.uz": "🇺🇿 O'zbekcha",
     "lang.name.ru": "🇷🇺 Русский",
@@ -62,13 +71,15 @@ STRINGS: dict[str, str] = {
 
     # ── Контент: законодательство и HR ────────────────────────
     "content.laws.header": (
-        "📚 <b>Трудовой кодекс Узбекистана</b>\n\nВыберите интересующую статью:"
+        "{e:laws} <b>Трудовой кодекс Узбекистана</b>\n\n"
+        "Выберите интересующую статью:"
     ),
     "content.laws.not_found": "Статья не найдена",
-    "content.laws.read_more": "🔗 Читать на lex.uz",
+    "content.laws.read_more": "Читать на lex.uz",
     "content.truncated": "<i>... (читать полностью)</i>",
     "content.hr.header": (
-        "🎯 <b>HR-советы</b>\n\nПрактические рекомендации для развития вашей карьеры:"
+        "{e:tips} <b>HR-советы</b>\n\n"
+        "Практические рекомендации для развития вашей карьеры:"
     ),
     "content.hr.not_found": "Совет не найден",
 
@@ -128,20 +139,20 @@ STRINGS: dict[str, str] = {
     "vacancy.label.email": "Email",
 
     # ── Уведомления ───────────────────────────────────────────
-    "notify.header": "📌 <b>Вакансия для вас</b>",
+    "notify.header": "{e:bell} <b>Вакансия для вас</b>",
     "notify.details": "Подробнее",
 
     # ── Админ: кнопки ─────────────────────────────────────────
-    "btn.admin.stats": "📊Статистика",
-    "btn.admin.channels": "🔧Каналы",
-    "btn.admin.ads": "📤Рассылка",
-    "btn.admin.channel_add": "➕Добавить канал",
-    "btn.admin.channel_del": "❌Удалить канал",
-    "btn.admin.channel_list": "📋 Список каналов",
-    "btn.admin.back": "🔙Назад",
+    "btn.admin.stats": "Статистика",
+    "btn.admin.channels": "Каналы",
+    "btn.admin.ads": "Рассылка",
+    "btn.admin.channel_add": "Добавить канал",
+    "btn.admin.channel_del": "Удалить канал",
+    "btn.admin.channel_list": "Список каналов",
+    "btn.admin.back": "Назад",
 
     # ── Админ: сообщения ──────────────────────────────────────
-    "admin.hello": "Здравствуйте, админ",
+    "admin.hello": "{e:admin} Здравствуйте, админ",
     "admin.main_menu": "Главное меню",
     "admin.choose": "Выберите",
     "admin.channel_add_prompt": (
@@ -154,7 +165,7 @@ STRINGS: dict[str, str] = {
     "admin.text_required": "Пожалуйста, отправьте текстовое сообщение.",
     "admin.channel_bad_format": "Неверный username! Введите в формате @coder_admin",
     "admin.channel_exists": "Этот канал уже добавлен",
-    "admin.channel_added": "Канал добавлен 🎉",
+    "admin.channel_added": "{e:party} Канал добавлен",
     "admin.channel_missing": "Такого канала нет",
     "admin.channel_deleted": "Канал удалён",
     "admin.channels_empty": "Пока каналов нет",
@@ -170,7 +181,7 @@ STRINGS: dict[str, str] = {
         "✅ Доставлено: {ok}\n"
         "❌ Не доставлено: {fail}"
     ),
-    "admin.stats.header": "📊 <b>Статистика пользователей</b> 📊",
+    "admin.stats.header": "{e:stats} <b>Статистика пользователей</b>",
     "admin.stats.total": "Всего: {count}",
     "admin.stats.blocked": "🚫 Заблокировали бота: {count}",
     "admin.stats.last3m": "Последние 3 месяца (всего: {count}):",
@@ -192,17 +203,17 @@ STRINGS: dict[str, str] = {
     "admin.channels_none": "Каналов нет",
 
     # ── Admin: broadcast wizard ───────────────────────────────
-    "btn.admin.bc_new": "🆕 Новая рассылка",
-    "btn.admin.bc_list": "📋 Рассылки",
-    "btn.admin.webapp": "🖥 Открыть админ-панель",
-    "admin.webapp_hint": "Расширенное управление — в Mini App:",
+    "btn.admin.bc_new": "Новая рассылка",
+    "btn.admin.bc_list": "Рассылки",
+    "btn.admin.webapp": "Открыть админ-панель",
+    "admin.webapp_hint": "{e:app} Расширенное управление — в Mini App:",
     "admin.denied": "⛔ У вас нет прав на это действие.",
     "bc.prompt_content": "Отправьте сообщение для рассылки: текст, фото, видео, документ или GIF.\nФорматирование и эмодзи сохранятся.",
     "bc.bad_content": "Такой тип сообщения не поддерживается. Отправьте текст, фото, видео, документ или GIF.",
     "bc.album_unsupported": "Альбомы (несколько фото или видео) не поддерживаются. Отправьте одно сообщение: одно фото, видео или документ, при необходимости с подписью.",
     "bc.prompt_button": "Чтобы добавить кнопку, отправьте <code>Текст | https://...</code> или нажмите «Пропустить».",
     "bc.bad_button": "Неверный формат кнопки. Пример: <code>Подробнее | https://bandlik.uz</code> (текст до 64 символов, ссылка http или https).",
-    "bc.prompt_audience": "👥 Кому отправляем?",
+    "bc.prompt_audience": "{e:group} Кому отправляем?",
     "bc.empty_segment": "В этой аудитории нет получателей. Выберите другую.",
     "bc.preview_card": "👆 Так сообщение увидят пользователи.\n\n👥 Аудитория: {segment}\n📨 Получателей: <b>{count}</b>\n🔘 Кнопка: {button}\n\nПеред отправкой проверьте через «🧪 Тест себе».",
     "bc.no_button": "нет",
@@ -223,19 +234,19 @@ STRINGS: dict[str, str] = {
     "bc.state_changed": "Статус: {status}",
     "bc.state_unchanged": "В текущем статусе это действие недоступно",
     "bc.stop_confirm": "\n\n⚠️ Остановить рассылку окончательно? Это нельзя отменить.",
-    "bc.list_header": "📋 <b>Последние рассылки</b>",
+    "bc.list_header": "{e:list} <b>Последние рассылки</b>",
     "bc.list_row": "#{id} · {status} · {done}/{total}",
     "bc.list_empty": "Рассылок пока нет",
-    "bc.btn.skip": "⏭ Пропустить",
-    "bc.btn.cancel": "✖ Отмена",
-    "bc.btn.test": "🧪 Тест себе",
-    "bc.btn.send": "✅ Отправить {count}",
-    "bc.btn.pause": "⏸ Пауза",
-    "bc.btn.resume": "▶ Продолжить",
-    "bc.btn.stop": "✖ Стоп",
-    "bc.btn.stop_yes": "✅ Да, остановить",
-    "bc.btn.stop_no": "◀ Нет",
-    "bc.btn.refresh": "🔄 Обновить",
+    "bc.btn.skip": "Пропустить",
+    "bc.btn.cancel": "Отмена",
+    "bc.btn.test": "Тест себе",
+    "bc.btn.send": "Отправить {count}",
+    "bc.btn.pause": "Пауза",
+    "bc.btn.resume": "Продолжить",
+    "bc.btn.stop": "Стоп",
+    "bc.btn.stop_yes": "Да, остановить",
+    "bc.btn.stop_no": "Нет",
+    "bc.btn.refresh": "Обновить",
     "bc.seg.all": "👥 Все",
     "bc.seg.pro": "⭐ Pro",
     "bc.seg.free": "🆓 Бесплатные",

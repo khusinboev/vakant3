@@ -9,30 +9,37 @@ STRINGS: dict[str, str] = {
     "common.available": "Yes",
     "common.unavailable": "No",
     "common.not_available": "Not available",
-    "common.back": "◀️ Back",
+    "common.back": "Back",
 
     # ── User menu ─────────────────────────────────────────────
-    "menu.laws": "⚖️ Labour law",
-    "menu.hr": "💡 HR tips",
+    "menu.laws": "Labour law",
+    "menu.hr": "HR tips",
 
     # ── /start ────────────────────────────────────────────────
-    "start.loading_vacancy": "⏳ Loading the vacancy details...",
+    "start.loading_vacancy": "{e:hourglass} Loading the vacancy details...",
     "start.bad_vacancy_link": "❌ Invalid vacancy link.",
     "start.vacancy_not_found": "❌ Vacancy not found, or the data could not be loaded.",
-    "start.extra_sections": "More sections:",
     "start.greeting": (
-        "Hello, {name}!\n"
-        "Welcome to our bot. Pick the section you need!"
+        "{e:wave} Hello, <b>{name}</b>!\n\n"
+        "Search and save vacancies in the Bandlik.uz bot and get notified about new ones.\n"
+        "{e:laws} Labour law and {e:tips} HR tips are in the menu below."
     ),
     "start.subscribe_prompt": "To use the bot, please subscribe to the channels below:",
-    "start.btn.jobs": "💼 Find a job",
-    "start.btn.profile": "👤 Profile",
-    "start.btn.saves": "🗂 Saved",
-    "start.btn.subscribed": "✅ I've subscribed",
+    "start.app_prompt": "{e:job} Vacancies, your profile and saved jobs are in the app:",
+    "start.btn.open_app": "Open in the app",
+    "start.btn.open_in_bot": "Details in the bot",
+    "bot.menu_button": "App",
+    "cmd.start": "Start the bot",
+    "cmd.lang": "Change language",
+    "cmd.admin": "Admin panel",
+    "start.btn.jobs": "Find a job",
+    "start.btn.profile": "Profile",
+    "start.btn.saves": "Saved",
+    "start.btn.subscribed": "I've subscribed",
     "start.channel_fallback": "Channel",
     "start.check.ok": "✅ Confirmed!",
     "start.check.welcome": (
-        "Welcome, {name}!\n"
+        "{e:party} Welcome, <b>{name}</b>!\n"
         "You now have full access to the bot."
     ),
     "start.check.fail": (
@@ -43,18 +50,20 @@ STRINGS: dict[str, str] = {
 
     # ── Referrals ─────────────────────────────────────────────
     "referral.reward_notice": (
-        "🎉 A new user joined through your link!\n"
-        "<b>{reward} UZS</b> has been added to your balance."
+        "{e:party} A new user joined through your link!\n"
+        "{e:wallet} <b>{reward} UZS</b> has been added to your balance."
     ),
     "referral.gate": (
-        "🔒 Access to the bot requires invitations.\n\n"
-        "📊 Progress: {current}/{required}\n"
-        "👥 Invite your friends first:\n"
+        "{e:lock} Access to the bot requires invitations.\n\n"
+        "{e:stats} Progress: {current}/{required}\n"
+        "{e:group} Invite your friends first:\n"
         "{link}"
     ),
+    "referral.btn.share": "Share with friends",
+    "referral.share_text": "Bandlik.uz is a bot with job vacancies. Join in!",
 
     # ── Language ──────────────────────────────────────────────
-    "lang.choose": "🌐 Choose your language:",
+    "lang.choose": "{e:lang} Choose your language:",
     "lang.saved": "✅ Language changed: English",
     "lang.name.uz": "🇺🇿 O'zbekcha",
     "lang.name.ru": "🇷🇺 Русский",
@@ -62,13 +71,15 @@ STRINGS: dict[str, str] = {
 
     # ── Content: labour law and HR ────────────────────────────
     "content.laws.header": (
-        "📚 <b>Labour Code of Uzbekistan</b>\n\nPick the article you are interested in:"
+        "{e:laws} <b>Labour Code of Uzbekistan</b>\n\n"
+        "Pick the article you are interested in:"
     ),
     "content.laws.not_found": "Article not found",
-    "content.laws.read_more": "🔗 Read on lex.uz",
+    "content.laws.read_more": "Read on lex.uz",
     "content.truncated": "<i>... (read the full text)</i>",
     "content.hr.header": (
-        "🎯 <b>HR tips</b>\n\nPractical advice to grow your career:"
+        "{e:tips} <b>HR tips</b>\n\n"
+        "Practical advice to grow your career:"
     ),
     "content.hr.not_found": "Tip not found",
 
@@ -128,20 +139,20 @@ STRINGS: dict[str, str] = {
     "vacancy.label.email": "Email",
 
     # ── Notifications ─────────────────────────────────────────
-    "notify.header": "📌 <b>A job pick for you</b>",
+    "notify.header": "{e:bell} <b>A job pick for you</b>",
     "notify.details": "View details",
 
     # ── Admin: buttons ────────────────────────────────────────
-    "btn.admin.stats": "📊Statistics",
-    "btn.admin.channels": "🔧Channels",
-    "btn.admin.ads": "📤Broadcast",
-    "btn.admin.channel_add": "➕Add channel",
-    "btn.admin.channel_del": "❌Remove channel",
-    "btn.admin.channel_list": "📋 Channel list",
-    "btn.admin.back": "🔙Back",
+    "btn.admin.stats": "Statistics",
+    "btn.admin.channels": "Channels",
+    "btn.admin.ads": "Broadcast",
+    "btn.admin.channel_add": "Add channel",
+    "btn.admin.channel_del": "Remove channel",
+    "btn.admin.channel_list": "Channel list",
+    "btn.admin.back": "Back",
 
     # ── Admin: messages ───────────────────────────────────────
-    "admin.hello": "Hello, admin",
+    "admin.hello": "{e:admin} Hello, admin",
     "admin.main_menu": "Main menu",
     "admin.choose": "Choose an option",
     "admin.channel_add_prompt": (
@@ -154,7 +165,7 @@ STRINGS: dict[str, str] = {
     "admin.text_required": "Please send a text message.",
     "admin.channel_bad_format": "Invalid channel username! Use the @coder_admin format",
     "admin.channel_exists": "This channel has already been added",
-    "admin.channel_added": "Channel added 🎉",
+    "admin.channel_added": "{e:party} Channel added",
     "admin.channel_missing": "No such channel",
     "admin.channel_deleted": "Channel removed",
     "admin.channels_empty": "No channels yet",
@@ -170,7 +181,7 @@ STRINGS: dict[str, str] = {
         "✅ Delivered: {ok}\n"
         "❌ Failed: {fail}"
     ),
-    "admin.stats.header": "📊 <b>User statistics</b> 📊",
+    "admin.stats.header": "{e:stats} <b>User statistics</b>",
     "admin.stats.total": "Total: {count}",
     "admin.stats.blocked": "🚫 Blocked the bot: {count}",
     "admin.stats.last3m": "Last 3 months (total: {count}):",
@@ -192,17 +203,17 @@ STRINGS: dict[str, str] = {
     "admin.channels_none": "There are no channels",
 
     # ── Admin: broadcast wizard ───────────────────────────────
-    "btn.admin.bc_new": "🆕 New broadcast",
-    "btn.admin.bc_list": "📋 Broadcasts",
-    "btn.admin.webapp": "🖥 Open the admin panel",
-    "admin.webapp_hint": "Full controls live in the Mini App:",
+    "btn.admin.bc_new": "New broadcast",
+    "btn.admin.bc_list": "Broadcasts",
+    "btn.admin.webapp": "Open the admin panel",
+    "admin.webapp_hint": "{e:app} Full controls live in the Mini App:",
     "admin.denied": "⛔ You are not allowed to do this.",
     "bc.prompt_content": "Send the message to broadcast: text, photo, video, document or GIF.\nFormatting and emoji are kept.",
     "bc.bad_content": "This kind of message is not supported. Send text, a photo, video, document or GIF.",
     "bc.album_unsupported": "Albums (several photos or videos) are not supported. Send a single message: one photo, video or document, with a caption if needed.",
     "bc.prompt_button": "To add a button send <code>Text | https://...</code> or tap «Skip».",
     "bc.bad_button": "Invalid button. Example: <code>Details | https://bandlik.uz</code> (text up to 64 characters, an http or https link).",
-    "bc.prompt_audience": "👥 Who should receive it?",
+    "bc.prompt_audience": "{e:group} Who should receive it?",
     "bc.empty_segment": "Nobody is in this audience. Pick another one.",
     "bc.preview_card": "👆 This is how users will see the message.\n\n👥 Audience: {segment}\n📨 Recipients: <b>{count}</b>\n🔘 Button: {button}\n\nCheck it with «🧪 Test to me» before sending.",
     "bc.no_button": "none",
@@ -223,19 +234,19 @@ STRINGS: dict[str, str] = {
     "bc.state_changed": "Status: {status}",
     "bc.state_unchanged": "Not possible in the current status",
     "bc.stop_confirm": "\n\n⚠️ Stop this broadcast for good? This cannot be undone.",
-    "bc.list_header": "📋 <b>Latest broadcasts</b>",
+    "bc.list_header": "{e:list} <b>Latest broadcasts</b>",
     "bc.list_row": "#{id} · {status} · {done}/{total}",
     "bc.list_empty": "No broadcasts yet",
-    "bc.btn.skip": "⏭ Skip",
-    "bc.btn.cancel": "✖ Cancel",
-    "bc.btn.test": "🧪 Test to me",
-    "bc.btn.send": "✅ Send to {count}",
-    "bc.btn.pause": "⏸ Pause",
-    "bc.btn.resume": "▶ Resume",
-    "bc.btn.stop": "✖ Stop",
-    "bc.btn.stop_yes": "✅ Yes, stop",
-    "bc.btn.stop_no": "◀ No",
-    "bc.btn.refresh": "🔄 Refresh",
+    "bc.btn.skip": "Skip",
+    "bc.btn.cancel": "Cancel",
+    "bc.btn.test": "Test to me",
+    "bc.btn.send": "Send to {count}",
+    "bc.btn.pause": "Pause",
+    "bc.btn.resume": "Resume",
+    "bc.btn.stop": "Stop",
+    "bc.btn.stop_yes": "Yes, stop",
+    "bc.btn.stop_no": "No",
+    "bc.btn.refresh": "Refresh",
     "bc.seg.all": "👥 Everyone",
     "bc.seg.pro": "⭐ Pro",
     "bc.seg.free": "🆓 Free",
