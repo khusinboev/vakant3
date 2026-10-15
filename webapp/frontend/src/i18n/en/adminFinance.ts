@@ -43,5 +43,23 @@ const adminFinance: Record<keyof AdminFinanceDict, string> = {
 
   "adminFinance.referrals.empty": "No referrals found.",
   "adminFinance.referrals.invitedSuffix": "invited",
+
+  "adminFinance.kind.topup": "Click top-up",
+  "adminFinance.kind.topup_bonus": "Payment bonus",
+  "adminFinance.stat.topups": "Click top-ups",
+  "adminFinance.stat.topupBonuses": "Payment bonuses",
+  "adminFinance.tab.payments": "Payments",
+  "adminFinance.payments.empty": "No payments found.",
+  "adminFinance.payments.bonus": "bonus",
+  "adminFinance.filter.statusLabel": "Status",
+  "adminFinance.filter.methodLabel": "Method",
+  "adminFinance.state.created": "Created",
+  "adminFinance.state.pending": "Pending",
+  "adminFinance.state.paid": "Paid",
+  "adminFinance.state.cancelled": "Cancelled",
+  "adminFinance.method.page": "Click page",
+  "adminFinance.method.card": "Card",
+  "adminFinance.method.phone": "Phone",
+  "adminFinance.method.app": "Click app",
 };
 export default adminFinance;

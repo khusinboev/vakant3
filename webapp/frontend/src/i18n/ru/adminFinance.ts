@@ -43,5 +43,23 @@ const adminFinance: Record<keyof AdminFinanceDict, string> = {
 
   "adminFinance.referrals.empty": "Рефералы не найдены.",
   "adminFinance.referrals.invitedSuffix": "приглаш.",
+
+  "adminFinance.kind.topup": "Пополнение Click",
+  "adminFinance.kind.topup_bonus": "Бонус за оплату",
+  "adminFinance.stat.topups": "Пополнения Click",
+  "adminFinance.stat.topupBonuses": "Бонусы за оплату",
+  "adminFinance.tab.payments": "Платежи",
+  "adminFinance.payments.empty": "Платежи не найдены.",
+  "adminFinance.payments.bonus": "бонус",
+  "adminFinance.filter.statusLabel": "Статус",
+  "adminFinance.filter.methodLabel": "Способ",
+  "adminFinance.state.created": "Создан",
+  "adminFinance.state.pending": "Ожидает",
+  "adminFinance.state.paid": "Оплачен",
+  "adminFinance.state.cancelled": "Отменён",
+  "adminFinance.method.page": "Страница Click",
+  "adminFinance.method.card": "Карта",
+  "adminFinance.method.phone": "Телефон",
+  "adminFinance.method.app": "Приложение Click",
 };
 export default adminFinance;

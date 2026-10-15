@@ -25,10 +25,11 @@ import uzAdminContent from "./uz/adminContent";
 import uzAdminFinance from "./uz/adminFinance";
 import uzAdminSystem from "./uz/adminSystem";
 import uzAdminAutopost from "./uz/adminAutopost";
+import uzPayments from "./uz/payments";
 
 // uz is bundled eagerly (it is the type source and the fallback); ru/en are
 // loaded on demand as separate chunks via `ensureDictionary`.
-const uz = { ...uzCommon, ...uzVacancy, ...uzResume, ...uzAdmin, ...uzAdminUsers, ...uzAdminBroadcasts, ...uzAdminChannels, ...uzAdminContent, ...uzAdminFinance, ...uzAdminSystem, ...uzAdminAutopost };
+const uz = { ...uzCommon, ...uzVacancy, ...uzResume, ...uzAdmin, ...uzAdminUsers, ...uzAdminBroadcasts, ...uzAdminChannels, ...uzAdminContent, ...uzAdminFinance, ...uzAdminSystem, ...uzAdminAutopost, ...uzPayments };
 
 /** Every valid translation key. Passing anything else to `t()` is a type error. */
 export type TranslationKey = keyof typeof uz;
