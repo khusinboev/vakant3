@@ -157,10 +157,15 @@ async def pay_referral_reward(
             "SELECT referral_reward FROM webapp_admin_settings WHERE singleton = 1"
         )
         row = await cursor.fetchone()
-        if row is not None:
-            reward = int(row[0] or DEFAULT_REFERRAL_REWARD)
+        # The default applies only when nothing is stored: an admin-set 0
+        # means "no reward", not "use the default".
+        if row is not None and row[0] is not None:
+            reward = int(row[0])
     except Exception:
         reward = DEFAULT_REFERRAL_REWARD
+    if reward <= 0:
+        # Rewards are switched off: no payout row, no balance change, no ledger row.
+        return None
 
     now_ts = int(now_tz().timestamp())
     cursor = await conn.execute(
@@ -438,29 +443,34 @@ class StatsMiddleware(BaseMiddleware):
                 lang = normalize_lang(language_code)
                 today = int(now_tz().timestamp())
                 try:
-                    await conn.execute(
+                    cursor = await conn.execute(
                         "INSERT OR IGNORE INTO users (user_id, date, lang, ref_by) "
                         "VALUES (?, ?, ?, ?)",
                         (user_id, today, lang, inviter_id),
                     )
                 except Exception:
-                    await conn.execute(
+                    cursor = await conn.execute(
                         "INSERT OR IGNORE INTO users (user_id, date, lang) VALUES (?, ?, ?)",
                         (user_id, today, lang),
                     )
+                # Another update (or the API) may have created the row between
+                # the SELECT above and this INSERT. Only the caller whose INSERT
+                # actually created the user treats it as new and pays the
+                # referral; ``referral_payouts`` stays the second, durable guard.
+                inserted = cursor.rowcount == 1
                 await conn.commit()
 
                 if has_last_seen:
                     await touch_last_seen(conn, user_id, 0, today)
 
-                if inviter_id:
+                if inviter_id and inserted:
                     try:
                         reward = await pay_referral_reward(conn, user_id, inviter_id)
                         if reward:
                             await _notify_inviter(conn, inviter_id, reward)
                     except Exception as exc:
                         logger.error("referral to'lovida xato user_id=%s: %s", user_id, exc)
-                return lang, True
+                return lang, inserted
 
             stored = row[0]
             lang = normalize_lang(stored)
