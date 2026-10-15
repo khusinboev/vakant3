@@ -424,6 +424,18 @@ async def test_stale_wizard_taps_are_safe(harness):
     assert harness.last_answer().text == t("uz", "bc.expired")
 
 
+async def test_concurrent_audience_taps_create_one_draft(harness):
+    await _wizard_to_audience(harness)
+    nonce = await harness.nonce()
+    await asyncio.gather(
+        harness.tap(OWNER, f"adm:w:{nonce}:seg:all"),
+        harness.tap(OWNER, f"adm:w:{nonce}:seg:all"),
+    )
+    assert len(await harness.rows("SELECT id FROM broadcasts")) == 1
+    assert len(await harness.audit("broadcast.create")) == 1
+    assert len(harness.session.of(CopyMessage)) == 1
+
+
 async def test_expired_or_foreign_draft_cannot_be_sent(harness):
     broadcast_id, _ = await _draft(harness)
     await harness.tap(ADMIN, f"adm:b:{broadcast_id}:send")  # not the author
