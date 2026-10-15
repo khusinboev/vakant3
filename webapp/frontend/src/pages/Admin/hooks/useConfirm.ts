@@ -9,6 +9,9 @@ import type { TranslationKey, TranslationVars } from "../../../i18n";
  * which is what `useConfirmedMutation` needs to keep its `{run, isPending}`
  * surface.
  */
+/** The history-sheet name the dialog host pushes while the dialog is open. */
+export const CONFIRM_SHEET = "admin.confirm";
+
 export type ConfirmRequest = {
   titleKey: TranslationKey;
   descriptionKey?: TranslationKey;

@@ -1,10 +1,8 @@
 import { useEffect, useRef } from "react";
 
 import { useHistorySheet } from "../hooks/useHistorySheet";
-import { closeConfirm, settleConfirm, useConfirmStore } from "../hooks/useConfirm";
+import { CONFIRM_SHEET, closeConfirm, settleConfirm, useConfirmStore } from "../hooks/useConfirm";
 import ConfirmDialog from "./ConfirmDialog";
-
-const SHEET = "admin.confirm";
 
 /**
  * Mounted once by `AdminShell`. Every `useConfirmedMutation` in the panel
@@ -16,7 +14,7 @@ export default function ConfirmDialogHost() {
   const open = useConfirmStore((s) => s.open);
   const loading = useConfirmStore((s) => s.loading);
   const request = useConfirmStore((s) => s.request);
-  const sheet = useHistorySheet(SHEET);
+  const sheet = useHistorySheet(CONFIRM_SHEET);
   const pushed = useRef(false);
 
   useEffect(() => {

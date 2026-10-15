@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { adminBackAction } from "../pages/Admin/hooks/useAdminBack";
+import { hasOpenSheet } from "../pages/Admin/hooks/useHistorySheet";
 import { runBackInterceptor } from "./useBackInterceptor";
 
 /**
@@ -9,8 +10,9 @@ import { runBackInterceptor } from "./useBackInterceptor";
  *
  * Behaviour on press:
  *  1. An input/textarea has focus -> blur it (dismiss the keyboard). Stop.
- *  2. Inside `/admin/*` -> `adminBackAction`: pop the topmost sheet, else one
- *     history step, else leave the panel for `/app`. The button is always
+ *  2. Inside `/admin/*` -> an open overlay is popped first; otherwise a page
+ *     interceptor may claim the press; otherwise `adminBackAction` (one
+ *     history step, else leave the panel for `/app`). The button is always
  *     visible there (spec §1.1), including on the panel's root.
  *  3. A page-level interceptor is registered -> call it; `true` means handled.
  *  4. Default -> `navigate(-1)`.
@@ -39,7 +41,10 @@ export default function useTelegramBackButton() {
       }
 
       if (isAdmin) {
-        if (runBackInterceptor()) return;
+        // An open overlay (sheet, confirm dialog) is closed first: a page
+        // interceptor such as the editor's unsaved-changes guard must not
+        // re-prompt while its own dialog is the thing being dismissed.
+        if (!hasOpenSheet(location) && runBackInterceptor()) return;
         adminBackAction(navigate, location);
         return;
       }

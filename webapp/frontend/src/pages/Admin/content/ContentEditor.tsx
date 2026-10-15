@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { adminKeys } from "../../../api/admin";
 import { clearBackInterceptor, setBackInterceptor } from "../../../hooks/useBackInterceptor";
@@ -9,7 +9,8 @@ import { useT } from "../../../i18n/useT";
 import { LANGS, LANG_META, type Lang } from "../../../store/lang";
 import ErrorCard from "../components/ErrorCard";
 import ToggleRow from "../components/ToggleRow";
-import { requestConfirm } from "../hooks/useConfirm";
+import { CONFIRM_SHEET, closeConfirm, requestConfirm } from "../hooks/useConfirm";
+import { sheetsFromState } from "../hooks/useHistorySheet";
 import { useAdminHeader } from "../hooks/useAdminHeader";
 import Accordion, { type AccordionItem } from "../ui/Accordion";
 import Button from "../ui/Button";
@@ -73,6 +74,7 @@ function EditorForm({ kind, initial }: { kind: ContentKind; initial: ContentReco
   const t = useT();
   const toast = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const config = CONTENT_CONFIG[kind];
   const { categories } = useContentCategories();
@@ -166,18 +168,38 @@ function EditorForm({ kind, initial }: { kind: ContentKind; initial: ContentReco
     else navigate(contentPath(kind), { replace: true });
   }, [kind, navigate]);
 
-  const handleBack = useCallback(async () => {
-    if (dirtyRef.current) {
-      const ok = await requestConfirm({
-        titleKey: "adminContent.editor.discardTitle",
-        descriptionKey: "adminContent.editor.discardDesc",
-        confirmLabelKey: "adminContent.editor.discardConfirm",
-        danger: true,
-      });
-      if (!ok) return;
-    }
+  // The confirm dialog is its own history entry on top of the editor. Leaving
+  // straight from a confirmed dialog would make `navigate(-1)` pop the dialog
+  // instead of the editor, so a confirmed leave closes the dialog first and
+  // waits for its entry to be gone before stepping back.
+  const [leaveAfterConfirm, setLeaveAfterConfirm] = useState(false);
+  const confirmOnStack = sheetsFromState(location.state).includes(CONFIRM_SHEET);
+  useEffect(() => {
+    if (!leaveAfterConfirm || confirmOnStack) return;
+    setLeaveAfterConfirm(false);
     leave();
-  }, [leave]);
+  }, [leaveAfterConfirm, confirmOnStack, leave]);
+
+  const leaveFromConfirm = useCallback(() => {
+    dirtyRef.current = false;
+    clearBackInterceptor();
+    setLeaveAfterConfirm(true);
+    closeConfirm();
+  }, []);
+
+  const handleBack = useCallback(async () => {
+    if (!dirtyRef.current) {
+      leave();
+      return;
+    }
+    const ok = await requestConfirm({
+      titleKey: "adminContent.editor.discardTitle",
+      descriptionKey: "adminContent.editor.discardDesc",
+      confirmLabelKey: "adminContent.editor.discardConfirm",
+      danger: true,
+    });
+    if (ok) leaveFromConfirm();
+  }, [leave, leaveFromConfirm]);
 
   // Telegram BackButton / browser back ask before throwing edits away; the
   // header ‹ and Esc go through `useAdminHeader({ back })` to the same place.
@@ -220,7 +242,7 @@ function EditorForm({ kind, initial }: { kind: ContentKind; initial: ContentReco
     onSuccess: () => {
       invalidate();
       toast.success(t("adminContent.editor.deleted"));
-      leave();
+      leaveFromConfirm();
     },
     onError: (error) => {
       const result = mapContentError(error, t);
@@ -238,7 +260,10 @@ function EditorForm({ kind, initial }: { kind: ContentKind; initial: ContentReco
       confirmLabelKey: "adminContent.editor.deleteConfirm",
       danger: true,
     });
-    if (ok) deleteMutation.mutate();
+    if (!ok) return;
+    // The dialog stays up in its busy state while the request runs; success
+    // leaves through `leaveFromConfirm`, a failure just closes the dialog.
+    deleteMutation.mutate(undefined, { onError: () => closeConfirm() });
   };
 
   useAdminHeader({
