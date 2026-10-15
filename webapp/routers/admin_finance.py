@@ -273,6 +273,162 @@ async def get_finance_summary(
     return FinanceSummaryResponse(totals=totals, series=series)
 
 
+class OverviewAmounts(BaseModel):
+    count: int
+    sum: int
+
+
+class OverviewMethod(BaseModel):
+    method: str
+    count: int
+    sum: int
+
+
+class OverviewSeriesPoint(BaseModel):
+    day: str
+    paid_sum: int
+    paid_count: int
+    pro_activations: int
+    bonus_sum: int
+
+
+class FinanceOverviewResponse(BaseModel):
+    days: int
+    paid_today: OverviewAmounts
+    paid_period: OverviewAmounts
+    paid_all_time: OverviewAmounts
+    pending_count: int
+    cancelled_count: int
+    by_method: list[OverviewMethod]
+    pro_buyers_period: int
+    pro_buyers_all_time: int
+    balance_outstanding: int
+    series: list[OverviewSeriesPoint]
+
+
+# Paid time of a Click order: ``perform_time`` is in milliseconds (0 until paid).
+_PAID_TS = "CASE WHEN perform_time > 0 THEN perform_time / 1000 ELSE created_at END"
+
+
+@router.get("/overview", response_model=FinanceOverviewResponse)
+@limiter.limit("60/minute")
+async def get_finance_overview(
+    request: Request,
+    days: int = Query(default=7, ge=1, le=365),
+    admin=Depends(require_role("viewer")),
+    db=Depends(get_db),
+) -> FinanceOverviewResponse:
+    """Dashboard block: paid Click top-ups, Pro purchases and wallet liability."""
+    start_ts = _window_start_ts(days)
+    today_ts = _window_start_ts(1)
+
+    agg = await (
+        await db.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN paid = 1 AND pts >= ? THEN amount_soum END), 0) AS today_sum,
+                COALESCE(SUM(CASE WHEN paid = 1 AND pts >= ? THEN 1 END), 0) AS today_count,
+                COALESCE(SUM(CASE WHEN paid = 1 AND pts >= ? THEN amount_soum END), 0) AS period_sum,
+                COALESCE(SUM(CASE WHEN paid = 1 AND pts >= ? THEN 1 END), 0) AS period_count,
+                COALESCE(SUM(CASE WHEN paid = 1 THEN amount_soum END), 0) AS all_sum,
+                COALESCE(SUM(CASE WHEN paid = 1 THEN 1 END), 0) AS all_count,
+                COALESCE(SUM(CASE WHEN state IN ('created', 'pending') AND created_at >= ? THEN 1 END), 0) AS pending,
+                COALESCE(SUM(CASE WHEN state = 'cancelled' AND created_at >= ? THEN 1 END), 0) AS cancelled
+            FROM (
+                SELECT amount_soum, state, created_at, {_PAID_TS} AS pts,
+                       (state = 'paid') AS paid
+                FROM payment_orders
+            )
+            """,
+            (today_ts, today_ts, start_ts, start_ts, start_ts, start_ts),
+        )
+    ).fetchone()
+
+    method_rows = await (
+        await db.execute(
+            f"""
+            SELECT COALESCE(click_method, 'other') AS method, COUNT(*) AS c, SUM(amount_soum) AS s
+            FROM payment_orders
+            WHERE state = 'paid' AND {_PAID_TS} >= ?
+            GROUP BY method
+            ORDER BY s DESC
+            """,
+            (start_ts,),
+        )
+    ).fetchall()
+
+    paid_day_rows = await (
+        await db.execute(
+            f"""
+            SELECT date({_PAID_TS}, 'unixepoch', '+5 hours') AS day,
+                   COUNT(*) AS c, SUM(amount_soum) AS s
+            FROM payment_orders
+            WHERE state = 'paid' AND {_PAID_TS} >= ?
+            GROUP BY day
+            """,
+            (start_ts,),
+        )
+    ).fetchall()
+
+    wallet_day_rows = await (
+        await db.execute(
+            f"""
+            SELECT {_DAY_EXPR} AS day,
+                   COALESCE(SUM(CASE WHEN kind = 'pro_activation' THEN 1 ELSE 0 END), 0) AS pro,
+                   COALESCE(SUM(CASE WHEN kind = 'topup_bonus' THEN amount ELSE 0 END), 0) AS bonus
+            FROM wallet_transactions
+            WHERE created_at >= ? AND kind IN ('pro_activation', 'topup_bonus')
+            GROUP BY day
+            """,
+            (start_ts,),
+        )
+    ).fetchall()
+
+    buyers = await (
+        await db.execute(
+            """
+            SELECT COUNT(DISTINCT CASE WHEN created_at >= ? THEN user_id END) AS period,
+                   COUNT(DISTINCT user_id) AS all_time
+            FROM wallet_transactions
+            WHERE kind = 'pro_activation'
+            """,
+            (start_ts,),
+        )
+    ).fetchone()
+
+    balance = await (await db.execute("SELECT COALESCE(SUM(user_balance), 0) AS s FROM users")).fetchone()
+
+    paid_by_day = {str(r["day"]): (int(r["c"]), int(r["s"] or 0)) for r in paid_day_rows}
+    wallet_by_day = {str(r["day"]): (int(r["pro"]), int(r["bonus"])) for r in wallet_day_rows}
+    series = [
+        OverviewSeriesPoint(
+            day=day,
+            paid_sum=paid_by_day.get(day, (0, 0))[1],
+            paid_count=paid_by_day.get(day, (0, 0))[0],
+            pro_activations=wallet_by_day.get(day, (0, 0))[0],
+            bonus_sum=wallet_by_day.get(day, (0, 0))[1],
+        )
+        for day in _day_range(days)
+    ]
+
+    return FinanceOverviewResponse(
+        days=days,
+        paid_today=OverviewAmounts(count=int(agg["today_count"]), sum=int(agg["today_sum"])),
+        paid_period=OverviewAmounts(count=int(agg["period_count"]), sum=int(agg["period_sum"])),
+        paid_all_time=OverviewAmounts(count=int(agg["all_count"]), sum=int(agg["all_sum"])),
+        pending_count=int(agg["pending"]),
+        cancelled_count=int(agg["cancelled"]),
+        by_method=[
+            OverviewMethod(method=str(r["method"]), count=int(r["c"]), sum=int(r["s"] or 0))
+            for r in method_rows
+        ],
+        pro_buyers_period=int(buyers["period"] or 0),
+        pro_buyers_all_time=int(buyers["all_time"] or 0),
+        balance_outstanding=int(balance["s"] or 0),
+        series=series,
+    )
+
+
 @router.get("/transactions", response_model=FinanceTransactionsResponse)
 @limiter.limit("60/minute")
 async def list_finance_transactions(

@@ -473,6 +473,29 @@ export type FinanceSeriesPoint = {
 
 export type FinanceSummary = { totals: FinanceTotals; series: FinanceSeriesPoint[] };
 
+/** `GET /admin/finance/overview` — dashboard finance block. */
+export type FinanceOverviewAmounts = { count: number; sum: number };
+export type FinanceOverviewPoint = {
+  day: string;
+  paid_sum: number;
+  paid_count: number;
+  pro_activations: number;
+  bonus_sum: number;
+};
+export type FinanceOverview = {
+  days: number;
+  paid_today: FinanceOverviewAmounts;
+  paid_period: FinanceOverviewAmounts;
+  paid_all_time: FinanceOverviewAmounts;
+  pending_count: number;
+  cancelled_count: number;
+  by_method: { method: string; count: number; sum: number }[];
+  pro_buyers_period: number;
+  pro_buyers_all_time: number;
+  balance_outstanding: number;
+  series: FinanceOverviewPoint[];
+};
+
 export type FinanceTransactionItem = {
   id: number;
   user_id: number;

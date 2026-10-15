@@ -11,6 +11,7 @@ import QueryState from "../components/QueryState";
 import OverviewTab from "../tabs/OverviewTab";
 import { Accordion, KeyValue, List, ListRow, StatTile, StatusDot, Toolbar, useAdminHeader } from "../ui";
 import { useAdminState, useAutoPostSchedule } from "../useAdminQueries";
+import OverviewFinance from "./OverviewFinance";
 
 /** The dashboard's own window — independent of the Analytics page's PeriodSelector. */
 const DASH_DAYS = 7;
@@ -91,6 +92,8 @@ export default function OverviewView() {
           );
         }}
       </QueryState>
+
+      <OverviewFinance />
 
       <Toolbar
         name="dash.quick"
