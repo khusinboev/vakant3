@@ -1,7 +1,15 @@
 /** Client-side CSV export of already-loaded rows — no server round trip. */
+
+/** A text cell starting with one of these is evaluated as a formula by Excel/Sheets. */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
 function escapeCell(value: string | number): string {
-  const s = String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = String(value);
+  // Neutralize formula injection (a username like `=HYPERLINK(...)`): a
+  // leading apostrophe makes spreadsheets show the text as-is. Real numbers
+  // stay numeric, so a negative amount is not touched.
+  if (typeof value === "string" && FORMULA_START.test(s)) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 export function downloadCsv(filename: string, headers: string[], rows: (string | number)[][]): void {
