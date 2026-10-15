@@ -207,6 +207,7 @@ async def harness(tmp_path):
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(admin_handlers.router)
     bound = functools.partial(real_connect, str(db_path))
+    admin_filter.reset_admin_candidates()
     with patch.object(admin_handlers, "connect", bound), patch.object(admin_filter, "connect", bound), \
             patch.object(admin_handlers, "bot", bot):
         yield Harness(bot, dp, session, db_path)
@@ -215,6 +216,8 @@ async def harness(tmp_path):
         task.cancel()
     admin_handlers._watchers.clear()
     admin_handlers._stop_pending.clear()
+    admin_handlers._albums_seen.clear()
+    admin_filter.reset_admin_candidates()
 
 
 async def _wizard_to_audience(h: Harness, user_id=OWNER):
@@ -562,7 +565,7 @@ async def test_a_demoted_admin_cannot_control_a_broadcast(harness):
 async def test_the_watcher_follows_the_job_to_the_end(harness, monkeypatch):
     monkeypatch.setattr(admin_handlers, "PROGRESS_POLL_SECONDS", 0.01)
     broadcast_id = await _queued(harness)
-    watcher = admin_handlers._watchers[broadcast_id]
+    watcher = admin_handlers._watchers[(broadcast_id, OWNER, 777)]  # the tapped card
     async with aiosqlite.connect(harness.db_path) as conn:
         await conn.execute(
             "UPDATE broadcasts SET status = 'done', sent = 2 WHERE id = ?", (broadcast_id,)
@@ -590,10 +593,10 @@ async def test_broadcast_list_shows_the_last_five(harness):
 
     await harness.tap(OWNER, "adm:b:6:open")  # finished: card without controls, no watcher
     assert harness.session.of(SendMessage)[-1].reply_markup is None
-    assert 6 not in admin_handlers._watchers
+    assert [key for key in admin_handlers._watchers if key[0] == 6] == []
     await harness.tap(OWNER, "adm:b:7:open")  # paused: resume control and a watcher
     assert _callback_data(harness.session.of(SendMessage)[-1].reply_markup)[0] == "adm:b:7:resume"
-    assert 7 in admin_handlers._watchers
+    assert [key[:2] for key in admin_handlers._watchers if key[0] == 7] == [(7, OWNER)]
 
 
 # ─── channels (handlers called directly; Telegram lookups mocked) ──────────

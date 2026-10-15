@@ -4,7 +4,8 @@
 #
 # Access: the role comes from the ``admins`` table on EVERY message and every
 # callback (src/filters/admin.py, src/functions/admin_roles.py), the same rule
-# as the API. Permissions mirror the API routers: statistics and the channel
+# as the API. Users outside a 30 s candidate set (enabled rows + ADMIN_IDS) are
+# refused without a query, so ordinary users' messages cost no connection here. Permissions mirror the API routers: statistics and the channel
 # list are viewer+, channel add/delete and broadcasts are admin+.
 #
 # Every mutation writes an ``admin_audit_log`` row (source=bot) in the same
@@ -96,6 +97,11 @@ BUTTON_TEXT_MAX = 64
 BUTTON_URL_MAX = 1024
 LIST_LIMIT = 5
 WIZARD_SEGMENTS = frozenset(segment for segment, _ in BROADCAST_SEGMENTS)
+#: An album arrives as one update per item, all within about a second; its
+#: ``media_group_id`` is remembered this long so only the first part is answered.
+ALBUM_MEMORY_SECONDS = 60.0
+#: (chat id, media_group_id) -> when the first part was seen (monotonic).
+_albums_seen: dict[tuple[int, str], float] = {}
 
 
 class AdminStates(StatesGroup):
@@ -120,6 +126,23 @@ def admin_webapp_url() -> str:
     """
     parts = urlsplit(WEBAPP_URL)
     return urlunsplit((parts.scheme, parts.netloc, "/admin", "", ""))
+
+
+def _first_album_part(message: Message) -> bool:
+    """True for the first update of an album in this chat, False for the others.
+
+    Check-and-set with no await in between, so parts handled concurrently
+    cannot both count as the first.
+    """
+    now = time.monotonic()
+    for key, seen in list(_albums_seen.items()):
+        if now - seen > ALBUM_MEMORY_SECONDS:
+            del _albums_seen[key]
+    key = (message.chat.id, str(message.media_group_id))
+    if key in _albums_seen:
+        return False
+    _albums_seen[key] = now
+    return True
 
 
 def _is_back(message: Message) -> bool:
@@ -427,11 +450,18 @@ async def wizard_start(message: Message, state: FSMContext, lang: str = DEFAULT_
 
 @router.message(TextKey("btn.admin.bc_list"), IsAdmin("admin"))
 async def broadcast_list(message: Message, lang: str = DEFAULT_LANG):
+    """The last broadcasts worth opening.
+
+    Skipped: drafts past ``DRAFT_TTL_SECONDS`` (they can no longer be sent) and
+    broadcasts cancelled while still drafts (never queued, so ``total`` is 0).
+    """
     async with connect() as conn:
         cursor = await conn.execute(
             "SELECT id, status, total, sent, failed, blocked FROM broadcasts "
+            "WHERE NOT (status = 'draft' AND COALESCE(created_at, 0) < ?) "
+            "AND NOT (status = 'cancelled' AND COALESCE(total, 0) = 0) "
             "ORDER BY id DESC LIMIT ?",
-            (LIST_LIMIT,),
+            (int(time.time()) - DRAFT_TTL_SECONDS, LIST_LIMIT),
         )
         rows = await cursor.fetchall()
     if not rows:
@@ -455,6 +485,12 @@ async def broadcast_list(message: Message, lang: str = DEFAULT_LANG):
 
 @router.message(BroadcastWizard.content, IsAdmin("admin"))
 async def wizard_content(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    if message.media_group_id:
+        # copyMessage sends one message; the album's other parts would reach
+        # the button step. Refuse once, stay here and drop the remaining parts.
+        if _first_album_part(message):
+            await message.answer(t(lang, "bc.album_unsupported"))
+        return
     if message.content_type not in CONTENT_TYPES:
         await message.answer(t(lang, "bc.bad_content"))
         return
@@ -488,6 +524,8 @@ def parse_button(text: Any) -> dict[str, str] | None:
 
 @router.message(BroadcastWizard.button, IsAdmin("admin"))
 async def wizard_button(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    if message.media_group_id and not _first_album_part(message):
+        return  # one answer per album, not one per item
     button = parse_button(message.text)
     if button is None:
         data = await state.get_data()
@@ -503,6 +541,8 @@ async def wizard_button(message: Message, state: FSMContext, lang: str = DEFAULT
 
 @router.message(StateFilter(BroadcastWizard.audience, BroadcastWizard.creating), IsAdmin("admin"))
 async def wizard_audience_text(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    if message.media_group_id and not _first_album_part(message):
+        return
     data = await state.get_data()
     await message.answer(
         t(lang, "bc.prompt_audience"), reply_markup=bc_audience_kb(lang, data.get("nonce", ""))
@@ -598,10 +638,28 @@ async def _card(broadcast_id: int, lang: str) -> tuple[str, str] | None:
     return text, status
 
 
-#: broadcast id -> watcher task (one per broadcast).
-_watchers: dict[int, asyncio.Task] = {}
-#: broadcasts whose card currently shows the "really stop?" question.
-_stop_pending: set[int] = set()
+#: One progress card: (broadcast id, chat id, message id). Several admins (or
+#: one admin from the list) may each have a card of the same broadcast.
+CardKey = tuple[int, int, int]
+#: At most this many live cards per broadcast; opening one more stops the
+#: watcher of the oldest card (its buttons keep working, it just stops ticking).
+MAX_WATCHERS_PER_BROADCAST = 5
+
+#: card -> watcher task (one per card).
+_watchers: dict[CardKey, asyncio.Task] = {}
+#: cards that currently show the "really stop?" question.
+_stop_pending: set[CardKey] = set()
+
+
+def _forget_broadcast(broadcast_id: int) -> None:
+    """Drop every pending stop question of a broadcast that has ended."""
+    for key in [k for k in _stop_pending if k[0] == broadcast_id]:
+        _stop_pending.discard(key)
+
+
+def _watching(key: CardKey) -> bool:
+    task = _watchers.get(key)
+    return task is not None and not task.done()
 
 
 async def _edit(chat_id: int, message_id: int, text: str, markup=None) -> None:
@@ -613,11 +671,15 @@ async def _edit(chat_id: int, message_id: int, text: str, markup=None) -> None:
 
 async def _render(chat_id: int, message_id: int, broadcast_id: int, lang: str) -> str | None:
     """Redraw one card in place; returns the status (None if the row is gone)."""
+    key = (broadcast_id, chat_id, message_id)
     card = await _card(broadcast_id, lang)
     if card is None:
+        _stop_pending.discard(key)
         return None
     text, status = card
-    confirm = broadcast_id in _stop_pending and status in ACTIVE_STATUSES
+    if status not in ACTIVE_STATUSES:
+        _forget_broadcast(broadcast_id)
+    confirm = key in _stop_pending
     if confirm:
         text += t(lang, "bc.stop_confirm")
     await _edit(chat_id, message_id, text, bc_progress_kb(lang, broadcast_id, status, confirm_stop=confirm))
@@ -626,6 +688,7 @@ async def _render(chat_id: int, message_id: int, broadcast_id: int, lang: str) -
 
 async def _watch_progress(chat_id: int, message_id: int, broadcast_id: int, lang: str) -> None:
     """Refresh the card from the DB until the job ends (or the deadline)."""
+    key = (broadcast_id, chat_id, message_id)
     loop = asyncio.get_running_loop()
     deadline = loop.time() + PROGRESS_MAX_SECONDS
     last: tuple[str, bool] | None = None
@@ -635,26 +698,33 @@ async def _watch_progress(chat_id: int, message_id: int, broadcast_id: int, lang
         if card is None:
             return
         text, status = card
-        confirm = broadcast_id in _stop_pending and status in ACTIVE_STATUSES
+        confirm = key in _stop_pending and status in ACTIVE_STATUSES
         if (text, confirm) != last:
             shown = text + (t(lang, "bc.stop_confirm") if confirm else "")
             await _edit(chat_id, message_id, shown, bc_progress_kb(lang, broadcast_id, status, confirm_stop=confirm))
             last = (text, confirm)
         if status in TERMINAL_STATUSES:
-            _stop_pending.discard(broadcast_id)
+            _forget_broadcast(broadcast_id)
             return
+    _stop_pending.discard(key)  # deadline: the card stops asking as well
 
 
 def _start_watcher(chat_id: int, message_id: int, broadcast_id: int, lang: str) -> asyncio.Task:
-    previous = _watchers.get(broadcast_id)
+    """Watch one card; other cards of the same broadcast keep their watchers."""
+    key = (broadcast_id, chat_id, message_id)
+    previous = _watchers.pop(key, None)
     if previous is not None and not previous.done():
         previous.cancel()
+    live = [k for k, task in _watchers.items() if k[0] == broadcast_id and not task.done()]
+    for oldest in live[: max(0, len(live) - MAX_WATCHERS_PER_BROADCAST + 1)]:
+        _watchers.pop(oldest).cancel()  # dicts keep insertion order: oldest first
+        _stop_pending.discard(oldest)
     task = asyncio.create_task(_watch_progress(chat_id, message_id, broadcast_id, lang))
-    _watchers[broadcast_id] = task
+    _watchers[key] = task
 
     def _forget(done: asyncio.Task) -> None:
-        if _watchers.get(broadcast_id) is done:
-            _watchers.pop(broadcast_id, None)
+        if _watchers.get(key) is done:
+            _watchers.pop(key, None)
 
     task.add_done_callback(_forget)
     return task
@@ -781,38 +851,58 @@ async def _create_draft_and_preview(
         return
 
     await state.clear()
-    await _edit(chat_id, call.message.message_id, t(lang, "bc.prompt_audience") + " " + _segment_text(lang, segment))
+    # From here on the draft exists but the admin has no card for it yet: if
+    # any step fails, the draft is cancelled so it cannot linger as 'draft'.
     button = data.get("button")
-    markup = _url_keyboard(json.dumps([button] if button else []))
     try:
+        await _edit(chat_id, call.message.message_id, t(lang, "bc.prompt_audience") + " " + _segment_text(lang, segment))
         await bot.copy_message(
             chat_id=chat_id,
             from_chat_id=int(data["src_chat"]),
             message_id=int(data["src_msg"]),
-            reply_markup=markup,
+            reply_markup=_url_keyboard(json.dumps([button] if button else [])),
         )
-    except Exception as exc:  # deleted source, bad button URL, ...
+        card = t(
+            lang,
+            "bc.preview_card",
+            segment=_segment_text(lang, segment),
+            count=count,
+            button=html.escape(button["text"]) if button else t(lang, "bc.no_button"),
+        )
+        await bot.send_message(chat_id, card, reply_markup=bc_preview_kb(lang, broadcast_id, count))
+    except Exception as exc:  # deleted source, bad button URL, network, ...
         logger.warning("broadcast %s preview failed: %s", broadcast_id, exc)
+        await _discard_draft(broadcast_id, actor_id, reason="preview_failed")
+        try:
+            await bot.send_message(chat_id, t(lang, "bc.preview_failed"))
+            await call.answer()
+        except Exception as notify_exc:
+            logger.warning("broadcast %s preview failure notice failed: %s", broadcast_id, notify_exc)
+        return
+    await call.answer()
+
+
+async def _discard_draft(broadcast_id: int, actor_id: int, *, reason: str) -> None:
+    """Cancel a bot-created draft whose preview never reached the admin. Never raises.
+
+    Only a row still in 'draft' changes (a card that did arrive despite an
+    error may already have queued it), and the cancel is audited.
+    """
+    try:
         async with connect() as conn:
-            if await set_broadcast_state(conn, broadcast_id, "cancel"):
+            cursor = await conn.execute(
+                "UPDATE broadcasts SET status = 'cancelled', finished_at = ? "
+                "WHERE id = ? AND status = 'draft'",
+                (int(time.time()), broadcast_id),
+            )
+            if cursor.rowcount == 1:
                 await log_bot_action(
                     conn, actor_id=actor_id, action="broadcast.cancel", target_type="broadcast",
-                    target_id=broadcast_id, payload={"from": "draft", "reason": "preview_failed"},
+                    target_id=broadcast_id, payload={"from": "draft", "reason": reason},
                 )
             await conn.commit()
-        await bot.send_message(chat_id, t(lang, "bc.preview_failed"))
-        await call.answer()
-        return
-
-    card = t(
-        lang,
-        "bc.preview_card",
-        segment=_segment_text(lang, segment),
-        count=count,
-        button=html.escape(button["text"]) if button else t(lang, "bc.no_button"),
-    )
-    await bot.send_message(chat_id, card, reply_markup=bc_preview_kb(lang, broadcast_id, count))
-    await call.answer()
+    except Exception as exc:
+        logger.warning("broadcast %s draft cleanup failed: %s", broadcast_id, exc)
 
 
 def _draft_usable(row, actor_id: int) -> bool:
@@ -830,6 +920,7 @@ async def _broadcast_callback(
     chat_id = call.message.chat.id
     message_id = call.message.message_id
     actor_id = call.from_user.id
+    key = (broadcast_id, chat_id, message_id)
 
     if action == "test":
         async with connect() as conn:
@@ -893,18 +984,19 @@ async def _broadcast_callback(
                     payload={"from": changed[0], "to": changed[1]},
                 )
             await conn.commit()
-        _stop_pending.discard(broadcast_id)
+        _stop_pending.discard(key)
         status = await _render(chat_id, message_id, broadcast_id, lang)
         if not changed:
             await call.answer(t(lang, "bc.state_unchanged"), show_alert=True)
             return
-        if status in ACTIVE_STATUSES and broadcast_id not in _watchers:
+        if status in ACTIVE_STATUSES and not _watching(key):
             _start_watcher(chat_id, message_id, broadcast_id, lang)
         await call.answer(t(lang, "bc.state_changed", status=_status_label(lang, changed[1])))
         return
 
     if action == "stop":
-        _stop_pending.add(broadcast_id)
+        _stop_pending.add(key)
+        # _render drops the question again when the job already ended.
         if await _render(chat_id, message_id, broadcast_id, lang) is None:
             await call.answer(t(lang, "bc.expired"), show_alert=True)
             return
@@ -912,7 +1004,7 @@ async def _broadcast_callback(
         return
 
     if action == "view":
-        _stop_pending.discard(broadcast_id)
+        _stop_pending.discard(key)
         if await _render(chat_id, message_id, broadcast_id, lang) is None:
             await call.answer(t(lang, "bc.expired"), show_alert=True)
             return
@@ -920,7 +1012,6 @@ async def _broadcast_callback(
         return
 
     if action == "open":
-        _stop_pending.discard(broadcast_id)
         card = await _card(broadcast_id, lang)
         if card is None:
             await call.answer(t(lang, "bc.expired"), show_alert=True)

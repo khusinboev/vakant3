@@ -16,6 +16,8 @@ The rule:
 
 Nothing here caches: the bot re-reads the role on every admin message and every
 admin callback, so a revocation in the panel takes effect on the next tap.
+``src/filters/admin.py`` only keeps a short-lived *candidate* set
+(:func:`admin_candidate_ids`) so that ordinary users never reach this lookup.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ def has_role(role: str | None, min_role: str) -> bool:
     return role is not None and role_rank(role) >= ROLE_RANK[min_role]
 
 
-def _env_admin_ids(admin_ids: Iterable[int] | None) -> set[int]:
+def env_admin_ids(admin_ids: Iterable[int] | None = None) -> set[int]:
     if admin_ids is not None:
         return {int(x) for x in admin_ids}
     import config  # local: importing config needs a TOKEN; tests patch ADMIN_IDS
@@ -58,7 +60,7 @@ async def resolve_admin_role(
 ) -> str | None:
     """The user's admin role, or ``None``. Read-only, never raises."""
     user_id = int(user_id)
-    env_ids = _env_admin_ids(admin_ids)
+    env_ids = env_admin_ids(admin_ids)
     try:
         cursor = await conn.execute(
             "SELECT role, disabled FROM admins WHERE user_id = ?", (user_id,)
@@ -89,18 +91,41 @@ async def resolve_admin_role(
     return None if owner_exists else "owner"
 
 
+async def enabled_admin_row_ids(conn) -> set[int]:
+    """User ids of the enabled ``admins`` rows; empty while the table is missing.
+
+    Any other failure is raised: the caller decides how to degrade.
+    """
+    try:
+        cursor = await conn.execute(
+            "SELECT user_id FROM admins WHERE COALESCE(disabled, 0) = 0"
+        )
+        return {int(row[0]) for row in await cursor.fetchall()}
+    except Exception as exc:
+        if _is_missing_table(exc):
+            return set()
+        raise
+
+
+async def admin_candidate_ids(conn, admin_ids: Iterable[int] | None = None) -> set[int]:
+    """Every user :func:`resolve_admin_role` could give a role to, and more.
+
+    A superset by construction: an enabled row or an ``ADMIN_IDS`` entry is
+    required for any role, so a user outside this set has none. Members still
+    need the full lookup (an env id loses the bootstrap once an owner row
+    exists). Raises when the table cannot be read.
+    """
+    return env_admin_ids(admin_ids) | await enabled_admin_row_ids(conn)
+
+
 async def broadcast_admin_ids(conn, admin_ids: Iterable[int] | None = None) -> list[int]:
     """Recipients of the ``test_admins`` segment: enabled admins plus env ids.
 
     Same set as ``webapp/routers/admin_broadcasts.py:_admin_ids``.
     """
-    ids = _env_admin_ids(admin_ids)
+    ids = env_admin_ids(admin_ids)
     try:
-        cursor = await conn.execute(
-            "SELECT user_id FROM admins WHERE COALESCE(disabled, 0) = 0"
-        )
-        ids.update(int(row[0]) for row in await cursor.fetchall())
+        ids |= await enabled_admin_row_ids(conn)
     except Exception as exc:
-        if not _is_missing_table(exc):
-            logger.warning("admin ids lookup failed: %s", exc)
+        logger.warning("admin ids lookup failed: %s", exc)
     return sorted(ids)

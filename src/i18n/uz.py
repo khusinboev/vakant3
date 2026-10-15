@@ -199,6 +199,7 @@ STRINGS: dict[str, str] = {
     "admin.denied": "⛔ Bu amal uchun ruxsatingiz yo'q.",
     "bc.prompt_content": "Yuboriladigan xabarni yuboring: matn, rasm, video, hujjat yoki GIF.\nFormatlash va emojilar saqlanadi.",
     "bc.bad_content": "Bu turdagi xabar qo'llab-quvvatlanmaydi. Matn, rasm, video, hujjat yoki GIF yuboring.",
+    "bc.album_unsupported": "Albom (bir nechta rasm yoki video) qo'llab-quvvatlanmaydi. Bitta xabar yuboring: bitta rasm, video yoki hujjat, kerak bo'lsa izoh bilan.",
     "bc.prompt_button": "Tugma qo'shish uchun <code>Matn | https://...</code> ko'rinishida yuboring yoki «O'tkazib yuborish» ni bosing.",
     "bc.bad_button": "Tugma formati xato. Misol: <code>Batafsil | https://bandlik.uz</code> (matn 64 belgigacha, havola http yoki https).",
     "bc.prompt_audience": "👥 Kimga yuboramiz?",
