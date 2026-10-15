@@ -1,8 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { StopCircle } from "lucide-react";
+import { Pause, Play, StopCircle } from "lucide-react";
 
-import { adminKeys, getBroadcast } from "../../../api/admin";
-import type { BroadcastDetail } from "../../../api/adminTypes";
+import { adminKeys } from "../../../api/admin";
 import { useT } from "../../../i18n/useT";
 import { useLocale } from "../../../i18n/useLocale";
 import ErrorCard from "../components/ErrorCard";
@@ -17,27 +16,47 @@ import {
   StatTile,
   StatusChip,
   useAdminHeader,
+  type KeyValueRow,
 } from "../ui";
 import MessagePreview from "./MessagePreview";
-import { cancelBroadcastWithToken } from "./api";
-import { ACTIVE_STATUSES, CANCELLABLE, statusLabelKey, statusToneOf } from "./labels";
+import {
+  CONTENT_REJECTED,
+  ERROR_KINDS,
+  cancelBroadcastWithToken,
+  getBroadcastDetail,
+  setBroadcastStateWithToken,
+  type BroadcastDetailFull,
+  type BroadcastStateResult,
+} from "./api";
+import {
+  ACTIVE_STATUSES,
+  CANCELLABLE,
+  ERROR_KIND_LABEL_KEY,
+  PAUSABLE,
+  RESUMABLE,
+  errorKindLabelKey,
+  statusLabelKey,
+  statusToneOf,
+} from "./labels";
 import { SEGMENT_LABEL_KEY, parseSegment } from "./segments";
 import { checkTelegramHtml } from "./telegramHtml";
 
 export type BroadcastDetailPageProps = { id: number };
 
 /**
- * `/admin/broadcasts/:id` — the live job: four counters, the progress bar, the
- * message that went out and the last 20 per-user errors. Cancel sits in the
- * header's ⋯ menu (danger, confirm token `broadcast.cancel`).
+ * `/admin/broadcasts/:id` — the live job: four counters, the progress bar,
+ * failures by kind, retry state, the message that went out and the last 20
+ * per-user errors. Pause / Resume is the header's primary action (whichever
+ * the status allows); Cancel sits in the ⋯ menu (danger). Each goes through
+ * the shared, history-backed confirm dialog with haptic feedback.
  */
 export default function BroadcastDetailPage({ id }: BroadcastDetailPageProps) {
   const t = useT();
   const { formatDateTime, formatNumber } = useLocale();
 
-  const query = useQuery<BroadcastDetail>({
+  const query = useQuery<BroadcastDetailFull>({
     queryKey: adminKeys.broadcastDetail(id),
-    queryFn: () => getBroadcast(id),
+    queryFn: () => getBroadcastDetail(id),
     retry: false,
     // A running job's counters move; a finished one never changes again.
     refetchInterval: (entry) =>
@@ -58,14 +77,57 @@ export default function BroadcastDetailPage({ id }: BroadcastDetailPageProps) {
     mutationFn: (payload, token) => cancelBroadcastWithToken(payload.id, token),
   });
 
+  const pause = useConfirmedMutation<{ id: number }, BroadcastStateResult>({
+    action: "broadcast.pause",
+    paramKeys: ["id"],
+    titleKey: "adminBroadcasts.confirm.pauseTitle",
+    descriptionKey: "adminBroadcasts.confirm.pauseDesc",
+    confirmLabelKey: "adminBroadcasts.action.pause",
+    successKey: "adminBroadcasts.ok.paused",
+    invalidate: [["admin", "broadcasts"]],
+    mutationFn: (payload, token) => setBroadcastStateWithToken(payload.id, "pause", token),
+  });
+
+  const resume = useConfirmedMutation<{ id: number }, BroadcastStateResult>({
+    action: "broadcast.resume",
+    paramKeys: ["id"],
+    titleKey: "adminBroadcasts.confirm.resumeTitle",
+    descriptionKey: "adminBroadcasts.confirm.resumeDesc",
+    confirmLabelKey: "adminBroadcasts.action.resume",
+    successKey: "adminBroadcasts.ok.resumed",
+    invalidate: [["admin", "broadcasts"]],
+    mutationFn: (payload, token) => setBroadcastStateWithToken(payload.id, "resume", token),
+  });
+
+  const busy = cancel.isPending || pause.isPending || resume.isPending;
+  const canPause = Boolean(job && PAUSABLE.has(job.status));
+  const canResume = Boolean(job && RESUMABLE.has(job.status));
+
   useAdminHeader({
     title: t("adminBroadcasts.detail.title", { id }),
+    primary: canPause
+      ? {
+          labelKey: "adminBroadcasts.action.pause",
+          icon: Pause,
+          disabled: busy,
+          loading: pause.isPending,
+          onClick: () => void pause.run({ id }, { id }, { id }),
+        }
+      : canResume
+        ? {
+            labelKey: "adminBroadcasts.action.resume",
+            icon: Play,
+            disabled: busy,
+            loading: resume.isPending,
+            onClick: () => void resume.run({ id }, { id }, { id }),
+          }
+        : undefined,
     menu: [
       {
         labelKey: "adminBroadcasts.action.cancel",
         icon: StopCircle,
         danger: true,
-        disabled: cancel.isPending,
+        disabled: busy,
         hidden: !job || !CANCELLABLE.has(job.status),
         onClick: () => void cancel.run({ id }, { id }, { id }),
       },
@@ -84,6 +146,28 @@ export default function BroadcastDetailPage({ id }: BroadcastDetailPageProps) {
     ? `${t(SEGMENT_LABEL_KEY[parsed.kind])}: ${parsed.value}`
     : t(SEGMENT_LABEL_KEY[parsed.kind]);
   const preview = checkTelegramHtml(job.text ?? "");
+
+  const kindCounts = job.error_kinds ?? {};
+  const kindRows: KeyValueRow[] = ERROR_KINDS.map((kind) => ({
+    labelKey: ERROR_KIND_LABEL_KEY[kind],
+    value: formatNumber(kindCounts[kind] ?? 0),
+    tone: kind === "bad_request" || kind === "other" ? "danger" : undefined,
+    hidden: !kindCounts[kind],
+  }));
+  const retry = job.retry;
+  const retryRows: KeyValueRow[] = retry
+    ? [
+        { labelKey: "adminBroadcasts.retry.scheduled", value: formatNumber(retry.scheduled), tone: retry.scheduled ? "warning" : undefined },
+        {
+          labelKey: "adminBroadcasts.retry.nextAt",
+          value: retry.next_attempt_at ? formatDateTime(retry.next_attempt_at) : "—",
+          hidden: !retry.next_attempt_at,
+        },
+        { labelKey: "adminBroadcasts.retry.retried", value: formatNumber(retry.retried) },
+        { labelKey: "adminBroadcasts.retry.extra", value: formatNumber(retry.extra_attempts) },
+      ]
+    : [];
+  const hasRetries = Boolean(retry && (retry.scheduled || retry.retried));
 
   return (
     <div className="space-y-2">
@@ -123,7 +207,9 @@ export default function BroadcastDetailPage({ id }: BroadcastDetailPageProps) {
 
       {job.error && (
         <p role="alert" className="rounded-xl bg-danger/10 px-3 py-2 text-[11px] text-danger">
-          {t("adminBroadcasts.detail.lastError", { error: job.error })}
+          {job.error === CONTENT_REJECTED
+            ? t("adminBroadcasts.detail.contentRejected")
+            : t("adminBroadcasts.detail.lastError", { error: job.error })}
         </p>
       )}
 
@@ -134,6 +220,24 @@ export default function BroadcastDetailPage({ id }: BroadcastDetailPageProps) {
           { labelKey: "adminBroadcasts.detail.finished", value: job.finished_at ? formatDateTime(job.finished_at) : "—" },
         ]}
       />
+
+      {kindRows.some((row) => !row.hidden) && (
+        <>
+          <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+            {t("adminBroadcasts.detail.errorKinds")}
+          </p>
+          <KeyValue rows={kindRows} />
+        </>
+      )}
+
+      {hasRetries && (
+        <>
+          <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+            {t("adminBroadcasts.detail.retry")}
+          </p>
+          <KeyValue rows={retryRows} />
+        </>
+      )}
 
       <Accordion
         queryKey="sec"
@@ -157,8 +261,16 @@ export default function BroadcastDetailPage({ id }: BroadcastDetailPageProps) {
             <ListRow
               key={`${row.user_id}-${row.sent_at ?? 0}`}
               title={String(row.user_id)}
-              subtitle={row.error || row.status}
-              meta={row.sent_at ? formatDateTime(row.sent_at) : undefined}
+              subtitle={`${t(errorKindLabelKey(row.error_kind ?? (row.status === "blocked" ? "blocked" : "other")))}${
+                row.error ? ` · ${row.error}` : ""
+              }`}
+              meta={
+                row.attempts > 1
+                  ? t("adminBroadcasts.detail.attempts", { count: formatNumber(row.attempts) })
+                  : row.sent_at
+                    ? formatDateTime(row.sent_at)
+                    : undefined
+              }
             />
           ))}
         </List>

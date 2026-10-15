@@ -7,12 +7,89 @@
  *    that *accepts* the token instead of minting one.
  * 2. `uploadMediaWithProgress` — `uploadBroadcastMedia()` has no progress
  *    callback, and a 20 MB upload over a phone connection needs a bar.
+ * 3. Pause / resume / the stage-B detail shape (error kinds, retry state) —
+ *    page-local so the shared `adminTypes.ts` stays untouched.
  *
- * Everything else (list, detail, preview, queue) is imported straight from
+ * Everything else (list, preview, queue) is imported straight from
  * `src/api/admin.ts`.
  */
 import client from "../../../api/client";
-import type { Broadcast, BroadcastCreateBody, UploadResult } from "../../../api/adminTypes";
+import type {
+  Broadcast,
+  BroadcastCreateBody,
+  BroadcastDetail,
+  BroadcastStatus,
+  BroadcastTargetError,
+  UploadResult,
+} from "../../../api/adminTypes";
+
+/** `broadcast_targets.error_kind` (`broadcast_worker.ERROR_KINDS`). */
+export type BroadcastErrorKind =
+  | "blocked"
+  | "deactivated"
+  | "chat_not_found"
+  | "bad_request"
+  | "flood"
+  | "network"
+  | "other";
+
+export const ERROR_KINDS: BroadcastErrorKind[] = [
+  "blocked",
+  "deactivated",
+  "chat_not_found",
+  "bad_request",
+  "flood",
+  "network",
+  "other",
+];
+
+/** `broadcast_worker.broadcast_breakdown()["retry"]`. */
+export type BroadcastRetryState = {
+  /** Recipients waiting for their next attempt. */
+  scheduled: number;
+  /** Epoch seconds of the earliest one, or null. */
+  next_attempt_at: number | null;
+  /** Recipients that needed more than one send. */
+  retried: number;
+  /** Sends beyond the first, summed. */
+  extra_attempts: number;
+};
+
+/** `GET /admin/broadcasts/{id}` since stage B. */
+export type BroadcastDetailFull = Omit<BroadcastDetail, "errors"> & {
+  errors: (BroadcastTargetError & { error_kind: BroadcastErrorKind | null; attempts: number })[];
+  error_kinds: Partial<Record<BroadcastErrorKind, number>>;
+  retry: BroadcastRetryState;
+  content_failed: number;
+};
+
+/** `error` the worker writes when the early abort stops a job. */
+export const CONTENT_REJECTED = "content_rejected";
+
+export async function getBroadcastDetail(id: number): Promise<BroadcastDetailFull> {
+  const { data } = await client.get<BroadcastDetailFull>(`/admin/broadcasts/${id}`);
+  return data;
+}
+
+export type BroadcastStateResult = { id: number; status: BroadcastStatus };
+
+/**
+ * `POST /api/admin/broadcasts/{id}/pause|resume`. The server needs no confirm
+ * token for these (like `/cancel`); the page still asks through the shared,
+ * history-backed confirm dialog, whose flow mints one — sent, and ignored.
+ */
+export async function setBroadcastStateWithToken(
+  id: number,
+  action: "pause" | "resume",
+  token: string,
+): Promise<BroadcastStateResult> {
+  const { data } = await client.post<BroadcastStateResult>(
+    `/admin/broadcasts/${id}/${action}`,
+    undefined,
+    { headers: { "X-Confirm-Token": token } },
+  );
+  return data;
+}
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 

@@ -24,7 +24,21 @@ Design notes worth keeping:
 * **No starvation.** The picker skips a job whose remaining rows are all
   claimed by someone else, so such a job neither blocks later broadcasts nor
   makes the loop spin.
-* **Cancellable.** ``status`` is re-read at every batch boundary.
+* **Cancellable, pausable.** ``status`` is re-read at every batch boundary
+  (transitions live in ``broadcast_control.set_broadcast_state``).
+* **Classified failures.** Every Telegram error becomes an ``error_kind``
+  (``classify_error``). Permanent kinds fail the recipient at once;
+  ``flood``/``network`` go back to ``pending`` with ``attempts + 1`` and a
+  ``next_attempt_at`` backoff (10 s doubling, at most ``MAX_ATTEMPTS`` sends).
+  The claim and the picker only see rows that are due, and a job never
+  finishes while a retry is outstanding.
+* **One flood pause for the whole process.** A 429 pauses every send
+  (``SHARED_PAUSE``) for ``retry_after``; the unsent rest of the batch is
+  released rather than held through the pause. The token bucket still paces
+  normal sending at 25/s.
+* **Early abort.** When Telegram keeps rejecting the message itself, the job
+  stops as ``failed``/``content_rejected`` instead of trying every recipient
+  (``EARLY_ABORT_MIN_FAILURES``, ``EARLY_ABORT_RATIO``).
 
 Both the bot (``src/handlers/admin.py``) and the API
 (``webapp/routers/admin_broadcasts.py``) create jobs through
@@ -37,13 +51,24 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+import aiohttp
+from aiogram.exceptions import (
+    ClientDecodeError,
+    TelegramBadRequest,
+    TelegramEntityTooLarge,
+    TelegramForbiddenError,
+    TelegramNetworkError,
+    TelegramNotFound,
+    TelegramRetryAfter,
+    TelegramServerError,
+)
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
@@ -222,6 +247,41 @@ async def broadcast_progress(conn, broadcast_id: int) -> dict[str, Any] | None:
     }
 
 
+async def broadcast_breakdown(conn, broadcast_id: int) -> dict[str, Any]:
+    """Failure kinds and retry state of one job, for the admin detail views.
+
+    ``error_kinds`` counts terminal failures (``failed`` + ``blocked``) per
+    kind; rows written before m017 have no kind and are reported as
+    ``blocked``/``other`` from their status. ``retry.scheduled`` are rows
+    waiting for their next attempt, ``retry.retried`` recipients that needed
+    more than one send, ``retry.extra_attempts`` the sends beyond the first.
+    """
+    cursor = await conn.execute(
+        "SELECT COALESCE(error_kind, CASE WHEN status = 'blocked' THEN 'blocked' ELSE 'other' END), "
+        "COUNT(*) FROM broadcast_targets "
+        "WHERE broadcast_id = ? AND status IN ('failed', 'blocked') GROUP BY 1",
+        (broadcast_id,),
+    )
+    error_kinds = {str(row[0]): int(row[1]) for row in await cursor.fetchall()}
+    cursor = await conn.execute(
+        "SELECT SUM(status = 'pending' AND next_attempt_at IS NOT NULL), "
+        "MIN(CASE WHEN status = 'pending' THEN next_attempt_at END), "
+        "SUM(attempts > 1), SUM(MAX(attempts - 1, 0)) "
+        "FROM broadcast_targets WHERE broadcast_id = ?",
+        (broadcast_id,),
+    )
+    row = await cursor.fetchone()
+    return {
+        "error_kinds": error_kinds,
+        "retry": {
+            "scheduled": int(row[0] or 0),
+            "next_attempt_at": int(row[1]) if row[1] is not None else None,
+            "retried": int(row[2] or 0),
+            "extra_attempts": int(row[3] or 0),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Rate limiting
 # ---------------------------------------------------------------------------
@@ -319,34 +379,207 @@ async def send_to_user(bot, job: dict[str, Any], user_id: int) -> Any:
     raise ValueError(f"unknown broadcast kind: {kind}")
 
 
+
+
+# ---------------------------------------------------------------------------
+# Error classification
+# ---------------------------------------------------------------------------
+
+#: Every ``broadcast_targets.error_kind`` the worker writes.
+ERROR_KINDS = (
+    "blocked",         # 403: the user blocked the bot / bot can't initiate / kicked
+    "deactivated",     # the Telegram account was deleted
+    "chat_not_found",  # 400 chat/user not found, PEER_ID_INVALID
+    "bad_request",     # 400 about the message itself (entities, file, length, 413)
+    "flood",           # 429 RetryAfter
+    "network",         # timeouts, aiohttp errors, undecodable answers, Telegram 5xx
+    "other",           # anything else (unknown API codes, missing media file, ...)
+)
+#: Retried with backoff; every other kind fails the recipient at once.
+TRANSIENT_KINDS = frozenset({"flood", "network"})
+#: The user cannot be reached any more: the target is ``blocked`` and so is ``users.blocked``.
+UNREACHABLE_KINDS = frozenset({"blocked", "deactivated"})
+#: Failures that say "this message is wrong", not "this user is wrong". They
+#: feed the early abort. ``other`` is in because an unknown error that repeats
+#: for every recipient (a deleted media file, a revoked token) is just as
+#: hopeless as a rejected entity, and must not run through 50 000 rows either.
+CONTENT_KINDS = frozenset({"bad_request", "other"})
+
+#: Send attempts per recipient, the first one included; the 6th transient
+#: failure marks the row ``failed``.
+MAX_ATTEMPTS = 6
+BACKOFF_BASE_SECONDS = 10
+BACKOFF_CAP_SECONDS = 600
+#: A pathological ``retry_after`` must not freeze the worker for days.
+MAX_RETRY_AFTER_SECONDS = 3600
+ERROR_TEXT_LIMIT = 200
+
+#: Early abort: once at least this many recipients failed with a content kind
+#: *and* those are at least ``EARLY_ABORT_RATIO`` of everything that reached a
+#: verdict on the content (sent + content failures), the job stops as
+#: ``failed`` with ``error = 'content_rejected'``. Zero successes is the
+#: ratio-1.0 case; 0.95 also stops a message that reached a handful of users
+#: before Telegram started refusing it, and never fires on a healthy job where
+#: a few hundred bad chats are a rounding error next to the deliveries.
+EARLY_ABORT_MIN_FAILURES = 200
+EARLY_ABORT_RATIO = 0.95
+CONTENT_REJECTED = "content_rejected"
+
+_CHAT_NOT_FOUND_MARKERS = ("chat not found", "user not found", "peer_id_invalid", "chat_id is empty")
+
+
+def _error_text(exc: BaseException) -> str:
+    text = getattr(exc, "message", None) or str(exc) or type(exc).__name__
+    return str(text).strip()[:ERROR_TEXT_LIMIT]
+
+
+def classify_error(exc: BaseException) -> tuple[str, str, float | None]:
+    """``(kind, short text, retry_after)`` for one failed send. Pure."""
+    text = _error_text(exc)
+    if isinstance(exc, TelegramRetryAfter):
+        retry_after = max(0.0, min(float(exc.retry_after or 0), MAX_RETRY_AFTER_SECONDS))
+        return "flood", text, retry_after
+    low = text.lower()
+    if "user is deactivated" in low:
+        return "deactivated", text, None
+    if isinstance(exc, TelegramForbiddenError):
+        return "blocked", text, None
+    # 413 subclasses TelegramNetworkError in aiogram, but a file that is too
+    # large stays too large: it is about the message, never retried.
+    if isinstance(exc, TelegramEntityTooLarge):
+        return "bad_request", text, None
+    if isinstance(
+        exc,
+        (
+            TelegramServerError,
+            TelegramNetworkError,
+            ClientDecodeError,
+            aiohttp.ClientError,
+            asyncio.TimeoutError,
+            ConnectionError,
+        ),
+    ):
+        return "network", text, None
+    if isinstance(exc, (TelegramBadRequest, TelegramNotFound)) and any(
+        marker in low for marker in _CHAT_NOT_FOUND_MARKERS
+    ):
+        return "chat_not_found", text, None
+    if isinstance(exc, TelegramBadRequest):
+        return "bad_request", text, None
+    return "other", text, None
+
+
+def backoff_seconds(attempts_made: int) -> int:
+    """Delay before the next try after ``attempts_made`` earlier attempts:
+    10, 20, 40, 80, 160 s (capped at 600)."""
+    return min(BACKOFF_CAP_SECONDS, BACKOFF_BASE_SECONDS * 2 ** max(0, int(attempts_made)))
+
+
+def plan_outcome(result: dict[str, Any], attempts_before: int, now: int) -> dict[str, Any]:
+    """What one send result does to its target row. Pure.
+
+    ``attempts`` counts every send made for the row. A transient failure goes
+    back to ``pending`` with ``next_attempt_at = now + backoff(attempts made
+    before this one)`` — or the ``retry_after`` Telegram asked for, if longer —
+    until ``MAX_ATTEMPTS`` sends were made; then it is ``failed``.
+    """
+    attempts = int(attempts_before) + 1
+    if result["status"] == "sent":
+        return {
+            "status": "sent", "error": None, "error_kind": None,
+            "attempts": attempts, "next_attempt_at": None, "sent_at": now,
+        }
+    kind = result["kind"]
+    if kind in TRANSIENT_KINDS and attempts < MAX_ATTEMPTS:
+        delay = backoff_seconds(attempts_before)
+        if kind == "flood" and result.get("retry_after"):
+            delay = max(delay, int(math.ceil(float(result["retry_after"]))))
+        return {
+            "status": "pending", "error": result["error"], "error_kind": kind,
+            "attempts": attempts, "next_attempt_at": now + delay, "sent_at": None,
+        }
+    return {
+        "status": "blocked" if kind in UNREACHABLE_KINDS else "failed",
+        "error": result["error"],
+        "error_kind": kind,
+        "attempts": attempts,
+        "next_attempt_at": None,
+        "sent_at": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Process-wide flood pause
+# ---------------------------------------------------------------------------
+
+class SendPause:
+    """One ``pause_until`` shared by every send in the process.
+
+    A 429 is about the bot, not about the recipient: Telegram wants *all*
+    sends to stop for ``retry_after`` seconds. The worker records it here and
+    every later send — in this batch, the next batch, any broadcast — waits.
+    Pauses only ever extend. Clock and sleep are injectable for tests.
+    """
+
+    def __init__(self, clock=time.monotonic, sleep=asyncio.sleep) -> None:
+        self._clock = clock
+        self._sleep = sleep
+        self._until = 0.0
+
+    def pause_for(self, seconds: float) -> None:
+        seconds = min(float(seconds or 0), MAX_RETRY_AFTER_SECONDS)
+        if seconds <= 0:
+            return
+        self._until = max(self._until, self._clock() + seconds)
+
+    def remaining(self) -> float:
+        return max(0.0, self._until - self._clock())
+
+    async def wait(self) -> None:
+        while (left := self.remaining()) > 0:
+            await self._sleep(left)
+
+
+#: The instance the bot process uses. Tests pass their own.
+SHARED_PAUSE = SendPause()
+
+
 async def _deliver(bot, job: dict[str, Any], user_id: int) -> dict[str, Any]:
-    """Send once, retrying a single time on flood wait. Never raises."""
-    for attempt in (0, 1):
-        try:
-            message = await send_to_user(bot, job, user_id)
-        except TelegramRetryAfter as exc:
-            if attempt:
-                return {"user_id": user_id, "status": "failed", "error": "flood_wait"}
-            logger.warning("broadcast %s: flood wait %ss", job["id"], exc.retry_after)
-            await asyncio.sleep(float(exc.retry_after))
-            continue
-        except TelegramForbiddenError:
-            return {"user_id": user_id, "status": "blocked", "error": "forbidden"}
-        except Exception as exc:  # noqa: BLE001 - one bad chat must not stop the run
-            logger.warning("broadcast %s: user %s failed: %s", job["id"], user_id, exc)
-            return {"user_id": user_id, "status": "failed", "error": str(exc)[:300]}
+    """Exactly one send. Never raises; failures come back classified."""
+    try:
+        message = await send_to_user(bot, job, user_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - one bad chat must not stop the run
+        kind, text, retry_after = classify_error(exc)
+        if kind == "flood":
+            logger.warning("broadcast %s: flood wait %ss", job["id"], retry_after)
+        elif kind not in UNREACHABLE_KINDS:
+            logger.warning("broadcast %s: user %s failed (%s): %s", job["id"], user_id, kind, text)
         return {
             "user_id": user_id,
-            "status": "sent",
-            "error": None,
-            "file_id": _extract_file_id(message),
+            "status": "error",
+            "kind": kind,
+            "error": text,
+            "retry_after": retry_after,
         }
-    return {"user_id": user_id, "status": "failed", "error": "flood_wait"}  # pragma: no cover
+    return {
+        "user_id": user_id,
+        "status": "sent",
+        "kind": None,
+        "error": None,
+        "file_id": _extract_file_id(message),
+    }
 
 
 # ---------------------------------------------------------------------------
 # Worker
 # ---------------------------------------------------------------------------
+
+def _now() -> int:
+    """Wall-clock epoch seconds for every timestamp the worker writes (tests pin it)."""
+    return int(time.time())
+
 
 def _default_connect():
     from src.db.connection import connect  # local: config import needs a real TOKEN
@@ -385,53 +618,73 @@ async def _load_job(conn, broadcast_id: int) -> dict[str, Any] | None:
     return job
 
 
+#: A ``pending`` row the worker may take now: never tried, or its retry is due.
+_DUE = "(t.next_attempt_at IS NULL OR t.next_attempt_at <= ?)"
+
+
 async def _next_broadcast_id(conn) -> int | None:
     """Oldest active job this worker can make progress on.
 
-    That is a job with a ``pending`` target to claim, or one with nothing left
-    in flight (so ``run_broadcast`` can mark it done). A job whose remaining
-    rows are all ``sending`` belongs to another worker — or to a dead one, until
-    ``reset_stale_claims`` hands its rows back — and is skipped, so it neither
-    starves the broadcasts queued after it nor makes the loop spin on it.
+    That is a job with a ``pending`` target that is due (never tried, or its
+    ``next_attempt_at`` has passed), or one with nothing left at all — neither
+    ``pending`` nor ``sending`` — so ``run_broadcast`` can mark it done.
+
+    Skipped, so they neither starve later broadcasts nor make the loop spin:
+    a job whose remaining rows are all ``sending`` (another worker's, or a dead
+    one's until ``reset_stale_claims`` hands them back), and a job whose only
+    remaining rows are retries scheduled for later.
     """
+    now = _now()
     cursor = await conn.execute(
-        """
+        f"""
         SELECT b.id FROM broadcasts b
         WHERE b.status IN ('queued', 'running')
           AND (
             EXISTS (SELECT 1 FROM broadcast_targets t
-                    WHERE t.broadcast_id = b.id AND t.status = 'pending')
+                    WHERE t.broadcast_id = b.id AND t.status = 'pending' AND {_DUE})
             OR NOT EXISTS (SELECT 1 FROM broadcast_targets t
-                           WHERE t.broadcast_id = b.id AND t.status = 'sending')
+                           WHERE t.broadcast_id = b.id AND t.status IN ('pending', 'sending'))
           )
         ORDER BY b.id LIMIT 1
-        """
+        """,
+        (now,),
     )
     row = await cursor.fetchone()
     return int(row[0]) if row else None
 
 
 async def _claim_batch(conn, broadcast_id: int, limit: int) -> list[int]:
-    """Atomically take up to ``limit`` pending targets for this worker."""
+    """Atomically take up to ``limit`` due pending targets; their user ids."""
+    return list(await _claim_with_attempts(conn, broadcast_id, limit))
+
+
+async def _claim_with_attempts(conn, broadcast_id: int, limit: int) -> dict[int, int]:
+    """``_claim_batch`` that also returns ``{user_id: attempts made so far}``,
+    in claim order — the worker needs the count to plan each outcome."""
+    now = _now()
     select_pending = (
-        "SELECT user_id FROM broadcast_targets "
-        "WHERE broadcast_id = ? AND status = 'pending' ORDER BY user_id LIMIT ?"
+        "SELECT t.user_id FROM broadcast_targets t "
+        f"WHERE t.broadcast_id = ? AND t.status = 'pending' AND {_DUE} "
+        "ORDER BY t.user_id LIMIT ?"
     )
-    now = int(time.time())
     if _HAS_RETURNING:
         cursor = await conn.execute(
             "UPDATE broadcast_targets SET status = 'sending', claimed_at = ? "
-            f"WHERE broadcast_id = ? AND user_id IN ({select_pending}) RETURNING user_id",
-            (now, broadcast_id, broadcast_id, limit),
+            f"WHERE broadcast_id = ? AND user_id IN ({select_pending}) "
+            "RETURNING user_id, attempts",
+            (now, broadcast_id, broadcast_id, now, limit),
         )
-        claimed = [int(row[0]) for row in await cursor.fetchall()]
+        rows = await cursor.fetchall()
         await conn.commit()
-        return claimed
+        return {int(row[0]): int(row[1] or 0) for row in sorted(rows, key=lambda r: int(r[0]))}
 
     await conn.execute("BEGIN IMMEDIATE")  # pragma: no cover - SQLite < 3.35
     try:
-        cursor = await conn.execute(select_pending, (broadcast_id, limit))
-        claimed = [int(row[0]) for row in await cursor.fetchall()]
+        cursor = await conn.execute(
+            select_pending.replace("SELECT t.user_id", "SELECT t.user_id, t.attempts"),
+            (broadcast_id, now, limit),
+        )
+        claimed = {int(row[0]): int(row[1] or 0) for row in await cursor.fetchall()}
         if claimed:
             placeholders = ",".join("?" for _ in claimed)
             await conn.execute(
@@ -447,26 +700,53 @@ async def _claim_batch(conn, broadcast_id: int, limit: int) -> list[int]:
 
 
 async def _write_results(
-    conn, broadcast_id: int, results: list[dict[str, Any]], file_id: str | None
-) -> None:
-    """Persist a finished batch: targets, users.blocked, progress counters."""
-    now = int(time.time())
-    sent = [r for r in results if r["status"] == "sent"]
-    blocked = [r for r in results if r["status"] == "blocked"]
-    failed = [r for r in results if r["status"] == "failed"]
+    conn,
+    broadcast_id: int,
+    results: list[dict[str, Any]],
+    file_id: str | None,
+    attempts: dict[int, int] | None = None,
+    released: Sequence[int] = (),
+) -> bool:
+    """Persist a finished batch in one short transaction.
+
+    Targets, ``users.blocked``, the progress counters and — when the batch
+    pushed the job over the threshold — the early abort. ``released`` are
+    claimed rows the batch did not send (a flood pause began): they go back to
+    ``pending`` untouched, so the claim is not held across the pause.
+    Returns True when the job was aborted as ``content_rejected``.
+    """
+    now = _now()
+    attempts = attempts or {}
+    planned = [(r, plan_outcome(r, attempts.get(r["user_id"], 0), now)) for r in results]
+    sent = [r for r, o in planned if o["status"] == "sent"]
+    blocked = [r for r, o in planned if o["status"] == "blocked"]
+    failed = [r for r, o in planned if o["status"] == "failed"]
+    content_failed = [r for r in failed if r["kind"] in CONTENT_KINDS]
+    aborted = False
 
     await conn.execute("BEGIN IMMEDIATE")
     try:
         await conn.executemany(
-            # claimed_at is cleared: the row has reached a terminal state, so
-            # it must not look like an outstanding claim to reset_stale_claims.
-            "UPDATE broadcast_targets SET status = ?, error = ?, sent_at = ?, claimed_at = NULL "
+            # claimed_at is cleared: the row is terminal or back in the queue,
+            # so it must not look like an outstanding claim to reset_stale_claims.
+            "UPDATE broadcast_targets SET status = ?, error = ?, error_kind = ?, attempts = ?, "
+            "next_attempt_at = ?, sent_at = ?, claimed_at = NULL "
             "WHERE broadcast_id = ? AND user_id = ?",
             [
-                (r["status"], r["error"], now if r["status"] == "sent" else None, broadcast_id, r["user_id"])
-                for r in results
+                (
+                    o["status"], o["error"], o["error_kind"], o["attempts"],
+                    o["next_attempt_at"], o["sent_at"], broadcast_id, r["user_id"],
+                )
+                for r, o in planned
             ],
         )
+        if released:
+            placeholders = ",".join("?" for _ in released)
+            await conn.execute(
+                "UPDATE broadcast_targets SET status = 'pending', claimed_at = NULL "
+                f"WHERE broadcast_id = ? AND status = 'sending' AND user_id IN ({placeholders})",
+                (broadcast_id, *released),
+            )
         if blocked:
             placeholders = ",".join("?" for _ in blocked)
             await conn.execute(
@@ -480,10 +760,18 @@ async def _write_results(
                 [r["user_id"] for r in sent],
             )
         await conn.execute(
-            "UPDATE broadcasts SET sent = sent + ?, failed = failed + ?, blocked = blocked + ? "
-            "WHERE id = ?",
-            (len(sent), len(failed), len(blocked), broadcast_id),
+            "UPDATE broadcasts SET sent = sent + ?, failed = failed + ?, blocked = blocked + ?, "
+            "content_failed = content_failed + ? WHERE id = ?",
+            (len(sent), len(failed), len(blocked), len(content_failed), broadcast_id),
         )
+        if content_failed:
+            cursor = await conn.execute(
+                "UPDATE broadcasts SET status = 'failed', error = ?, finished_at = ? "
+                "WHERE id = ? AND status IN ('queued', 'running', 'paused') "
+                "AND content_failed >= ? AND content_failed >= ? * (sent + content_failed)",
+                (CONTENT_REJECTED, now, broadcast_id, EARLY_ABORT_MIN_FAILURES, EARLY_ABORT_RATIO),
+            )
+            aborted = (cursor.rowcount or 0) > 0
         if file_id:
             await conn.execute(
                 "UPDATE broadcasts SET media_file_id = ? WHERE id = ? AND media_file_id IS NULL",
@@ -493,17 +781,34 @@ async def _write_results(
     except Exception:
         await conn.execute("ROLLBACK")
         raise
+    if aborted:
+        logger.warning(
+            "broadcast %s aborted: Telegram rejected the content (%s)", broadcast_id, CONTENT_REJECTED
+        )
+    return aborted
 
 
 async def _finish(conn, broadcast_id: int, status: str, error: str | None = None) -> None:
     await conn.execute(
         "UPDATE broadcasts SET status = ?, error = COALESCE(?, error), finished_at = ? WHERE id = ?",
-        (status, error, int(time.time()), broadcast_id),
+        (status, error, _now(), broadcast_id),
+    )
+    await conn.commit()
+
+
+async def _finish_done(conn, broadcast_id: int) -> None:
+    """``done`` only from an active status: a pause or cancel that landed
+    between the last batch and this check is not overwritten."""
+    await conn.execute(
+        "UPDATE broadcasts SET status = 'done', finished_at = ? "
+        "WHERE id = ? AND status IN ('queued', 'running')",
+        (_now(), broadcast_id),
     )
     await conn.commit()
 
 
 async def _remaining(conn, broadcast_id: int) -> tuple[int, int]:
+    """``(pending, sending)``; ``pending`` includes retries scheduled for later."""
     cursor = await conn.execute(
         "SELECT SUM(status = 'pending'), SUM(status = 'sending') "
         "FROM broadcast_targets WHERE broadcast_id = ?",
@@ -519,16 +824,25 @@ async def run_broadcast(
     *,
     connect=None,
     bucket: TokenBucket | None = None,
+    pause: SendPause | None = None,
     batch_size: int = BATCH_SIZE,
     max_batches: int | None = None,
 ) -> dict[str, Any] | None:
-    """Drain one broadcast, one connection per batch."""
+    """Drain one broadcast, one connection per batch.
+
+    Returns when the job is finished, no longer active, or has nothing due
+    right now (every remaining row is someone else's claim or a retry
+    scheduled for later).
+    """
     connect = connect or _default_connect()
     bucket = bucket or TokenBucket()
+    pause = pause or SHARED_PAUSE
     batches = 0
 
     while max_batches is None or batches < max_batches:
         batches += 1
+        # A flood pause is waited out here: no connection open, no row claimed.
+        await pause.wait()
         async with connect() as conn:
             job = await _load_job(conn, broadcast_id)
             if job is None:
@@ -542,38 +856,47 @@ async def run_broadcast(
                 await conn.execute(
                     "UPDATE broadcasts SET status = 'running', started_at = COALESCE(started_at, ?) "
                     "WHERE id = ? AND status = 'queued'",
-                    (int(time.time()), broadcast_id),
+                    (_now(), broadcast_id),
                 )
                 await conn.commit()
 
-            claimed = await _claim_batch(conn, broadcast_id, batch_size)
+            claimed = await _claim_with_attempts(conn, broadcast_id, batch_size)
             if not claimed:
                 pending, sending = await _remaining(conn, broadcast_id)
                 if pending == 0 and sending == 0:
-                    await _finish(conn, broadcast_id, "done")
-                    return await broadcast_progress(conn, broadcast_id)
-                # Another worker owns the rest; come back on the next poll.
+                    await _finish_done(conn, broadcast_id)
+                # Otherwise another worker owns the rest, or the rest are
+                # retries that are not due yet; come back on a later poll.
                 return await broadcast_progress(conn, broadcast_id)
 
             # No write transaction is open from here until the batch is done.
+            user_ids = list(claimed)
             results: list[dict[str, Any]] = []
+            released: list[int] = []
             new_file_id: str | None = None
-            for user_id in claimed:
+            for index, user_id in enumerate(user_ids):
+                if pause.remaining() > 0:
+                    # Telegram asked every send to stop: give the rest of the
+                    # batch back instead of holding the claim through the pause.
+                    released = user_ids[index:]
+                    break
                 await bucket.acquire()
                 result = await _deliver(bot, job, user_id)
                 if not job.get("media_file_id") and result.get("file_id"):
                     new_file_id = result["file_id"]
                     job["media_file_id"] = new_file_id
+                if result["kind"] == "flood":
+                    pause.pause_for(result.get("retry_after") or 0)
                 results.append(result)
 
-            await _write_results(conn, broadcast_id, results, new_file_id)
+            await _write_results(conn, broadcast_id, results, new_file_id, claimed, released)
     return None
 
 
 #: A claim older than this is assumed to belong to a worker that died. A batch
-#: of 100 sends at the 25 msg/s token-bucket rate takes ~4 s, and a single send
-#: retried after a Telegram ``RetryAfter`` adds at most a minute, so ten minutes
-#: is far beyond any healthy batch.
+#: of 20 sends at the 25 msg/s token-bucket rate takes about a second, and a
+#: flood pause is never waited out while holding a claim (the rest of the batch
+#: is released first), so ten minutes is far beyond any healthy batch.
 STALE_CLAIM_SECONDS = 600
 #: How often the running loop looks for stale claims. The UPDATE goes through
 #: the partial index on ``claimed_at WHERE status = 'sending'``, so it is cheap.
@@ -590,7 +913,7 @@ async def reset_stale_claims(conn, *, older_than: int = STALE_CLAIM_SECONDS) -> 
     m015 have ``claimed_at IS NULL`` and are treated as stale, which is correct
     — no live worker can have claimed them before the column existed.
     """
-    cutoff = int(time.time()) - int(older_than)
+    cutoff = _now() - int(older_than)
     cursor = await conn.execute(
         "UPDATE broadcast_targets SET status = 'pending', claimed_at = NULL "
         "WHERE status = 'sending' AND (claimed_at IS NULL OR claimed_at < ?)",
@@ -600,14 +923,16 @@ async def reset_stale_claims(conn, *, older_than: int = STALE_CLAIM_SECONDS) -> 
     return cursor.rowcount or 0
 
 
-async def process_once(bot, *, connect=None, bucket: TokenBucket | None = None) -> bool:
+async def process_once(
+    bot, *, connect=None, bucket: TokenBucket | None = None, pause: SendPause | None = None
+) -> bool:
     """Pick up at most one active broadcast. True when there was work."""
     connect = connect or _default_connect()
     async with connect() as conn:
         broadcast_id = await _next_broadcast_id(conn)
     if broadcast_id is None:
         return False
-    await run_broadcast(bot, broadcast_id, connect=connect, bucket=bucket)
+    await run_broadcast(bot, broadcast_id, connect=connect, bucket=bucket, pause=pause)
     return True
 
 
@@ -644,7 +969,7 @@ async def broadcast_worker_loop(
             last_reset = now
             await _reset_stale(connect)
         try:
-            worked = await process_once(bot, connect=connect, bucket=bucket)
+            worked = await process_once(bot, connect=connect, bucket=bucket, pause=SHARED_PAUSE)
         except asyncio.CancelledError:
             raise
         except Exception:

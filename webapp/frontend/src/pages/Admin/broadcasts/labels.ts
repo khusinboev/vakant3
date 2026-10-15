@@ -6,6 +6,7 @@
 import type { BroadcastKind, BroadcastStatus } from "../../../api/adminTypes";
 import type { TranslationKey } from "../../../i18n";
 import type { Tone } from "../ui";
+import type { BroadcastErrorKind } from "./api";
 
 /** Kind -> label key. A map, not a template string, so `t()` stays type-checked. */
 export const KIND_LABEL_KEY: Record<BroadcastKind, TranslationKey> = {
@@ -54,8 +55,29 @@ export function statusToneOf(status: string): Tone {
 /** Statuses the bot worker is still touching — they are what makes the page poll. */
 export const ACTIVE_STATUSES = new Set<string>(["queued", "running"]);
 
-/** Statuses `/cancel` accepts (`webapp/routers/admin_broadcasts.py`). */
+/** Statuses `/cancel` accepts (`src/functions/broadcast_control.py:TRANSITIONS`). */
 export const CANCELLABLE = new Set<string>(["draft", "queued", "running", "paused"]);
+
+/** Statuses `/pause` accepts. */
+export const PAUSABLE = new Set<string>(["queued", "running"]);
+
+/** Statuses `/resume` accepts. */
+export const RESUMABLE = new Set<string>(["paused"]);
+
+/** Error kind -> label key (`broadcast_worker.ERROR_KINDS`). */
+export const ERROR_KIND_LABEL_KEY: Record<BroadcastErrorKind, TranslationKey> = {
+  blocked: "adminBroadcasts.errorKind.blocked",
+  deactivated: "adminBroadcasts.errorKind.deactivated",
+  chat_not_found: "adminBroadcasts.errorKind.chat_not_found",
+  bad_request: "adminBroadcasts.errorKind.bad_request",
+  flood: "adminBroadcasts.errorKind.flood",
+  network: "adminBroadcasts.errorKind.network",
+  other: "adminBroadcasts.errorKind.other",
+};
+
+export function errorKindLabelKey(kind: string | null | undefined): TranslationKey {
+  return ERROR_KIND_LABEL_KEY[kind as BroadcastErrorKind] ?? ERROR_KIND_LABEL_KEY.other;
+}
 
 /** 32px input/select, 13px text — the app-wide `INPUT_CLS` is 44px and too tall here. */
 export const FIELD_CLS =

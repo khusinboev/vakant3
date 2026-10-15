@@ -277,7 +277,11 @@ class TestWorker:
             )
             assert "chat not found" in (await cursor.fetchone())[0]
 
-    async def test_retry_after_is_retried_once(self, connect):
+    async def test_retry_after_requeues_with_backoff(self, connect, monkeypatch):
+        """Before stage B a flood was retried once in place, then the user failed.
+        Now it goes back to ``pending`` with a backoff and is retried when due."""
+        clock = {"now": 1_800_000_000}
+        monkeypatch.setattr(bw, "_now", lambda: clock["now"])
         broadcast_id, _ = await _new_job(connect)
         bot = FakeBot(
             behaviour={
@@ -288,13 +292,31 @@ class TestWorker:
                 ],
             }
         )
+        run = lambda: bw.run_broadcast(  # noqa: E731
+            bot, broadcast_id, connect=connect, bucket=bw.TokenBucket(rate=10_000),
+            pause=bw.SendPause(),
+        )
 
-        await bw.run_broadcast(bot, broadcast_id, connect=connect, bucket=bw.TokenBucket(rate=10_000))
-
-        assert [uid for _, uid in bot.calls].count(2) == 2  # one retry, then success
-        assert [uid for _, uid in bot.calls].count(5) == 2  # retried once, then given up
+        await run()
+        assert [uid for _, uid in bot.calls] == [1, 2, 4, 5]
         targets = await _targets(connect, broadcast_id)
-        assert targets[2] == "sent" and targets[5] == "failed"
+        assert targets[2] == "pending" and targets[5] == "pending"
+        assert (await _job_row(connect, broadcast_id))["status"] == "running"
+
+        await run()  # not due yet: nobody is sent again
+        assert len(bot.calls) == 4
+
+        clock["now"] += 10
+        await run()
+        assert [uid for _, uid in bot.calls][4:] == [2, 5]
+        targets = await _targets(connect, broadcast_id)
+        assert targets[2] == "sent" and targets[5] == "pending"  # 5 flooded twice
+
+        clock["now"] += 20
+        await run()
+        assert [uid for _, uid in bot.calls].count(5) == 3
+        progress = await _job_row(connect, broadcast_id)
+        assert progress["status"] == "done" and progress["sent"] == 4 and progress["failed"] == 0
 
     async def test_restart_resumes_pending_targets_only(self, connect):
         broadcast_id, total = await _new_job(connect)
