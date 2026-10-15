@@ -599,10 +599,28 @@ async def _card(broadcast_id: int, lang: str) -> tuple[str, str] | None:
     return text, status
 
 
-#: broadcast id -> watcher task (one per broadcast).
-_watchers: dict[int, asyncio.Task] = {}
-#: broadcasts whose card currently shows the "really stop?" question.
-_stop_pending: set[int] = set()
+#: One progress card: (broadcast id, chat id, message id). Several admins (or
+#: one admin from the list) may each have a card of the same broadcast.
+CardKey = tuple[int, int, int]
+#: At most this many live cards per broadcast; opening one more stops the
+#: watcher of the oldest card (its buttons keep working, it just stops ticking).
+MAX_WATCHERS_PER_BROADCAST = 5
+
+#: card -> watcher task (one per card).
+_watchers: dict[CardKey, asyncio.Task] = {}
+#: cards that currently show the "really stop?" question.
+_stop_pending: set[CardKey] = set()
+
+
+def _forget_broadcast(broadcast_id: int) -> None:
+    """Drop every pending stop question of a broadcast that has ended."""
+    for key in [k for k in _stop_pending if k[0] == broadcast_id]:
+        _stop_pending.discard(key)
+
+
+def _watching(key: CardKey) -> bool:
+    task = _watchers.get(key)
+    return task is not None and not task.done()
 
 
 async def _edit(chat_id: int, message_id: int, text: str, markup=None) -> None:
@@ -614,11 +632,15 @@ async def _edit(chat_id: int, message_id: int, text: str, markup=None) -> None:
 
 async def _render(chat_id: int, message_id: int, broadcast_id: int, lang: str) -> str | None:
     """Redraw one card in place; returns the status (None if the row is gone)."""
+    key = (broadcast_id, chat_id, message_id)
     card = await _card(broadcast_id, lang)
     if card is None:
+        _stop_pending.discard(key)
         return None
     text, status = card
-    confirm = broadcast_id in _stop_pending and status in ACTIVE_STATUSES
+    if status not in ACTIVE_STATUSES:
+        _forget_broadcast(broadcast_id)
+    confirm = key in _stop_pending
     if confirm:
         text += t(lang, "bc.stop_confirm")
     await _edit(chat_id, message_id, text, bc_progress_kb(lang, broadcast_id, status, confirm_stop=confirm))
@@ -627,6 +649,7 @@ async def _render(chat_id: int, message_id: int, broadcast_id: int, lang: str) -
 
 async def _watch_progress(chat_id: int, message_id: int, broadcast_id: int, lang: str) -> None:
     """Refresh the card from the DB until the job ends (or the deadline)."""
+    key = (broadcast_id, chat_id, message_id)
     loop = asyncio.get_running_loop()
     deadline = loop.time() + PROGRESS_MAX_SECONDS
     last: tuple[str, bool] | None = None
@@ -636,26 +659,33 @@ async def _watch_progress(chat_id: int, message_id: int, broadcast_id: int, lang
         if card is None:
             return
         text, status = card
-        confirm = broadcast_id in _stop_pending and status in ACTIVE_STATUSES
+        confirm = key in _stop_pending and status in ACTIVE_STATUSES
         if (text, confirm) != last:
             shown = text + (t(lang, "bc.stop_confirm") if confirm else "")
             await _edit(chat_id, message_id, shown, bc_progress_kb(lang, broadcast_id, status, confirm_stop=confirm))
             last = (text, confirm)
         if status in TERMINAL_STATUSES:
-            _stop_pending.discard(broadcast_id)
+            _forget_broadcast(broadcast_id)
             return
+    _stop_pending.discard(key)  # deadline: the card stops asking as well
 
 
 def _start_watcher(chat_id: int, message_id: int, broadcast_id: int, lang: str) -> asyncio.Task:
-    previous = _watchers.get(broadcast_id)
+    """Watch one card; other cards of the same broadcast keep their watchers."""
+    key = (broadcast_id, chat_id, message_id)
+    previous = _watchers.pop(key, None)
     if previous is not None and not previous.done():
         previous.cancel()
+    live = [k for k, task in _watchers.items() if k[0] == broadcast_id and not task.done()]
+    for oldest in live[: max(0, len(live) - MAX_WATCHERS_PER_BROADCAST + 1)]:
+        _watchers.pop(oldest).cancel()  # dicts keep insertion order: oldest first
+        _stop_pending.discard(oldest)
     task = asyncio.create_task(_watch_progress(chat_id, message_id, broadcast_id, lang))
-    _watchers[broadcast_id] = task
+    _watchers[key] = task
 
     def _forget(done: asyncio.Task) -> None:
-        if _watchers.get(broadcast_id) is done:
-            _watchers.pop(broadcast_id, None)
+        if _watchers.get(key) is done:
+            _watchers.pop(key, None)
 
     task.add_done_callback(_forget)
     return task
@@ -831,6 +861,7 @@ async def _broadcast_callback(
     chat_id = call.message.chat.id
     message_id = call.message.message_id
     actor_id = call.from_user.id
+    key = (broadcast_id, chat_id, message_id)
 
     if action == "test":
         async with connect() as conn:
@@ -894,18 +925,19 @@ async def _broadcast_callback(
                     payload={"from": changed[0], "to": changed[1]},
                 )
             await conn.commit()
-        _stop_pending.discard(broadcast_id)
+        _stop_pending.discard(key)
         status = await _render(chat_id, message_id, broadcast_id, lang)
         if not changed:
             await call.answer(t(lang, "bc.state_unchanged"), show_alert=True)
             return
-        if status in ACTIVE_STATUSES and broadcast_id not in _watchers:
+        if status in ACTIVE_STATUSES and not _watching(key):
             _start_watcher(chat_id, message_id, broadcast_id, lang)
         await call.answer(t(lang, "bc.state_changed", status=_status_label(lang, changed[1])))
         return
 
     if action == "stop":
-        _stop_pending.add(broadcast_id)
+        _stop_pending.add(key)
+        # _render drops the question again when the job already ended.
         if await _render(chat_id, message_id, broadcast_id, lang) is None:
             await call.answer(t(lang, "bc.expired"), show_alert=True)
             return
@@ -913,7 +945,7 @@ async def _broadcast_callback(
         return
 
     if action == "view":
-        _stop_pending.discard(broadcast_id)
+        _stop_pending.discard(key)
         if await _render(chat_id, message_id, broadcast_id, lang) is None:
             await call.answer(t(lang, "bc.expired"), show_alert=True)
             return
@@ -921,7 +953,6 @@ async def _broadcast_callback(
         return
 
     if action == "open":
-        _stop_pending.discard(broadcast_id)
         card = await _card(broadcast_id, lang)
         if card is None:
             await call.answer(t(lang, "bc.expired"), show_alert=True)

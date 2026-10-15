@@ -11,6 +11,7 @@ Updates go through the real aiogram Dispatcher of ``tests/test_b1_bot_admin.py``
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import functools
 
@@ -128,3 +129,103 @@ async def test_a_failed_refresh_falls_back_to_the_full_lookup(harness, monkeypat
     await harness.send(OWNER, t("uz", "btn.admin.stats"))
     assert harness.texts()[0].startswith(t("uz", "admin.stats.header"))
     assert admin_filter._candidates.ids is None  # the failure was not cached
+
+
+# ─── 2. one watcher and one stop question per card ──────────────────────────
+
+CARD = 777  # message id of the card ``harness.tap`` presses by default
+
+
+def _cards(broadcast_id, user_id=None):
+    return [
+        key for key, task in b1.admin_handlers._watchers.items()
+        if key[0] == broadcast_id and (user_id is None or key[1] == user_id) and not task.done()
+    ]
+
+
+async def _queued_with_second_card(harness):
+    """OWNER queues (card 777); ADMIN opens the same broadcast from the list."""
+    broadcast_id = await b1._queued(harness)
+    await harness.tap(ADMIN, f"adm:b:{broadcast_id}:open")
+    await asyncio.sleep(0)  # let a cancellation, if any, land
+    (admin_card,) = _cards(broadcast_id, ADMIN)
+    return broadcast_id, admin_card
+
+
+async def test_a_second_admin_opening_the_card_keeps_the_first_watcher(harness):
+    broadcast_id, admin_card = await _queued_with_second_card(harness)
+    assert _cards(broadcast_id) == [(broadcast_id, OWNER, CARD), admin_card]
+
+
+async def test_pause_restarts_the_watcher_of_this_card_only(harness):
+    broadcast_id, admin_card = await _queued_with_second_card(harness)
+    owner_task = b1.admin_handlers._watchers[(broadcast_id, OWNER, CARD)]
+    owner_task.cancel()  # e.g. it reached its deadline
+    await asyncio.sleep(0)
+    assert _cards(broadcast_id) == [admin_card]
+
+    await harness.tap(OWNER, f"adm:b:{broadcast_id}:pause")
+    assert await b1._status(harness, broadcast_id) == "paused"
+    assert set(_cards(broadcast_id)) == {(broadcast_id, OWNER, CARD), admin_card}
+    # ADMIN's watcher was neither replaced nor restarted.
+    await harness.tap(ADMIN, f"adm:b:{broadcast_id}:resume", message_id=admin_card[2])
+    assert set(_cards(broadcast_id)) == {(broadcast_id, OWNER, CARD), admin_card}
+
+
+async def test_the_stop_question_belongs_to_one_card(harness):
+    broadcast_id, admin_card = await _queued_with_second_card(harness)
+    owner_card = (broadcast_id, OWNER, CARD)
+    await harness.tap(OWNER, f"adm:b:{broadcast_id}:stop")
+    assert b1.admin_handlers._stop_pending == {owner_card}
+
+    # ADMIN redraws and re-opens their own card: OWNER's question survives.
+    await harness.tap(ADMIN, f"adm:b:{broadcast_id}:view", message_id=admin_card[2])
+    admin_view = harness.session.of(b1.EditMessageText)[-1]
+    assert f"adm:b:{broadcast_id}:stopok" not in b1._callback_data(admin_view.reply_markup)
+    await harness.tap(ADMIN, f"adm:b:{broadcast_id}:open")
+    assert b1.admin_handlers._stop_pending == {owner_card}
+
+    # OWNER's card still shows the question when it is redrawn.
+    await b1.admin_handlers._render(OWNER, CARD, broadcast_id, "uz")
+    owner_view = harness.session.of(b1.EditMessageText)[-1]
+    assert b1._callback_data(owner_view.reply_markup) == [
+        f"adm:b:{broadcast_id}:stopok", f"adm:b:{broadcast_id}:view",
+    ]
+
+
+async def test_stop_on_a_finished_broadcast_leaves_nothing_pending(harness):
+    broadcast_id = await b1._queued(harness)
+    async with aiosqlite.connect(harness.db_path) as conn:
+        await conn.execute("UPDATE broadcasts SET status = 'done' WHERE id = ?", (broadcast_id,))
+        await conn.commit()
+    await harness.tap(OWNER, f"adm:b:{broadcast_id}:stop")
+    assert b1.admin_handlers._stop_pending == set()
+    assert harness.session.of(b1.EditMessageText)[-1].reply_markup is None
+
+
+async def test_a_finished_job_clears_every_card(harness, monkeypatch):
+    monkeypatch.setattr(b1.admin_handlers, "PROGRESS_POLL_SECONDS", 0.01)
+    broadcast_id, admin_card = await _queued_with_second_card(harness)
+    await harness.tap(OWNER, f"adm:b:{broadcast_id}:stop")
+    await harness.tap(ADMIN, f"adm:b:{broadcast_id}:stop", message_id=admin_card[2])
+    assert len(b1.admin_handlers._stop_pending) == 2
+    tasks = [b1.admin_handlers._watchers[key] for key in _cards(broadcast_id)]
+    async with aiosqlite.connect(harness.db_path) as conn:
+        await conn.execute("UPDATE broadcasts SET status = 'done' WHERE id = ?", (broadcast_id,))
+        await conn.commit()
+    await asyncio.wait_for(asyncio.gather(*tasks), timeout=2)
+    assert b1.admin_handlers._stop_pending == set()
+    assert b1.admin_handlers._watchers == {}
+
+
+async def test_watchers_per_broadcast_are_capped(harness):
+    broadcast_id = await b1._queued(harness)
+    cap = b1.admin_handlers.MAX_WATCHERS_PER_BROADCAST
+    for _ in range(cap + 3):
+        await harness.tap(ADMIN, f"adm:b:{broadcast_id}:open")
+    await asyncio.sleep(0)
+    live = _cards(broadcast_id)
+    assert len(live) == cap
+    # The newest cards keep ticking; the oldest (OWNER's queue card first) stopped.
+    assert (broadcast_id, OWNER, CARD) not in live
+    assert all(key[1] == ADMIN for key in live)
