@@ -4,8 +4,16 @@ Haftalik statistika scheduleri.
 Har juma soat 10:00 (Toshkent) kanalga grafik + matn statistika yuboradi.
 Yuborilgan hafta webapp_admin_settings.last_weekly_stats_week da saqlanadi,
 shuning uchun qayta ishga tushirish takroriy postga olib kelmaydi.
+
+The post is due from Friday 10:00 until the end of the ISO week, not only in
+a 5-minute window: a bot that was down (deploy, restart) at 10:00 still sends
+that week's stats on its next tick, and the persisted week marker keeps it to
+one post. No DB connection is held while sending or sleeping, and the
+matplotlib chart is rendered in a worker thread so the event loop keeps
+serving updates.
 """
 import asyncio
+import html
 import json
 import logging
 import time
@@ -28,8 +36,10 @@ TZ_UZB = TZ
 
 SEND_WEEKDAY = 4      # juma
 SEND_HOUR = 10
-SEND_MINUTE_WINDOW = 5
 TICK_SECONDS = 240
+#: After a failed tick (send error, DB error) wait this long before retrying,
+#: so a broken channel does not trigger a stats run every 4 minutes all weekend.
+RETRY_AFTER_ERROR_SECONDS = 3600
 
 
 # ─── Yordamchi funktsiyalar ────────────────────────────────────────────────────
@@ -244,6 +254,10 @@ def _fmt(value: int) -> str:
     return f"{value:,}".replace(",", " ")
 
 
+def _esc(value) -> str:
+    return html.escape(str(value or ""), quote=False)
+
+
 def format_stats_message(stats: WeeklyStats, lang: str = DEFAULT_LANG) -> str:
     """Telegram xabari uchun matn formatlaydi."""
     lines: list[str] = [
@@ -265,13 +279,13 @@ def format_stats_message(stats: WeeklyStats, lang: str = DEFAULT_LANG) -> str:
     if stats.top_specs:
         lines.append(t(lang, "stats.top_specs"))
         for i, (name, cnt) in enumerate(zip(stats.top_specs[:3], stats.top_specs_counts[:3]), 1):
-            lines.append(t(lang, "stats.top_row", i=i, name=name, count=_fmt(cnt)))
+            lines.append(t(lang, "stats.top_row", i=i, name=_esc(name), count=_fmt(cnt)))
         lines.append("")
 
     if stats.top_regions:
         lines.append(t(lang, "stats.top_regions"))
         for i, (name, cnt) in enumerate(zip(stats.top_regions[:3], stats.top_region_counts[:3]), 1):
-            lines.append(t(lang, "stats.top_row", i=i, name=name, count=_fmt(cnt)))
+            lines.append(t(lang, "stats.top_row", i=i, name=_esc(name), count=_fmt(cnt)))
         lines.append("")
 
     misc: list[str] = []
@@ -284,7 +298,7 @@ def format_stats_message(stats: WeeklyStats, lang: str = DEFAULT_LANG) -> str:
         lines.append("")
 
     if stats.channel:
-        lines.append(f"📈 {stats.channel}")
+        lines.append(f"📈 {_esc(stats.channel)}")
 
     return "\n".join(lines).strip()
 
@@ -294,7 +308,8 @@ def format_stats_message(stats: WeeklyStats, lang: str = DEFAULT_LANG) -> str:
 async def send_weekly_stats(channel: str, lang: str = DEFAULT_LANG) -> None:
     stats = await collect_weekly_stats(channel=channel, lang=lang)
     text = format_stats_message(stats, lang)
-    chart_bytes = generate_weekly_stats_chart(stats, lang)
+    # matplotlib takes seconds of CPU; off the event loop it cannot stall polling.
+    chart_bytes = await asyncio.to_thread(generate_weekly_stats_chart, stats, lang)
 
     if chart_bytes:
         await bot.send_photo(
@@ -312,53 +327,67 @@ async def send_weekly_stats(channel: str, lang: str = DEFAULT_LANG) -> None:
         logger.info("weekly_stats: faqat matn yuborildi → %s", channel)
 
 
+#: Week this process already posted, so a failed marker write cannot turn into
+#: a repost on every retry.
+_sent_week_in_process: str | None = None
+
+
+def is_due(now: datetime) -> bool:
+    """True from this ISO week's Friday 10:00 (Tashkent) until its Sunday ends."""
+    local = now.astimezone(TZ)
+    if local.weekday() != SEND_WEEKDAY:
+        return local.weekday() > SEND_WEEKDAY
+    return local.hour >= SEND_HOUR
+
+
+async def weekly_stats_tick(now: datetime | None = None) -> str:
+    """One scheduler step. Returns what happened (for logs and tests).
+
+    ``not_due`` / ``no_settings`` / ``already_sent`` / ``no_channel`` /
+    ``sent``. A failed send raises and leaves the marker unset, so a later tick
+    retries.
+    """
+    global _sent_week_in_process
+    now = now or now_tz()
+    if not is_due(now):
+        return "not_due"
+    current_week = week_key(now)
+    if _sent_week_in_process == current_week:
+        return "already_sent"
+
+    async with connect() as conn:
+        settings = await get_admin_settings(conn, ttl=0, force=True)
+    if not settings:
+        # Unreadable or not created yet: do not mark the week as handled.
+        return "no_settings"
+    channel = str(settings.get("auto_post_channel") or "").strip()
+    lang = normalize_lang(settings.get("channel_lang") or DEFAULT_LANG)
+    if str(settings.get("last_weekly_stats_week") or "") == current_week:
+        return "already_sent"
+
+    if channel:
+        await send_weekly_stats(channel, lang)
+        _sent_week_in_process = current_week
+    else:
+        logger.warning("weekly_stats: kanal sozlanmagan, o'tkazib yuborildi")
+
+    async with connect() as conn:
+        await set_admin_setting(conn, "last_weekly_stats_week", current_week)
+        await conn.commit()
+    return "sent" if channel else "no_channel"
+
+
 async def weekly_stats_loop() -> None:
     logger.info("Haftalik statistika scheduleri ishga tushdi")
 
     while True:
+        delay = TICK_SECONDS
         try:
-            now = now_tz()
-            if (
-                now.weekday() == SEND_WEEKDAY
-                and now.hour == SEND_HOUR
-                and now.minute < SEND_MINUTE_WINDOW
-            ):
-                current_week = week_key(now)
-
-                async with connect() as conn:
-                    settings = await get_admin_settings(conn, ttl=0, force=True)
-                    channel = str(settings.get("auto_post_channel") or "").strip()
-                    lang = normalize_lang(settings.get("channel_lang") or DEFAULT_LANG)
-                    last_week = str(settings.get("last_weekly_stats_week") or "")
-
-                    if last_week == current_week:
-                        await asyncio.sleep(TICK_SECONDS)
-                        continue
-
-                    if not channel:
-                        logger.warning("weekly_stats: kanal sozlanmagan, o'tkazib yuborildi")
-                        try:
-                            await set_admin_setting(
-                                conn, "last_weekly_stats_week", current_week
-                            )
-                            await conn.commit()
-                        except Exception as exc:
-                            logger.debug("weekly_stats: marker yozilmadi: %s", exc)
-                        await asyncio.sleep(3600)
-                        continue
-
-                    await send_weekly_stats(channel, lang)
-
-                    try:
-                        await set_admin_setting(conn, "last_weekly_stats_week", current_week)
-                        await conn.commit()
-                    except Exception as exc:
-                        logger.error("weekly_stats: marker yozilmadi: %s", exc)
-
-                await asyncio.sleep(3600)
-                continue
-
+            await weekly_stats_tick()
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             logger.error("weekly_stats_loop xato: %s", exc)
+            delay = RETRY_AFTER_ERROR_SECONDS
 
-        await asyncio.sleep(TICK_SECONDS)
+        await asyncio.sleep(delay)
