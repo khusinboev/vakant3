@@ -62,6 +62,8 @@ import type {
   CursorPage,
   ErrorLogItem,
   ErrorLogQuery,
+  FinancePaymentItem,
+  FinancePaymentsQuery,
   FinanceReferralItem,
   FinanceSummary,
   FinanceTransactionItem,
@@ -102,6 +104,7 @@ export const adminKeys = {
   financeTransactions: (query?: FinanceTransactionsQuery) =>
     ["admin", "finance-transactions", query ?? {}] as const,
   financeReferrals: (cursor?: string) => ["admin", "finance-referrals", cursor ?? null] as const,
+  financePayments: (query?: FinancePaymentsQuery) => ["admin", "finance-payments", query ?? {}] as const,
   analyticsOverview: (days: number) => ["admin", "analytics-overview", days] as const,
   system: () => ["admin", "system"] as const,
   errors: (cursor?: string) => ["admin", "errors", cursor ?? null] as const,
@@ -486,6 +489,15 @@ export async function getFinanceTransactions(
 ): Promise<CursorPage<FinanceTransactionItem>> {
   return (
     await client.get<CursorPage<FinanceTransactionItem>>("/admin/finance/transactions", { params: query })
+  ).data;
+}
+
+/** Click top-up orders, filterable by status/method/user/date range (read-only). */
+export async function getFinancePayments(
+  query?: FinancePaymentsQuery
+): Promise<CursorPage<FinancePaymentItem>> {
+  return (
+    await client.get<CursorPage<FinancePaymentItem>>("/admin/finance/payments", { params: query })
   ).data;
 }
 

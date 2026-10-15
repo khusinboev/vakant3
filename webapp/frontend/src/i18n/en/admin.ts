@@ -47,6 +47,8 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.settings.field.proPrice": "Pro price (UZS)",
   "admin.settings.field.referralReward": "Referral reward (UZS)",
   "admin.settings.field.proMinSalary": "Pro minimum salary (UZS)",
+  "admin.settings.field.paymentBonus": "Payment bonus (%)",
+  "admin.settings.validation.bonusRange": "{label}: a whole number from 0 to 50.",
   "admin.settings.field.targetCreationMinutes": "Creation time (min)",
   "admin.settings.field.targetCompletionRate": "Completion rate (%)",
   "admin.settings.field.targetSendRate": "Send success rate (%)",

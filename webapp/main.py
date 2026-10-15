@@ -20,6 +20,7 @@ from webapp.core.event_queue import get_event_queue
 from webapp.core.limiter import limiter
 from webapp.core.retention import checkpoint_wal, purge_expired
 from webapp.core.error_log import install_exception_handler
+from webapp.payments import router as payments_router
 from webapp.routers import (
     admin_analytics,
     admin_autopost,
@@ -129,6 +130,9 @@ app.include_router(wallet.router, prefix="/api")
 app.include_router(resume.router, prefix="/api")
 app.include_router(content.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
+# Click top-ups: the Shop API callback (no auth, md5-signed) and the user routes.
+app.include_router(payments_router.callback_router, prefix="/api")
+app.include_router(payments_router.router, prefix="/api")
 # Admin panel v2 routers (all protected by require_role inside each router).
 for _admin_router in (
     admin_channels,

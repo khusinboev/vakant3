@@ -50,6 +50,8 @@ class AdminStateResponse(BaseModel):
     resume_target_completion_rate: float
     resume_target_send_success_rate: float
     resume_target_export_success_rate: float
+    #: m020: N % of every paid Click top-up credited as a bonus (0 = off).
+    payment_bonus_percent: int = 0
 
 
 class AdminResumeMetricsResponse(BaseModel):
@@ -92,6 +94,8 @@ class AdminSettingsPatch(BaseModel):
     resume_target_completion_rate: float | None = Field(default=None, ge=0)
     resume_target_send_success_rate: float | None = Field(default=None, ge=0)
     resume_target_export_success_rate: float | None = Field(default=None, ge=0)
+    #: Owner decision: 0–50 %, default 0. Applies to orders settled after the change.
+    payment_bonus_percent: int | None = Field(default=None, ge=0, le=50)
 
 
 class AdminFunnelStepMetric(BaseModel):
@@ -184,6 +188,7 @@ _SETTING_FIELDS: dict[str, object] = {
     "resume_target_completion_rate": lambda v: float(v),
     "resume_target_send_success_rate": lambda v: float(v),
     "resume_target_export_success_rate": lambda v: float(v),
+    "payment_bonus_percent": lambda v: max(0, min(50, int(v))),
 }
 
 _STATE_COLUMNS = ", ".join([*_SETTING_FIELDS.keys(), "version"])
@@ -225,6 +230,7 @@ def _state_response(row, role: str) -> AdminStateResponse:
         resume_target_completion_rate=float(row["resume_target_completion_rate"] or 60),
         resume_target_send_success_rate=float(row["resume_target_send_success_rate"] or 98),
         resume_target_export_success_rate=float(row["resume_target_export_success_rate"] or 99),
+        payment_bonus_percent=int(row["payment_bonus_percent"] or 0),
     )
 
 

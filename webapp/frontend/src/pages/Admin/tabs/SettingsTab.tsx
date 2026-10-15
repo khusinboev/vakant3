@@ -265,6 +265,25 @@ export default function SettingsTab({ state, version, onReload }: SettingsTabPro
                     }))
                   }
                 />
+                <InlineEditRow
+                  label={t("admin.settings.field.paymentBonus")}
+                  value={state.payment_bonus_percent ?? 0}
+                  type="number"
+                  saving={saving}
+                  onSave={(value) =>
+                    saveNumber(
+                      t("admin.settings.field.paymentBonus"),
+                      value,
+                      (n) => ({ payment_bonus_percent: n }),
+                      (n) =>
+                        Number.isInteger(n) && n >= 0 && n <= 50
+                          ? null
+                          : t("admin.settings.validation.bonusRange", {
+                              label: t("admin.settings.field.paymentBonus"),
+                            }),
+                    )
+                  }
+                />
               </div>
             ),
           },

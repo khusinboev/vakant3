@@ -42,6 +42,24 @@ const adminFinance = {
 
   "adminFinance.referrals.empty": "Referallar topilmadi.",
   "adminFinance.referrals.invitedSuffix": "ta taklif",
+
+  "adminFinance.kind.topup": "Click to'ldirish",
+  "adminFinance.kind.topup_bonus": "To'lov bonusi",
+  "adminFinance.stat.topups": "Click to'ldirishlar",
+  "adminFinance.stat.topupBonuses": "To'lov bonuslari",
+  "adminFinance.tab.payments": "To'lovlar",
+  "adminFinance.payments.empty": "To'lovlar topilmadi.",
+  "adminFinance.payments.bonus": "bonus",
+  "adminFinance.filter.statusLabel": "Holat",
+  "adminFinance.filter.methodLabel": "Usul",
+  "adminFinance.state.created": "Yaratilgan",
+  "adminFinance.state.pending": "Kutilmoqda",
+  "adminFinance.state.paid": "To'langan",
+  "adminFinance.state.cancelled": "Bekor qilingan",
+  "adminFinance.method.page": "Click sahifasi",
+  "adminFinance.method.card": "Karta",
+  "adminFinance.method.phone": "Telefon",
+  "adminFinance.method.app": "Click ilovasi",
 };
 export type AdminFinanceDict = typeof adminFinance;
 export default adminFinance;

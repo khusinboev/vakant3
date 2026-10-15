@@ -10,6 +10,7 @@ import adminContent from "./adminContent";
 import adminFinance from "./adminFinance";
 import adminSystem from "./adminSystem";
 import adminAutopost from "./adminAutopost";
+import payments from "./payments";
 
 const dict = {
   ...common,
@@ -23,5 +24,6 @@ const dict = {
   ...adminFinance,
   ...adminSystem,
   ...adminAutopost,
+  ...payments,
 };
 export default dict;

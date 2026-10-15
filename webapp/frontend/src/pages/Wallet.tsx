@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Crown, Link as LinkIcon, Wallet } from "lucide-react";
+import { CheckCircle2, Crown, Link as LinkIcon, Plus, Wallet } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import client from "../api/client";
+import { getPaymentsConfig, paymentKeys } from "../api/payments";
+import TopUpSheet from "../components/Payments/TopUpSheet";
 import BottomSheet from "../components/ui/BottomSheet";
 import { clearBackInterceptor, setBackInterceptor } from "../hooks/useBackInterceptor";
 import useToast from "../hooks/useToast";
@@ -28,6 +30,15 @@ export default function WalletPage() {
   const toast = useToast();
   const authUser = useAuthStore((s) => s.user);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [topUpOpen, setTopUpOpen] = useState(false);
+
+  // Hidden entirely while Click is not configured on the server (PAYMENTS_DISABLED).
+  const payments = useQuery({
+    queryKey: paymentKeys.config,
+    queryFn: getPaymentsConfig,
+    staleTime: 60_000,
+    retry: false,
+  });
 
   // Telegram's BackButton closes the confirmation first (same slot as Laws).
   useEffect(() => {
@@ -131,8 +142,27 @@ export default function WalletPage() {
               {t("wallet.freePlan")}
             </div>
           )}
+          {payments.data?.enabled && (
+            <button
+              type="button"
+              className="tap-target mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-surface px-4 py-3 text-sm font-semibold text-primary"
+              onClick={() => setTopUpOpen(true)}
+            >
+              <Plus size={16} />
+              {t("payments.topup.cta")}
+            </button>
+          )}
+          {payments.data?.enabled && payments.data.bonus_percent > 0 && (
+            <p className="mt-2 text-center text-xs text-white/80">
+              🎁 {t("payments.topup.bonusHint", { percent: payments.data.bonus_percent })}
+            </p>
+          )}
         </div>
       </section>
+
+      {payments.data?.enabled && (
+        <TopUpSheet open={topUpOpen} onClose={() => setTopUpOpen(false)} config={payments.data} />
+      )}
 
       {/* Pro tariff quick info and activation */}
       {!w.is_pro && (

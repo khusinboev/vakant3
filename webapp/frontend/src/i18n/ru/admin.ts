@@ -47,6 +47,8 @@ const admin: Record<keyof AdminDict, string> = {
   "admin.settings.field.proPrice": "Цена Pro (сум)",
   "admin.settings.field.referralReward": "Награда за реферала (сум)",
   "admin.settings.field.proMinSalary": "Минимальная зарплата для Pro (сум)",
+  "admin.settings.field.paymentBonus": "Бонус за оплату (%)",
+  "admin.settings.validation.bonusRange": "{label}: целое число от 0 до 50.",
   "admin.settings.field.targetCreationMinutes": "Время создания (мин)",
   "admin.settings.field.targetCompletionRate": "Доля завершения (%)",
   "admin.settings.field.targetSendRate": "Успешная отправка (%)",

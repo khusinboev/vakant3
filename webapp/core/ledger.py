@@ -24,7 +24,16 @@ from typing import Any
 # Guard rail against a typo'd admin credit or an overflowing price.
 MAX_AMOUNT = 100_000_000
 
-KINDS = ("pro_activation", "referral_reward", "admin_credit", "admin_reset", "adjustment")
+KINDS = (
+    "pro_activation",
+    "referral_reward",
+    "admin_credit",
+    "admin_reset",
+    "adjustment",
+    # m020: a paid Click top-up and its payment bonus (webapp/payments/service.py).
+    "topup",
+    "topup_bonus",
+)
 
 
 class LedgerError(Exception):
@@ -83,23 +92,38 @@ async def _insert_tx(
     actor_id: int | None,
     note: str | None,
     price_snapshot: int | None,
+    reference: str | None = None,
 ) -> int:
+    values = (
+        int(user_id),
+        kind,
+        int(amount),
+        int(balance_after),
+        None if price_snapshot is None else int(price_snapshot),
+        None if actor_id is None else int(actor_id),
+        None if note is None else str(note)[:500],
+        int(time.time()),
+    )
+    if reference is None:
+        cursor = await db.execute(
+            """
+            INSERT INTO wallet_transactions
+                (user_id, kind, amount, balance_after, price_snapshot, actor_id, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            values,
+        )
+        return int(cursor.lastrowid or 0)
+    # ``reference`` (m020) is UNIQUE per kind: a second credit for the same
+    # payment raises sqlite3.IntegrityError and the caller's rollback drops the
+    # balance change made earlier in the same transaction.
     cursor = await db.execute(
         """
         INSERT INTO wallet_transactions
-            (user_id, kind, amount, balance_after, price_snapshot, actor_id, note, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (user_id, kind, amount, balance_after, price_snapshot, actor_id, note, created_at, reference)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (
-            int(user_id),
-            kind,
-            int(amount),
-            int(balance_after),
-            None if price_snapshot is None else int(price_snapshot),
-            None if actor_id is None else int(actor_id),
-            None if note is None else str(note)[:500],
-            int(time.time()),
-        ),
+        (*values, str(reference)[:200]),
     )
     return int(cursor.lastrowid or 0)
 
@@ -114,11 +138,13 @@ async def apply_balance_change(
     note: str | None = None,
     price_snapshot: int | None = None,
     require_sufficient: bool = False,
+    reference: str | None = None,
 ) -> dict[str, Any]:
     """Move ``amount`` (signed) on a user's balance and record it. Caller commits.
 
     ``require_sufficient`` refuses the change when it would take the balance
     below zero, raising :class:`InsufficientBalance` without touching anything.
+    ``reference`` ties the row to an external payment; it is unique per kind.
     """
     user_id = int(user_id)
     amount = _check_amount(amount)
@@ -155,6 +181,7 @@ async def apply_balance_change(
         actor_id=actor_id,
         note=note,
         price_snapshot=price_snapshot,
+        reference=reference,
     )
     return {"balance_after": balance_after, "tx_id": tx_id, "amount": amount}
 

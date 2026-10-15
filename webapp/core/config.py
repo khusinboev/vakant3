@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     INIT_DATA_MAX_AGE: int = 300
     # Lifetime of an admin confirmation token (POST /api/admin/confirm).
     ADMIN_CONFIRM_TTL_SECONDS: int = 60
+    # Click (shared with SlaydX: same service and merchant). Any of the four
+    # empty -> payments are disabled (webapp/payments/config.py).
+    CLICK_SERVICE_ID: str = ""
+    CLICK_MERCHANT_ID: str = ""
+    CLICK_SECRET_KEY: str = ""
+    CLICK_MERCHANT_USER_ID: str = ""
 
     @property
     def admin_ids_set(self) -> set[int]:

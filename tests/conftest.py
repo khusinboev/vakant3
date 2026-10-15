@@ -38,6 +38,12 @@ os.environ.update(
         "REDIS_URL": "",
         # Plain fallback emoji by default; premium-emoji tests switch it on explicitly.
         "BOT_PREMIUM_EMOJI": "0",
+        # Payments off unless a test sets fake Click credentials on get_settings();
+        # empty values also shadow any real CLICK_* in a developer's .env.
+        "CLICK_SERVICE_ID": "",
+        "CLICK_MERCHANT_ID": "",
+        "CLICK_SECRET_KEY": "",
+        "CLICK_MERCHANT_USER_ID": "",
     }
 )
 

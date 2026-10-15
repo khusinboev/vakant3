@@ -47,6 +47,8 @@ const admin = {
   "admin.settings.field.proPrice": "Pro narxi (so'm)",
   "admin.settings.field.referralReward": "Referal mukofoti (so'm)",
   "admin.settings.field.proMinSalary": "Pro uchun eng kam maosh (so'm)",
+  "admin.settings.field.paymentBonus": "To'lov bonusi (%)",
+  "admin.settings.validation.bonusRange": "{label}: 0 dan 50 gacha butun son.",
   "admin.settings.field.targetCreationMinutes": "Tayyorlash vaqti (daq)",
   "admin.settings.field.targetCompletionRate": "Yakunlash darajasi (%)",
   "admin.settings.field.targetSendRate": "Yuborish muvaffaqiyati (%)",
