@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, Request
 
 from src.functions.cache import cache_get, cache_set, make_cache_key
 from src.functions.functions import normalize_osonish_field_id
-from src.functions.scraping import fetch_osonish_detail, fetch_osonish_list
+from src.functions.scraping import UpstreamError, fetch_osonish_list, get_osonish_detail, parse_osonish_uid
 from src.functions.vacancy_format import normalize_vacancy_detail
 from webapp.core import errors
 from webapp.core.admin_settings import get_admin_settings
 from webapp.core.auth import current_user
-from webapp.core.database import get_db
+from webapp.core.database import get_db, release_db
 from webapp.core.entry_gate import require_entry
 from webapp.core.i18n import get_lang, localize_salary_text, pro_locked_salary
 from webapp.core.limiter import limiter
@@ -41,7 +41,7 @@ def _to_raw_id(value: object) -> int | None:
 
 
 def _uid_to_raw_id(uid: str) -> int:
-    raw_id = _to_raw_id(uid) if uid.startswith("osonish_") else None
+    raw_id = parse_osonish_uid(uid)
     if raw_id is None:
         raise errors.api_error(400, errors.INVALID_UID, uid=uid)
     return raw_id
@@ -73,6 +73,19 @@ async def search_jobs(
     user_id = int(user["user_id"])
     raise_if_referral_locked(await get_referral_gate_state(db, user_id))
 
+    # DB phase: everything this request reads, before any upstream call.
+    admin_settings = await get_admin_settings(db)
+    pro_min_salary = int(admin_settings["pro_min_salary"] or 8_000_000)
+    is_user_pro = bool(user.get("is_pro"))
+    cursor = await db.execute("SELECT save_id FROM saves WHERE user_id = ?", (user_id,))
+    saved_ids: set[int] = {
+        raw for row in await cursor.fetchall()
+        for raw in [_to_raw_id(row[0])]
+        if raw is not None
+    }
+    await release_db(db)
+
+    # Network phase: no pooled connection is held from here on.
     field_id = normalize_osonish_field_id(specs)
     cache_key = make_cache_key(
         "webapp_jobs_search",
@@ -102,7 +115,9 @@ async def search_jobs(
                 sort_type=sort_type or "",
                 search=q or "",
             )
-        except Exception as exc:
+        except UpstreamError as exc:
+            # Never cached: the next request retries osonish instead of
+            # serving an outage as "no vacancies" for 30 minutes.
             raise errors.api_error(502, errors.UPSTREAM_ERROR) from exc
         vacancies_raw = [
             {
@@ -118,24 +133,6 @@ async def search_jobs(
             for item in vacancies
         ]
         await cache_set(cache_key, {"items": vacancies_raw, "last_page": last_page}, ttl=30 * 60)
-
-    admin_settings = await get_admin_settings(db)
-    pro_min_salary = int(admin_settings["pro_min_salary"] or 8_000_000)
-    is_user_pro = bool(user.get("is_pro"))
-
-    saved_ids: set[int] = set()
-    raw_ids = [raw for raw in (_to_raw_id(v.get("uid")) for v in vacancies_raw) if raw is not None]
-    if raw_ids:
-        placeholders = ",".join("?" for _ in raw_ids)
-        cursor = await db.execute(
-            f"SELECT save_id FROM saves WHERE user_id = ? AND save_id IN ({placeholders})",
-            tuple([user_id, *raw_ids]),
-        )
-        saved_ids = {
-            raw for row in await cursor.fetchall()
-            for raw in [_to_raw_id(row[0])]
-            if raw is not None
-        }
 
     items: list[VacancyItem] = []
     for vacancy in vacancies_raw:
@@ -182,6 +179,7 @@ async def vacancy_detail(
     db=Depends(get_db),
 ) -> VacancyDetailResponse:
     raise_if_referral_locked(await get_referral_gate_state(db, int(user["user_id"])))
+    await release_db(db)
 
     raw_id = _uid_to_raw_id(uid)
 
@@ -191,10 +189,10 @@ async def vacancy_detail(
         detail = dict(cached["data"])
     else:
         try:
-            fetched = await fetch_osonish_detail(raw_id)
-        except Exception as exc:
+            fetched = await get_osonish_detail(raw_id)
+        except UpstreamError as exc:
             raise errors.api_error(502, errors.UPSTREAM_ERROR) from exc
-        if not isinstance(fetched, dict):
+        if not isinstance(fetched, dict):  # osonish answered "no such vacancy"
             raise errors.not_found("vacancy")
         detail = fetched
         await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=60 * 60)

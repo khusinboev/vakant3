@@ -137,3 +137,184 @@ async def test_close_pool_closes_idle_connections(db_file):
     await database.close_pool()
     with pytest.raises(ValueError):
         await conn.execute("SELECT 1")
+
+
+async def test_discard_wakes_a_waiter_with_a_fresh_connection(db_file):
+    pool = database.ConnectionPool(db_file, size=1)
+    broken = await pool.acquire()
+    waiter = asyncio.create_task(pool.acquire(timeout=2))
+    await asyncio.sleep(0.05)
+    assert not waiter.done()  # the only slot is taken
+
+    await pool.discard(broken)
+    replacement = await asyncio.wait_for(waiter, 1)  # woken, not left to time out
+    try:
+        assert replacement is not broken
+        assert pool.opened == 1
+        cursor = await replacement.execute("SELECT 1")
+        assert (await cursor.fetchone())[0] == 1
+    finally:
+        await pool.release(replacement)
+        await pool.close()
+
+
+async def test_slots_never_exceed_the_pool_size(db_file):
+    pool = database.ConnectionPool(db_file, size=2)
+    first, second = await pool.acquire(), await pool.acquire()
+    await pool.discard(first)
+    third = await pool.acquire(timeout=0.5)
+    with pytest.raises(HTTPException):
+        await pool.acquire(timeout=0.05)
+    assert pool.opened == 2
+    for conn in (second, third):
+        await pool.release(conn)
+    await pool.close()
+
+
+async def test_release_db_returns_the_connection_early_and_once(db_file):
+    pool = database.get_pool()
+    gen = database.get_db()
+    conn = await gen.__anext__()
+    await conn.execute("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY)")
+    await conn.commit()
+    await conn.execute("INSERT INTO t (id) VALUES (1)")  # left open on purpose
+
+    await database.release_db(conn)
+    # Back in the pool (the open write rolled back): the next request gets it.
+    gen2 = database.get_db()
+    again = await gen2.__anext__()
+    assert again is conn
+    assert not again.in_transaction
+    cursor = await again.execute("SELECT COUNT(*) FROM t")
+    assert (await cursor.fetchone())[0] == 0
+
+    # The first request ending later must not release it a second time.
+    await _drain(gen)
+    assert pool._idle == []
+    await _drain(gen2)
+    assert pool._idle == [conn]
+
+
+async def test_release_db_ignores_a_connection_the_pool_did_not_hand_out(db_file):
+    conn = await database.open_connection(db_file)
+    try:
+        await database.release_db(conn)  # e.g. a test's dependency override
+        cursor = await conn.execute("SELECT 1")
+        assert (await cursor.fetchone())[0] == 1
+    finally:
+        await conn.close()
+
+
+async def _open_write(conn) -> None:
+    await conn.execute("CREATE TABLE IF NOT EXISTS w (id INTEGER PRIMARY KEY)")
+    await conn.commit()
+    await conn.execute("INSERT INTO w (id) VALUES (1)")  # uncommitted
+    assert conn.in_transaction
+
+
+def _slow_rollback(conn, entered: asyncio.Event) -> None:
+    """Make this connection's rollback take a while (a busy disk), so a cancel lands inside it."""
+    real = conn.rollback
+
+    async def slow():
+        entered.set()
+        await asyncio.sleep(0.2)
+        await real()
+
+    conn.rollback = slow
+
+
+async def _assert_slot_back_and_clean(pool) -> None:
+    conn = await pool.acquire(timeout=1)  # 503 here = the slot leaked
+    try:
+        assert not conn.in_transaction
+        cursor = await conn.execute("SELECT COUNT(*) FROM w")
+        assert (await cursor.fetchone())[0] == 0
+    finally:
+        await pool.release(conn)
+
+
+@pytest.mark.parametrize("pool_size", [1, 2])
+async def test_cancel_during_rollback_never_leaks_a_slot(db_file, monkeypatch, pool_size):
+    """A client disconnect while a write is uncommitted cancels the request mid-cleanup."""
+    monkeypatch.setattr(database, "POOL_SIZE", pool_size)
+    await database.reset_pool()
+    pool = database.get_pool()
+
+    for _ in range(pool_size + 1):  # more cancellations than slots
+        gen = database.get_db()
+        conn = await gen.__anext__()
+        await _open_write(conn)
+        entered = asyncio.Event()
+        _slow_rollback(conn, entered)
+
+        task = asyncio.create_task(gen.athrow(RuntimeError("handler failed")))
+        await asyncio.wait_for(entered.wait(), 1)
+        task.cancel()
+        with pytest.raises((asyncio.CancelledError, RuntimeError)):
+            await task
+        await asyncio.sleep(0.3)  # the shielded hand-back finishes in the background
+        del conn.rollback
+
+    await _assert_slot_back_and_clean(pool)
+
+
+async def test_anyio_cancel_scope_during_cleanup_never_leaks_a_slot(db_file, monkeypatch):
+    import anyio
+
+    monkeypatch.setattr(database, "POOL_SIZE", 1)
+    await database.reset_pool()
+    pool = database.get_pool()
+
+    for _ in range(2):
+        gen = database.get_db()
+        conn = await gen.__anext__()
+        await _open_write(conn)
+        entered = asyncio.Event()
+        _slow_rollback(conn, entered)
+        # Level-triggered cancellation (what Starlette/anyio use): every await
+        # inside the scope after the deadline is cancelled again.
+        with anyio.move_on_after(0.05):
+            await _drain(gen)  # the handler forgot to commit -> rollback on exit
+        await asyncio.sleep(0.3)
+        del conn.rollback
+
+    await _assert_slot_back_and_clean(pool)
+
+
+async def test_second_release_db_cannot_release_another_requests_connection(db_file, monkeypatch):
+    monkeypatch.setattr(database, "POOL_SIZE", 1)
+    await database.reset_pool()
+    pool = database.get_pool()
+    a_released, b_holds, a_done = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def request_a():
+        gen = database.get_db()
+        conn = await gen.__anext__()
+        await database.release_db(conn)
+        a_released.set()
+        await b_holds.wait()
+        await database.release_db(conn)  # a buggy second call, after B got the same connection
+        await database.release_db(conn)
+        a_done.set()
+        await _drain(gen)
+        return conn
+
+    async def request_b():
+        await a_released.wait()
+        gen = database.get_db()
+        conn = await gen.__anext__()
+        b_holds.set()
+        await a_done.wait()
+        # B still owns the only connection: nobody else may get it.
+        with pytest.raises(HTTPException) as exc_info:
+            await pool.acquire(timeout=0.05)
+        assert exc_info.value.status_code == 503
+        cursor = await conn.execute("SELECT 1")
+        assert (await cursor.fetchone())[0] == 1
+        await _drain(gen)
+        return conn
+
+    conn_a, conn_b = await asyncio.wait_for(asyncio.gather(request_a(), request_b()), 5)
+    assert conn_a is conn_b  # same pooled connection, two requests
+    assert pool._idle == [conn_a]

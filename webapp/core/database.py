@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import logging
 import os
 from collections.abc import AsyncGenerator
@@ -22,12 +23,12 @@ _log = logging.getLogger(__name__)
 # handed to exactly one request at a time and the pool is keyed by event loop
 # (pytest gives every test its own loop).
 #
-# Size: several routes hold their connection across an upstream HTTP call
-# (``/jobs/search`` hits osonish.uz on a cache miss), so a tiny pool would turn
-# a slow upstream into 503s where the old unpooled code simply worked. WAL
-# allows many concurrent readers and writers serialize anyway, so the pool is
-# sized for "never the bottleneck" rather than for contention control; the
-# 5 s/503 path is a safety valve, not the normal case. Tunable per deployment.
+# Size: routes that call osonish.uz (jobs, saves) hand their connection back
+# with ``release_db`` before the HTTP call, so a slow upstream does not pin
+# slots. WAL allows many concurrent readers and writers serialize anyway, so
+# the pool is sized for "never the bottleneck" rather than for contention
+# control; the 5 s/503 path is a safety valve, not the normal case. Tunable
+# per deployment.
 POOL_SIZE = max(1, int(os.getenv("DB_POOL_SIZE", "16")))
 ACQUIRE_TIMEOUT_SECONDS = float(os.getenv("DB_POOL_TIMEOUT", "5"))
 JOURNAL_SIZE_LIMIT = 64 * 1024 * 1024
@@ -59,13 +60,19 @@ async def open_connection(db_path=None) -> aiosqlite.Connection:
 
 
 class ConnectionPool:
-    """Fixed-size pool of aiosqlite connections opened lazily."""
+    """Fixed-size pool of aiosqlite connections opened lazily.
+
+    A semaphore counts the slots (idle + handed out <= size); the idle list
+    holds open connections ready for reuse. ``release`` and ``discard`` both
+    give the slot back, so a waiter blocked in ``acquire`` is woken either way
+    (a discarded connection is simply replaced by a freshly opened one).
+    """
 
     def __init__(self, db_path, size: int = POOL_SIZE) -> None:
         self._db_path = str(db_path)
         self._size = max(1, size)
-        self._idle: asyncio.Queue = asyncio.Queue()
-        self._open_lock = asyncio.Lock()
+        self._slots = asyncio.Semaphore(self._size)
+        self._idle: list[aiosqlite.Connection] = []
         self._opened = 0
         self._closed = False
 
@@ -77,45 +84,49 @@ class ConnectionPool:
     def opened(self) -> int:
         return self._opened
 
-    async def acquire(self, timeout: float = ACQUIRE_TIMEOUT_SECONDS) -> aiosqlite.Connection:
+    async def acquire(self, timeout: float | None = None) -> aiosqlite.Connection:
+        if timeout is None:
+            timeout = ACQUIRE_TIMEOUT_SECONDS
         if self._closed:
             raise RuntimeError("connection pool is closed")
         try:
-            return self._idle.get_nowait()
-        except asyncio.QueueEmpty:
-            pass
-
-        async with self._open_lock:
-            if self._opened < self._size:
-                conn = await open_connection(self._db_path)
-                self._opened += 1
-                return conn
-
-        try:
-            return await asyncio.wait_for(self._idle.get(), timeout)
+            await asyncio.wait_for(self._slots.acquire(), timeout)
         except (asyncio.TimeoutError, TimeoutError):
             _log.warning("db pool exhausted (size=%s, waited %ss)", self._size, timeout)
             raise api_error(503, "SERVER_BUSY") from None
+        if self._closed:
+            self._slots.release()
+            raise RuntimeError("connection pool is closed")
+        if self._idle:
+            return self._idle.pop()
+        try:
+            conn = await open_connection(self._db_path)
+        except BaseException:
+            self._slots.release()
+            raise
+        self._opened += 1
+        return conn
 
     async def release(self, conn: aiosqlite.Connection) -> None:
         if self._closed:
+            self._opened = max(0, self._opened - 1)
             await _close_quietly(conn)
-            return
-        self._idle.put_nowait(conn)
+        else:
+            self._idle.append(conn)
+        self._slots.release()
 
     async def discard(self, conn: aiosqlite.Connection) -> None:
         """Drop a connection that is no longer trustworthy; a new one replaces it."""
-        async with self._open_lock:
-            self._opened = max(0, self._opened - 1)
-        await _close_quietly(conn)
+        self._opened = max(0, self._opened - 1)
+        try:
+            await _close_quietly(conn)
+        finally:
+            self._slots.release()
 
     async def close(self) -> None:
         self._closed = True
-        while True:
-            try:
-                conn = self._idle.get_nowait()
-            except asyncio.QueueEmpty:
-                break
+        idle, self._idle = self._idle, []
+        for conn in idle:
             await _close_quietly(conn)
         self._opened = 0
 
@@ -207,7 +218,11 @@ async def _ensure_performance_indexes(conn: aiosqlite.Connection) -> None:
     tables = {row[0] for row in await cursor.fetchall()}
 
     if "users" in tables:
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_ref_by ON users(ref_by)")
+        # Partial, matching m014/m016: a full index under this name would make
+        # m014's IF NOT EXISTS a no-op (and m016 would have to drop it again).
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_ref_by ON users(ref_by) WHERE ref_by IS NOT NULL"
+        )
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_user_pro ON users(user_pro)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_blocked ON users(blocked)")
 
@@ -472,30 +487,94 @@ async def init_db() -> None:
             _log.info("migrations applied: %s", ", ".join(applied))
 
 
+class _Lease:
+    """One request's hold on one pooled connection; finishing it is idempotent."""
+
+    __slots__ = ("pool", "conn", "done")
+
+    def __init__(self, pool: ConnectionPool, conn: aiosqlite.Connection) -> None:
+        self.pool = pool
+        self.conn = conn
+        self.done = False
+
+    async def finish(self, *, failed: bool) -> None:
+        if self.done:
+            return
+        self.done = True
+        # The rollback and the hand-back run in their own task: a cancellation
+        # of the request (client disconnect, an anyio cancel scope) must not
+        # interrupt them half way, or the slot would be lost for good and the
+        # worker would end up answering 503 SERVER_BUSY to everything.
+        task = asyncio.ensure_future(self._return_to_pool(failed))
+        _returning.add(task)
+        task.add_done_callback(_returning.discard)
+        await asyncio.shield(task)
+
+    async def _return_to_pool(self, failed: bool) -> None:
+        conn = self.conn
+        usable = False
+        try:
+            if not failed and conn.in_transaction:
+                _log.warning("handler left an open transaction; rolling back")
+            # Never hand a connection with an open transaction to the next request.
+            usable = await _rollback_quietly(conn) and not conn.in_transaction
+        finally:
+            if usable:
+                await self.pool.release(conn)
+            else:
+                await self.pool.discard(conn)
+
+
+#: Hand-back tasks still running after their request was cancelled (strong refs).
+_returning: set[asyncio.Future] = set()
+
+#: Per request (per task context): id(connection) -> the lease ``get_db`` made
+#: for it. ``release_db`` only ever sees the leases of its own request, so a
+#: second call after the connection went to another request is a no-op. The
+#: dict is copied on every ``set`` (never mutated), so a context copied into
+#: a child task cannot see leases taken later by its parent or siblings.
+_request_leases: contextvars.ContextVar[dict[int, _Lease] | None] = contextvars.ContextVar(
+    "vakant_request_db_leases", default=None
+)
+
+
 async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
     """Request-scoped pooled connection.
 
     A pooled connection outlives the request, so anything the handler left
     behind must be undone before it goes back: an open transaction is rolled
     back both when the handler raised and when it simply forgot to commit.
+
+    The connection is shared by every dependency of the request (FastAPI
+    caches it), so it is held until the request ends unless the handler hands
+    it back early with ``release_db`` before slow non-DB work.
     """
     pool = get_pool()
     conn = await pool.acquire()
-    broken = False
+    lease = _Lease(pool, conn)
+    _request_leases.set({**(_request_leases.get() or {}), id(conn): lease})
     try:
         yield conn
     except BaseException:
-        broken = not await _rollback_quietly(conn)
+        await lease.finish(failed=True)
         raise
     else:
-        if conn.in_transaction:
-            _log.warning("handler left an open transaction; rolling back")
-            broken = not await _rollback_quietly(conn)
-    finally:
-        if broken:
-            await pool.discard(conn)
-        else:
-            await pool.release(conn)
+        await lease.finish(failed=False)
+
+
+async def release_db(conn: aiosqlite.Connection) -> None:
+    """Return the request's pooled connection now, before upstream HTTP.
+
+    Pattern for routes that call osonish.uz: do every DB read/write (and
+    ``commit``) first, ``await release_db(db)``, then do the network work —
+    the handler must not touch ``db`` after this line. An open transaction is
+    rolled back. Calling it twice, or with a connection that ``get_db`` did not
+    hand out to this request (a test's dependency override), does nothing.
+    """
+    registry = _request_leases.get()
+    lease = registry.get(id(conn)) if registry else None
+    if lease is not None and lease.conn is conn:
+        await lease.finish(failed=False)
 
 
 async def _rollback_quietly(conn: aiosqlite.Connection) -> bool:

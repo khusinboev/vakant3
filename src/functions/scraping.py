@@ -11,6 +11,27 @@ from src.i18n import DEFAULT_LANG
 logger = logging.getLogger(__name__)
 
 OSONISH_BASE = "https://osonish.uz/api/v1"
+OSONISH_TIMEOUT_SECONDS = 15
+
+#: Largest vacancy id we accept from a client: JSON numbers stay exact up to
+#: 2**53, and it keeps ``saves.save_id`` well inside SQLite's INTEGER range.
+MAX_OSONISH_ID = 2**53
+_UID_PREFIX = "osonish_"
+
+
+def parse_osonish_uid(uid: str) -> int | None:
+    """``"osonish_<id>"`` -> ``id`` for 1 <= id <= 2**53, else ``None``.
+
+    Strict: plain ASCII digits only (no sign, spaces, underscores or leading
+    zeros), so one vacancy has exactly one uid.
+    """
+    if not isinstance(uid, str) or not uid.startswith(_UID_PREFIX):
+        return None
+    digits = uid[len(_UID_PREFIX):]
+    if not (0 < len(digits) <= 16) or not digits.isascii() or not digits.isdigit() or digits[0] == "0":
+        return None
+    value = int(digits)
+    return value if value <= MAX_OSONISH_ID else None
 
 
 @dataclass
@@ -37,11 +58,30 @@ def _osonish_headers() -> dict[str, str]:
     }
 
 
-async def fetch_json(
+class UpstreamError(Exception):
+    """osonish.uz could not answer: transport error, timeout, non-200 or a malformed body.
+
+    Distinct from a genuine empty result (an empty list, or a 404 for a detail):
+    callers must never cache anything derived from this.
+    """
+
+    def __init__(self, reason: str, status: int | None = None) -> None:
+        super().__init__(f"{reason} (status={status})" if status is not None else reason)
+        self.reason = reason
+        self.status = status
+
+
+async def request_json(
     url: str,
     params: Optional[dict[str, Any]] = None,
     headers: Optional[dict[str, str]] = None,
-) -> Optional[dict[str, Any]]:
+) -> tuple[int, Any]:
+    """GET ``url`` and return ``(status, body)``.
+
+    Raises ``UpstreamError`` on a transport failure or timeout, and on a 200
+    whose body is not JSON. A non-200 status is returned (body ``None``) so the
+    caller decides what it means (a detail 404 is "not found", not an outage).
+    """
     req_headers = headers or _osonish_headers()
     try:
         async with aiohttp.ClientSession() as session:
@@ -50,19 +90,38 @@ async def fetch_json(
                 params=params,
                 headers=req_headers,
                 ssl=False,
-                timeout=aiohttp.ClientTimeout(total=15),
+                timeout=aiohttp.ClientTimeout(total=OSONISH_TIMEOUT_SECONDS),
             ) as resp:
                 if resp.status != 200:
-                    logger.error("fetch_json_http_error url=%s status=%s", url, resp.status)
-                    return None
-                data = await resp.json()
-                if isinstance(data, dict):
-                    return data
-                logger.error("fetch_json_invalid_type url=%s type=%s", url, type(data).__name__)
-                return None
-    except Exception as e:
-        logger.error("fetch_json_exception url=%s error=%s", url, e)
+                    return resp.status, None
+                try:
+                    return 200, await resp.json(content_type=None)
+                except (ValueError, aiohttp.ContentTypeError) as exc:
+                    raise UpstreamError("invalid_json", 200) from exc
+    except UpstreamError:
+        raise
+    except Exception as exc:  # aiohttp.ClientError, asyncio.TimeoutError, OSError
+        raise UpstreamError(f"transport: {type(exc).__name__}: {exc}") from exc
+
+
+async def fetch_json(
+    url: str,
+    params: Optional[dict[str, Any]] = None,
+    headers: Optional[dict[str, str]] = None,
+) -> Optional[dict[str, Any]]:
+    """Lenient variant for best-effort callers (bot region seeding): ``None`` on any failure."""
+    try:
+        status, data = await request_json(url, params=params, headers=headers)
+    except UpstreamError as exc:
+        logger.error("fetch_json_exception url=%s error=%s", url, exc)
         return None
+    if status != 200:
+        logger.error("fetch_json_http_error url=%s status=%s", url, status)
+        return None
+    if isinstance(data, dict):
+        return data
+    logger.error("fetch_json_invalid_type url=%s type=%s", url, type(data).__name__)
+    return None
 
 
 def _fmt_osonish_salary(min_salary: Any, max_salary: Any, lang: str = DEFAULT_LANG) -> str:
@@ -112,17 +171,16 @@ async def fetch_osonish_list(
     if search:
         params["search"] = search
 
-    payload = await fetch_json(f"{OSONISH_BASE}/vacancies", params=params, headers=_osonish_headers())
-    if not payload:
-        return [], 1
+    status, payload = await request_json(f"{OSONISH_BASE}/vacancies", params=params, headers=_osonish_headers())
+    if status != 200:
+        raise UpstreamError("http_status", status)
 
     data_block = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data_block, dict):
-        return [], 1
-
-    items = data_block.get("data")
+    items = data_block.get("data") if isinstance(data_block, dict) else None
     if not isinstance(items, list):
-        return [], int(data_block.get("last_page") or 1)
+        # A real "no results" is ``{"data": {"data": [], ...}}``; anything else
+        # is a broken answer and must not be served (or cached) as empty.
+        raise UpstreamError("invalid_payload", status)
 
     vacancies: list[Vacancy] = []
     for item in items:
@@ -157,12 +215,32 @@ async def fetch_osonish_list(
             )
         )
 
-    return vacancies, int(data_block.get("last_page") or 1)
+    return vacancies, _last_page(data_block)
+
+
+def _last_page(data_block: dict[str, Any]) -> int:
+    try:
+        return max(1, int(data_block.get("last_page") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+async def get_osonish_detail(vacancy_id: int) -> Optional[dict[str, Any]]:
+    """The vacancy, ``None`` when osonish says it does not exist, ``UpstreamError`` on an outage."""
+    status, payload = await request_json(f"{OSONISH_BASE}/vacancies/{vacancy_id}", headers=_osonish_headers())
+    if status == 404:
+        return None
+    if status != 200 or not isinstance(payload, dict):
+        raise UpstreamError("http_status" if status != 200 else "invalid_payload", status)
+    data = payload.get("data")
+    # A 200 without a vacancy object is osonish's other way of saying "gone".
+    return data if isinstance(data, dict) else None
 
 
 async def fetch_osonish_detail(vacancy_id: int) -> Optional[dict[str, Any]]:
-    payload = await fetch_json(f"{OSONISH_BASE}/vacancies/{vacancy_id}", headers=_osonish_headers())
-    if not payload:
+    """Lenient variant for the bot (deeplink, auto-post): ``None`` on not-found *and* on an outage."""
+    try:
+        return await get_osonish_detail(vacancy_id)
+    except UpstreamError as exc:
+        logger.error("osonish_detail_failed id=%s error=%s", vacancy_id, exc)
         return None
-    data = payload.get("data") if isinstance(payload, dict) else None
-    return data if isinstance(data, dict) else None
