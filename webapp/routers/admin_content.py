@@ -10,8 +10,9 @@ since content editing is a single-role area.
 HTML in ``full_text``/``summary``/``title``/``source_label``/category
 ``name`` fields is restricted to a small allowlist
 (``<b> <i> <u> <a href> <code> <br>``); anything else — an unknown tag, an
-attribute other than ``href`` on ``<a>``, or an unbalanced open/close pair —
-is rejected with ``VALIDATION_ERROR``. This is deliberately not a permissive
+``<a>`` whose attribute text is not exactly one quoted ``href`` with an
+allowed scheme, any attribute on another tag, a self-closed non-void tag, or
+an unbalanced open/close pair — is rejected with ``VALIDATION_ERROR``. This is deliberately not a permissive
 HTML sanitizer: it is a strict allow-then-reject scanner, so ambiguous input
 fails closed.
 """
@@ -54,7 +55,15 @@ VOID_TAGS = {"br"}
 _TAG_RE = re.compile(
     r"<(?P<closing>/?)(?P<name>[a-zA-Z][a-zA-Z0-9]*)(?P<attrs>(?:\s+[^<>]*?)?)\s*(?P<selfclose>/?)>"
 )
-_ATTR_RE = re.compile(r'([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(".*?"|\'.*?\')')
+#: The complete attribute text an ``<a>`` tag may carry: one ``href`` with a
+#: double- or single-quoted value and nothing else. The value may not contain
+#: either quote, a backtick or angle brackets, so it cannot close itself early
+#: and smuggle a second attribute. Anything left over (an unquoted value, an
+#: event handler, a bare attribute, a duplicate ``href``) fails the full match.
+_A_ATTRS_RE = re.compile(
+    r"""href\s*=\s*(?:"(?P<dq>[^"'`<>]*)"|'(?P<sq>[^"'`<>]*)')""",
+    re.IGNORECASE,
+)
 
 #: The only URL schemes an ``<a href>`` may carry. Everything else — most of
 #: all ``javascript:`` and ``data:`` — is stored XSS the moment the Mini App
@@ -100,21 +109,22 @@ def _html_is_valid(value: str) -> bool:
         selfclose = m.group("selfclose") == "/"
         attrs_raw = (m.group("attrs") or "").strip()
         if closing:
-            if attrs_raw or not stack or stack[-1] != name:
+            if attrs_raw or selfclose or not stack or stack[-1] != name:
                 return False
             stack.pop()
             continue
         if name == "a":
-            attr_matches = _ATTR_RE.findall(attrs_raw)
-            attr_names = {a[0].lower() for a in attr_matches}
-            if attr_names - {"href"} or "href" not in attr_names:
+            attr = _A_ATTRS_RE.fullmatch(attrs_raw)
+            if attr is None:
                 return False
-            href = next(a[1] for a in attr_matches if a[0].lower() == "href")[1:-1]
+            href = attr.group("dq") if attr.group("dq") is not None else attr.group("sq")
             if not href_is_safe(href):
                 return False
         elif attrs_raw:
             return False
-        if name not in VOID_TAGS and not selfclose:
+        if name not in VOID_TAGS:
+            # A trailing slash does not close a non-void tag (browsers ignore
+            # it), so ``<b/>`` stays open and must still be balanced.
             stack.append(name)
     tail = value[last_end:]
     if "<" in tail or ">" in tail:
