@@ -12,6 +12,12 @@ from fastapi import HTTPException
 AUTH_REQUIRED = "AUTH_REQUIRED"
 INVALID_INIT_DATA = "INVALID_INIT_DATA"
 SESSION_EXPIRED = "SESSION_EXPIRED"
+# Signed bot keyboard link (``?bt=``, POST /api/auth/bot-link): forged,
+# malformed, expired, revoked or for an unknown user — deliberately one code.
+BOT_LINK_INVALID = "BOT_LINK_INVALID"
+# A valid link needs the user's explicit «Kirish» first (409, ``name`` = the
+# link owner's first name); the client repeats the call with ``confirm: true``.
+BOT_LINK_CONFIRM = "BOT_LINK_CONFIRM"
 # ADMIN_REQUIRED doubles as the insufficient-role error: when a route needs a
 # role above the actor's, the detail carries ``required_role`` (see require_role).
 ADMIN_REQUIRED = "ADMIN_REQUIRED"
