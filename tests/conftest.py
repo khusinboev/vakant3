@@ -36,6 +36,8 @@ os.environ.update(
         "WEBAPP_ORIGIN": "http://localhost:5173",
         "WEBAPP_URL": "https://abitur24.uz/app",
         "REDIS_URL": "",
+        # Plain fallback emoji by default; premium-emoji tests switch it on explicitly.
+        "BOT_PREMIUM_EMOJI": "0",
     }
 )
 

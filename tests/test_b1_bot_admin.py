@@ -39,6 +39,7 @@ from aiogram.types import (
     User,
 )
 
+from src.buttons.buttuns import button_text
 from src.db.connection import connect as real_connect
 from src.db.migrate import run_migrations
 from src.filters import admin as admin_filter
@@ -249,18 +250,18 @@ async def test_admin_menu_has_the_mini_app_button(harness):
     button = sent[1].reply_markup.inline_keyboard[0][0]
     assert button.web_app.url == "https://abitur24.uz/admin"
     labels = [b.text for row in sent[0].reply_markup.keyboard for b in row]
-    assert t("uz", "btn.admin.ads") in labels
+    assert button_text("uz", "btn.admin.ads") in labels
 
 
 async def test_viewer_menu_hides_admin_actions(harness):
     await harness.send(VIEWER, "/admin")
     labels = [b.text for row in harness.session.of(SendMessage)[0].reply_markup.keyboard for b in row]
-    assert t("uz", "btn.admin.stats") in labels
-    assert t("uz", "btn.admin.ads") not in labels
+    assert button_text("uz", "btn.admin.stats") in labels
+    assert button_text("uz", "btn.admin.ads") not in labels
     await harness.send(VIEWER, t("uz", "btn.admin.channels"))
     labels = [b.text for row in harness.session.of(SendMessage)[-1].reply_markup.keyboard for b in row]
-    assert t("uz", "btn.admin.channel_add") not in labels
-    assert t("uz", "btn.admin.channel_list") in labels
+    assert button_text("uz", "btn.admin.channel_add") not in labels
+    assert button_text("uz", "btn.admin.channel_list") in labels
 
 
 @pytest.mark.parametrize("user_id", [VIEWER, MODERATOR])
@@ -339,7 +340,7 @@ async def test_full_wizard_preview_count_then_queue_once(harness):
     # The recipient count is shown before anything is queued.
     card = session.of(SendMessage)[-1]
     assert f"<b>{UZ_RECIPIENTS}</b>" in card.text
-    assert t("uz", "bc.btn.send", count=UZ_RECIPIENTS) in [b.text for row in card.reply_markup.inline_keyboard for b in row]
+    assert button_text("uz", "bc.btn.send", count=UZ_RECIPIENTS) in [b.text for row in card.reply_markup.inline_keyboard for b in row]
     rows = await harness.rows("SELECT status, kind, target_json, buttons_json FROM broadcasts WHERE id = ?", (broadcast_id,))
     status, kind, target_json, buttons_json = rows[0]
     assert status == "draft" and kind == "forward"

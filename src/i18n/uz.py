@@ -9,30 +9,37 @@ STRINGS: dict[str, str] = {
     "common.available": "Bor",
     "common.unavailable": "Yo'q",
     "common.not_available": "Mavjud emas",
-    "common.back": "◀️ Orqaga",
+    "common.back": "Orqaga",
 
     # ── Foydalanuvchi menyusi ─────────────────────────────────
-    "menu.laws": "⚖️ Qonunchilik",
-    "menu.hr": "💡 HR Maslahatlar",
+    "menu.laws": "Qonunchilik",
+    "menu.hr": "HR Maslahatlar",
 
     # ── /start ────────────────────────────────────────────────
-    "start.loading_vacancy": "⏳ Vakansiya ma'lumotlari yuklanmoqda...",
+    "start.loading_vacancy": "{e:hourglass} Vakansiya ma'lumotlari yuklanmoqda...",
     "start.bad_vacancy_link": "❌ Noto'g'ri vakansiya havolasi.",
     "start.vacancy_not_found": "❌ Vakansiya topilmadi yoki ma'lumot olishda xato.",
-    "start.extra_sections": "Qo'shimcha bo'limlar:",
     "start.greeting": (
-        "Assalomu alaykum, {name}!\n"
-        "Botimizga xush kelibsiz. Kerakli bo'limni tanlang!"
+        "{e:wave} Assalomu alaykum, <b>{name}</b>!\n\n"
+        "Bandlik.uz botida vakansiyalarni qidiring, saqlang va yangi ishlar haqida xabar oling.\n"
+        "{e:laws} Mehnat qonunchiligi va {e:tips} HR maslahatlar pastdagi menyuda."
     ),
     "start.subscribe_prompt": "Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:",
-    "start.btn.jobs": "💼 Ish qidirish",
-    "start.btn.profile": "👤 Profil",
-    "start.btn.saves": "🗂 Saqlanganlar",
-    "start.btn.subscribed": "✅ Obuna bo'ldim",
+    "start.app_prompt": "{e:job} Vakansiyalar, profil va saqlanganlar — ilovada:",
+    "start.btn.open_app": "Ilovada ochish",
+    "start.btn.open_in_bot": "Botda batafsil",
+    "bot.menu_button": "Ilova",
+    "cmd.start": "Botni boshlash",
+    "cmd.lang": "Tilni o'zgartirish",
+    "cmd.admin": "Admin panel",
+    "start.btn.jobs": "Ish qidirish",
+    "start.btn.profile": "Profil",
+    "start.btn.saves": "Saqlanganlar",
+    "start.btn.subscribed": "Obuna bo'ldim",
     "start.channel_fallback": "Kanal",
     "start.check.ok": "✅ Tasdiqlandi!",
     "start.check.welcome": (
-        "Xush kelibsiz, {name}!\n"
+        "{e:party} Xush kelibsiz, <b>{name}</b>!\n"
         "Endi botdan to'liq foydalanishingiz mumkin."
     ),
     "start.check.fail": (
@@ -43,18 +50,20 @@ STRINGS: dict[str, str] = {
 
     # ── Referral ──────────────────────────────────────────────
     "referral.reward_notice": (
-        "🎉 Yangi foydalanuvchi sizning havolangiz orqali qo'shildi!\n"
-        "Hisobingizga <b>{reward} so'm</b> qo'shildi."
+        "{e:party} Yangi foydalanuvchi sizning havolangiz orqali qo'shildi!\n"
+        "{e:wallet} Hisobingizga <b>{reward} so'm</b> qo'shildi."
     ),
     "referral.gate": (
-        "🔒 Botdan foydalanish uchun referral sharti yoqilgan.\n\n"
-        "📊 Holat: {current}/{required}\n"
-        "👥 Avval do'stlaringizni taklif qiling:\n"
+        "{e:lock} Botdan foydalanish uchun referral sharti yoqilgan.\n\n"
+        "{e:stats} Holat: {current}/{required}\n"
+        "{e:group} Avval do'stlaringizni taklif qiling:\n"
         "{link}"
     ),
+    "referral.btn.share": "Do'stlarga ulashish",
+    "referral.share_text": "Bandlik.uz — vakansiyalar va ish e'lonlari boti. Qo'shiling!",
 
     # ── Til tanlash ───────────────────────────────────────────
-    "lang.choose": "🌐 Tilni tanlang:",
+    "lang.choose": "{e:lang} Tilni tanlang:",
     "lang.saved": "✅ Til o'zgartirildi: O'zbekcha",
     "lang.name.uz": "🇺🇿 O'zbekcha",
     "lang.name.ru": "🇷🇺 Русский",
@@ -62,13 +71,15 @@ STRINGS: dict[str, str] = {
 
     # ── Kontent: qonunchilik va HR ────────────────────────────
     "content.laws.header": (
-        "📚 <b>O'zbekiston Mehnat Kodeksi</b>\n\nQiziqtirgan maqolani tanlang:"
+        "{e:laws} <b>O'zbekiston Mehnat Kodeksi</b>\n\n"
+        "Qiziqtirgan maqolani tanlang:"
     ),
     "content.laws.not_found": "Maqola topilmadi",
-    "content.laws.read_more": "🔗 lex.uz'da o'qish",
+    "content.laws.read_more": "lex.uz'da o'qish",
     "content.truncated": "<i>... (to'liq o'qish uchun)</i>",
     "content.hr.header": (
-        "🎯 <b>HR Maslahatlar</b>\n\nKariyerangizni rivojlantirish uchun amaliy tavsiyalar:"
+        "{e:tips} <b>HR Maslahatlar</b>\n\n"
+        "Kariyerangizni rivojlantirish uchun amaliy tavsiyalar:"
     ),
     "content.hr.not_found": "Maslahat topilmadi",
 
@@ -128,20 +139,20 @@ STRINGS: dict[str, str] = {
     "vacancy.label.email": "Email",
 
     # ── Bildirishnomalar ──────────────────────────────────────
-    "notify.header": "📌 <b>Siz uchun ish tavsiyasi</b>",
+    "notify.header": "{e:bell} <b>Siz uchun ish tavsiyasi</b>",
     "notify.details": "Batafsil ko'rish",
 
     # ── Admin: tugmalar ───────────────────────────────────────
-    "btn.admin.stats": "📊Statistika",
-    "btn.admin.channels": "🔧Kanallar",
-    "btn.admin.ads": "📤Reklama",
-    "btn.admin.channel_add": "➕Kanal qo'shish",
-    "btn.admin.channel_del": "❌Kanalni olib tashlash",
-    "btn.admin.channel_list": "📋 Kanallar ro'yxati",
-    "btn.admin.back": "🔙Orqaga qaytish",
+    "btn.admin.stats": "Statistika",
+    "btn.admin.channels": "Kanallar",
+    "btn.admin.ads": "Reklama",
+    "btn.admin.channel_add": "Kanal qo'shish",
+    "btn.admin.channel_del": "Kanalni olib tashlash",
+    "btn.admin.channel_list": "Kanallar ro'yxati",
+    "btn.admin.back": "Orqaga qaytish",
 
     # ── Admin: xabarlar ───────────────────────────────────────
-    "admin.hello": "Assalomu alaykum admin",
+    "admin.hello": "{e:admin} Assalomu alaykum admin",
     "admin.main_menu": "Bosh menyu",
     "admin.choose": "Tanlang",
     "admin.channel_add_prompt": (
@@ -154,7 +165,7 @@ STRINGS: dict[str, str] = {
     "admin.text_required": "Iltimos, matn ko'rinishida yuboring.",
     "admin.channel_bad_format": "Kanal useri xato! @coder_admin formatida kiriting",
     "admin.channel_exists": "Bu kanal allaqachon qo'shilgan",
-    "admin.channel_added": "Kanal qo'shildi 🎉",
+    "admin.channel_added": "{e:party} Kanal qo'shildi",
     "admin.channel_missing": "Bunday kanal yo'q",
     "admin.channel_deleted": "Kanal o'chirildi",
     "admin.channels_empty": "Hozircha kanallar yo'q",
@@ -170,7 +181,7 @@ STRINGS: dict[str, str] = {
         "✅ Yuborildi: {ok} ta\n"
         "❌ Yuborilmadi: {fail} ta"
     ),
-    "admin.stats.header": "📊 <b>Foydalanuvchilar statistikasi</b> 📊",
+    "admin.stats.header": "{e:stats} <b>Foydalanuvchilar statistikasi</b>",
     "admin.stats.total": "Jami: {count} ta",
     "admin.stats.blocked": "🚫 Botni bloklaganlar: {count} ta",
     "admin.stats.last3m": "So'nggi 3 oy (Jami: {count} ta):",
@@ -192,17 +203,17 @@ STRINGS: dict[str, str] = {
     "admin.channels_none": "Kanallar mavjud emas",
 
     # ── Admin: broadcast wizard ───────────────────────────────
-    "btn.admin.bc_new": "🆕 Yangi xabar",
-    "btn.admin.bc_list": "📋 Xabarlar",
-    "btn.admin.webapp": "🖥 Admin panelni ochish",
-    "admin.webapp_hint": "Kengaytirilgan boshqaruv Mini App ichida:",
+    "btn.admin.bc_new": "Yangi xabar",
+    "btn.admin.bc_list": "Xabarlar",
+    "btn.admin.webapp": "Admin panelni ochish",
+    "admin.webapp_hint": "{e:app} Kengaytirilgan boshqaruv Mini App ichida:",
     "admin.denied": "⛔ Bu amal uchun ruxsatingiz yo'q.",
     "bc.prompt_content": "Yuboriladigan xabarni yuboring: matn, rasm, video, hujjat yoki GIF.\nFormatlash va emojilar saqlanadi.",
     "bc.bad_content": "Bu turdagi xabar qo'llab-quvvatlanmaydi. Matn, rasm, video, hujjat yoki GIF yuboring.",
     "bc.album_unsupported": "Albom (bir nechta rasm yoki video) qo'llab-quvvatlanmaydi. Bitta xabar yuboring: bitta rasm, video yoki hujjat, kerak bo'lsa izoh bilan.",
     "bc.prompt_button": "Tugma qo'shish uchun <code>Matn | https://...</code> ko'rinishida yuboring yoki «O'tkazib yuborish» ni bosing.",
     "bc.bad_button": "Tugma formati xato. Misol: <code>Batafsil | https://bandlik.uz</code> (matn 64 belgigacha, havola http yoki https).",
-    "bc.prompt_audience": "👥 Kimga yuboramiz?",
+    "bc.prompt_audience": "{e:group} Kimga yuboramiz?",
     "bc.empty_segment": "Bu auditoriyada qabul qiluvchi yo'q. Boshqasini tanlang.",
     "bc.preview_card": "👆 Xabar foydalanuvchilarga shunday ko'rinadi.\n\n👥 Auditoriya: {segment}\n📨 Qabul qiluvchilar: <b>{count}</b>\n🔘 Tugma: {button}\n\nYuborishdan oldin «🧪 O'zimga sinov» bilan tekshirib ko'ring.",
     "bc.no_button": "yo'q",
@@ -223,19 +234,19 @@ STRINGS: dict[str, str] = {
     "bc.state_changed": "Holat: {status}",
     "bc.state_unchanged": "Hozirgi holatda bu amalni bajarib bo'lmaydi",
     "bc.stop_confirm": "\n\n⚠️ Xabarni butunlay to'xtatasizmi? Buni qaytarib bo'lmaydi.",
-    "bc.list_header": "📋 <b>So'nggi xabarlar</b>",
+    "bc.list_header": "{e:list} <b>So'nggi xabarlar</b>",
     "bc.list_row": "#{id} · {status} · {done}/{total}",
     "bc.list_empty": "Hozircha xabarlar yo'q",
-    "bc.btn.skip": "⏭ O'tkazib yuborish",
-    "bc.btn.cancel": "✖ Bekor qilish",
-    "bc.btn.test": "🧪 O'zimga sinov",
-    "bc.btn.send": "✅ {count} kishiga yuborish",
-    "bc.btn.pause": "⏸ Pauza",
-    "bc.btn.resume": "▶ Davom ettirish",
-    "bc.btn.stop": "✖ To'xtatish",
-    "bc.btn.stop_yes": "✅ Ha, to'xtatish",
-    "bc.btn.stop_no": "◀ Yo'q",
-    "bc.btn.refresh": "🔄 Yangilash",
+    "bc.btn.skip": "O'tkazib yuborish",
+    "bc.btn.cancel": "Bekor qilish",
+    "bc.btn.test": "O'zimga sinov",
+    "bc.btn.send": "{count} kishiga yuborish",
+    "bc.btn.pause": "Pauza",
+    "bc.btn.resume": "Davom ettirish",
+    "bc.btn.stop": "To'xtatish",
+    "bc.btn.stop_yes": "Ha, to'xtatish",
+    "bc.btn.stop_no": "Yo'q",
+    "bc.btn.refresh": "Yangilash",
     "bc.seg.all": "👥 Hammasi",
     "bc.seg.pro": "⭐ Pro",
     "bc.seg.free": "🆓 Bepul",

@@ -59,7 +59,7 @@ from src.buttons.buttuns import (
 from src.core.timeutil import month_end, month_step_back, now_tz
 from src.db.connection import connect
 from src.filters.admin import IsAdmin, current_admin_role
-from src.filters.text_key import TextKey
+from src.filters.text_key import TextKey, text_matches
 from src.functions.admin_audit import log_bot_action
 from src.functions.admin_roles import broadcast_admin_ids, has_role
 from src.functions.broadcast_control import set_broadcast_state
@@ -71,7 +71,7 @@ from src.functions.broadcast_worker import (
     queue_broadcast,
 )
 from src.functions.functions import panel_func, parse_channel_link
-from src.i18n import DEFAULT_LANG, key_for_text, t
+from src.i18n import DEFAULT_LANG, t
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ def _first_album_part(message: Message) -> bool:
 
 def _is_back(message: Message) -> bool:
     """Har qanday tildagi «Orqaga» tugmasi."""
-    return key_for_text(getattr(message, "text", None)) == "btn.admin.back"
+    return text_matches(getattr(message, "text", None), "btn.admin.back")
 
 
 # ── Menu ────────────────────────────────────────────────────────────────
@@ -323,7 +323,7 @@ async def channel_add_process(
         await message.reply(t(lang, "admin.text_required"), reply_markup=back_btn(lang))
         return
 
-    if key_for_text(message.text) == "btn.admin.back":
+    if _is_back(message):
         await state.clear()
         await message.reply(t(lang, "admin.cancelled"), reply_markup=main_btn(lang, admin_role))
         return
@@ -399,7 +399,7 @@ async def channel_delete_process(
         await message.reply(t(lang, "admin.text_required"), reply_markup=back_btn(lang))
         return
 
-    if key_for_text(message.text) == "btn.admin.back":
+    if _is_back(message):
         await state.clear()
         await message.reply(t(lang, "admin.cancelled"), reply_markup=main_btn(lang, admin_role))
         return
