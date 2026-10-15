@@ -38,6 +38,8 @@ FINANCE_KINDS: tuple[str, ...] = (
     "admin_credit",
     "admin_reset",
     "adjustment",
+    "topup",
+    "topup_bonus",
 )
 
 # SQLite expression bucketing a unix-seconds column into an Asia/Tashkent
@@ -145,6 +147,9 @@ class FinanceTotals(BaseModel):
     admin_credits: int
     referral_payouts: int
     balance_outstanding: int
+    #: m020: paid Click top-ups and the payment bonus credited for them.
+    topups: int = 0
+    topup_bonuses: int = 0
 
 
 class FinanceSeriesPoint(BaseModel):
@@ -210,7 +215,9 @@ async def get_finance_summary(
             COALESCE(SUM(CASE WHEN kind = 'pro_activation' THEN -amount ELSE 0 END), 0) AS revenue,
             COALESCE(SUM(CASE WHEN kind = 'pro_activation' THEN 1 ELSE 0 END), 0) AS activations,
             COALESCE(SUM(CASE WHEN kind = 'admin_credit' THEN amount ELSE 0 END), 0) AS admin_credits,
-            COALESCE(SUM(CASE WHEN kind = 'referral_reward' THEN amount ELSE 0 END), 0) AS referral_payouts
+            COALESCE(SUM(CASE WHEN kind = 'referral_reward' THEN amount ELSE 0 END), 0) AS referral_payouts,
+            COALESCE(SUM(CASE WHEN kind = 'topup' THEN amount ELSE 0 END), 0) AS topups,
+            COALESCE(SUM(CASE WHEN kind = 'topup_bonus' THEN amount ELSE 0 END), 0) AS topup_bonuses
         FROM wallet_transactions
         WHERE created_at >= ?
         """,
@@ -227,6 +234,8 @@ async def get_finance_summary(
         admin_credits=int(totals_row["admin_credits"] if totals_row else 0),
         referral_payouts=int(totals_row["referral_payouts"] if totals_row else 0),
         balance_outstanding=int(balance_row["s"] if balance_row else 0),
+        topups=int(totals_row["topups"] if totals_row else 0),
+        topup_bonuses=int(totals_row["topup_bonuses"] if totals_row else 0),
     )
 
     series_cursor = await db.execute(
@@ -433,3 +442,121 @@ async def list_finance_referrals(
         cache_key,
         FinanceReferralsResponse(items=items, next_cursor=next_cursor, total=total),
     )
+
+
+# --------------------------------------------------------------------------
+# Click payment orders (m020, webapp/payments) — read-only
+# --------------------------------------------------------------------------
+
+PAYMENT_STATES: tuple[str, ...] = ("created", "pending", "paid", "cancelled")
+PAYMENT_METHODS: tuple[str, ...] = ("page", "card", "phone", "app")
+
+
+class FinancePaymentItem(BaseModel):
+    id: str
+    user_id: int
+    amount: int
+    state: str
+    method: str | None = None
+    provider_txn: str | None = None
+    bonus_amount: int = 0
+    bonus_percent: int = 0
+    created_at: int
+    paid_at: int | None = None
+    cancelled_at: int | None = None
+    cancel_reason: int | None = None
+
+
+class FinancePaymentsResponse(BaseModel):
+    items: list[FinancePaymentItem]
+    next_cursor: str | None = None
+    total: int | None = None
+
+
+@router.get("/payments", response_model=FinancePaymentsResponse)
+@limiter.limit("60/minute")
+async def list_finance_payments(
+    request: Request,
+    status: str | None = Query(default=None),
+    method: str | None = Query(default=None),
+    user_id: int | None = Query(default=None),
+    from_ts: int | None = Query(default=None, alias="from"),
+    to_ts: int | None = Query(default=None, alias="to"),
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    admin=Depends(require_role("viewer")),
+    db=Depends(get_db),
+) -> FinancePaymentsResponse:
+    if status is not None and status not in PAYMENT_STATES:
+        raise errors.validation_error("status")
+    if method is not None and method not in PAYMENT_METHODS:
+        raise errors.validation_error("method")
+
+    where: list[str] = []
+    params: list[Any] = []
+    if status is not None:
+        where.append("state = ?")
+        params.append(status)
+    if method is not None:
+        where.append("click_method = ?")
+        params.append(method)
+    if user_id is not None:
+        where.append("user_id = ?")
+        params.append(int(user_id))
+    if from_ts is not None:
+        where.append("created_at >= ?")
+        params.append(int(from_ts))
+    if to_ts is not None:
+        where.append("created_at <= ?")
+        params.append(int(to_ts))
+
+    inner = "SELECT 1 FROM payment_orders"
+    if where:
+        inner += " WHERE " + " AND ".join(where)
+    count_cursor = await db.execute(
+        f"SELECT COUNT(*) AS c FROM ({inner} LIMIT ?)", (*params, COUNT_CAP + 1)
+    )
+    count_row = await count_cursor.fetchone()
+    counted = int(count_row["c"] if count_row else 0)
+    total: int | None = None if counted > COUNT_CAP else counted
+
+    page_where = list(where)
+    page_params = list(params)
+    if cursor:
+        parts = _decode_cursor(cursor)
+        try:
+            before_seq = int(parts[0])
+        except ValueError as exc:
+            raise errors.validation_error("cursor") from exc
+        page_where.append("seq < ?")
+        page_params.append(before_seq)
+
+    sql = (
+        "SELECT seq, id, user_id, amount_soum, state, click_method, provider_txn, bonus_amount, "
+        "bonus_percent, created_at, perform_time, cancel_time, cancel_reason FROM payment_orders"
+    )
+    if page_where:
+        sql += " WHERE " + " AND ".join(page_where)
+    sql += " ORDER BY seq DESC LIMIT ?"
+    page_params.append(limit)
+    rows = await (await db.execute(sql, tuple(page_params))).fetchall()
+
+    items = [
+        FinancePaymentItem(
+            id=str(row["id"]),
+            user_id=int(row["user_id"]),
+            amount=int(row["amount_soum"]),
+            state=str(row["state"]),
+            method=row["click_method"],
+            provider_txn=row["provider_txn"],
+            bonus_amount=int(row["bonus_amount"] or 0),
+            bonus_percent=int(row["bonus_percent"] or 0),
+            created_at=int(row["created_at"]),
+            paid_at=int(row["perform_time"]) // 1000 if row["perform_time"] else None,
+            cancelled_at=int(row["cancel_time"]) // 1000 if row["cancel_time"] else None,
+            cancel_reason=row["cancel_reason"],
+        )
+        for row in rows
+    ]
+    next_cursor = _encode_cursor(int(rows[-1]["seq"])) if len(rows) == limit else None
+    return FinancePaymentsResponse(items=items, next_cursor=next_cursor, total=total)
