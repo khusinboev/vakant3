@@ -409,3 +409,27 @@ async def test_known_api_path_with_wrong_method_stays_405(client):
     assert (await client.delete("/api/health")).status_code == 405
     assert (await client.post("/api/jobs/osonish_1", headers=HEADERS)).status_code == 405
     assert (await client.get("/api/health")).json() == {"ok": True}
+
+
+@pytest.fixture
+def spa_catch_all():
+    """Production shape: frontend/dist exists, so main.py registered GET /{path:path} last."""
+    async def frontend(path: str):
+        return {"spa": path}
+
+    before = list(app.router.routes)
+    app.add_api_route("/{path:path}", frontend, methods=["GET"])
+    try:
+        yield
+    finally:
+        app.router.routes[:] = before
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+async def test_unknown_api_path_is_404_json_with_the_spa_catch_all(client, spa_catch_all, method):
+    response = await client.request(method, "/api/definitely/not/here", headers=HEADERS)
+    assert response.status_code == 404, response.text
+    assert response.json() == {"detail": {"code": "NOT_FOUND", "resource": "endpoint"}}
+    # Known paths keep their 405, and non-API GETs still reach the SPA.
+    assert (await client.delete("/api/health")).status_code == 405
+    assert (await client.get("/some/page")).json() == {"spa": "some/page"}

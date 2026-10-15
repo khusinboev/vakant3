@@ -153,6 +153,11 @@ async def health() -> dict[str, bool]:
 _ANY_METHOD = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
 
+def _is_api_route(route) -> bool:
+    path = str(getattr(route, "path", "") or "")
+    return path == "/api" or path.startswith("/api/")
+
+
 @app.api_route("/api/{path:path}", methods=_ANY_METHOD, include_in_schema=False)
 async def api_not_found(request: Request, path: str):
     """Unknown ``/api/*`` path, any method: the documented 404 JSON error.
@@ -163,7 +168,10 @@ async def api_not_found(request: Request, path: str):
     route: anything registered after it is shadowed.
     """
     for route in request.app.router.routes:
-        if getattr(route, "endpoint", None) is api_not_found:
+        # Only real API routes count: the SPA catch-all (GET /{path:path},
+        # registered when frontend/dist exists, i.e. in production) matches
+        # every path and would turn each unknown POST into a 405 again.
+        if getattr(route, "endpoint", None) is api_not_found or not _is_api_route(route):
             continue
         match, _ = route.matches(request.scope)
         if match == Match.PARTIAL:
