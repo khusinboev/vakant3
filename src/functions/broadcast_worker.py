@@ -38,7 +38,20 @@ Design notes worth keeping:
 * **One flood pause for the whole process.** A 429 pauses every send
   (``SHARED_PAUSE``) for ``retry_after``; the unsent rest of the batch is
   released rather than held through the pause. The token bucket still paces
-  normal sending at 25/s.
+  normal sending at 25/s, and is drained after a pause so sending resumes at
+  that rate instead of with a burst of 25.
+* **Retries are at-least-once.** A ``network`` failure (timeout, dropped
+  connection, Telegram 5xx, undecodable body) does not prove the message was
+  *not* delivered: Telegram may have sent it before the answer was lost, and
+  the retry then delivers it a second time. That duplicate is the accepted
+  trade-off against silently skipping recipients. The one case where delivery
+  is known (``sent_unparsed``) is never retried.
+* **Results are not lost.** A batch's results are written even when the
+  worker is cancelled mid-batch (``main.py`` cancels it on every deploy): the
+  write runs to completion and the cancellation is re-raised after it; the
+  send that was in flight and the unsent rest go back to ``pending``. A
+  ``database is locked``/``busy`` write is retried (``WRITE_RETRY_DELAYS``).
+  Only a write that still fails leaves rows ``sending`` for the stale reset.
 * **Early abort.** When Telegram keeps rejecting the message itself, the job
   stops as ``failed``/``content_rejected`` instead of trying every recipient
   (``EARLY_ABORT_MIN_FAILURES``, ``EARLY_ABORT_RATIO``).
@@ -291,25 +304,46 @@ async def broadcast_breakdown(conn, broadcast_id: int) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 class TokenBucket:
-    """Smooth ``rate`` sends per second with a small burst allowance."""
+    """Smooth ``rate`` sends per second with a small burst allowance.
 
-    def __init__(self, rate: float = SEND_RATE_PER_SECOND, capacity: float | None = None) -> None:
+    Clock and sleep are injectable for tests.
+    """
+
+    def __init__(
+        self,
+        rate: float = SEND_RATE_PER_SECOND,
+        capacity: float | None = None,
+        *,
+        clock=time.monotonic,
+        sleep=asyncio.sleep,
+    ) -> None:
         self.rate = float(rate)
         self.capacity = float(capacity if capacity is not None else rate)
+        self._clock = clock
+        self._sleep = sleep
         self._tokens = self.capacity
-        self._updated = time.monotonic()
+        self._updated = clock()
         self._lock = asyncio.Lock()
+
+    def drain(self) -> None:
+        """Drop the burst allowance that piled up while nothing was sent.
+
+        Called after a flood pause: Telegram just asked us to slow down, so
+        sending resumes at the steady ``rate``, not with ``capacity`` at once.
+        """
+        self._tokens = 0.0
+        self._updated = self._clock()
 
     async def acquire(self, tokens: float = 1.0) -> None:
         async with self._lock:
             while True:
-                now = time.monotonic()
+                now = self._clock()
                 self._tokens = min(self.capacity, self._tokens + (now - self._updated) * self.rate)
                 self._updated = now
                 if self._tokens >= tokens:
                     self._tokens -= tokens
                     return
-                await asyncio.sleep((tokens - self._tokens) / self.rate)
+                await self._sleep((tokens - self._tokens) / self.rate)
 
 
 # ---------------------------------------------------------------------------
@@ -576,9 +610,13 @@ class SendPause:
     def remaining(self) -> float:
         return max(0.0, self._until - self._clock())
 
-    async def wait(self) -> None:
+    async def wait(self) -> bool:
+        """Sleep out the pause; True when there was one to wait for."""
+        waited = False
         while (left := self.remaining()) > 0:
+            waited = True
             await self._sleep(left)
+        return waited
 
 
 #: The instance the bot process uses. Tests pass their own.
@@ -957,7 +995,8 @@ async def run_broadcast(
     while max_batches is None or batches < max_batches:
         batches += 1
         # A flood pause is waited out here: no connection open, no row claimed.
-        await pause.wait()
+        if await pause.wait():
+            bucket.drain()
         async with connect() as conn:
             job = await _load_job(conn, broadcast_id)
             if job is None:

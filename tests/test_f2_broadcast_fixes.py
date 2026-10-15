@@ -89,6 +89,7 @@ class VirtualClock:
     async def sleep(self, seconds):
         self.sleeps.append(seconds)
         self.t += max(0.0, seconds)
+        await asyncio.sleep(0)
 
 
 class FakeBot:
@@ -377,3 +378,49 @@ async def test_write_retry_stops_after_the_last_delay(monkeypatch):
     with pytest.raises(sqlite3.OperationalError, match="locked"):
         await bw._write_results_retrying(None, 1, [], None, {}, ())
     assert len(calls) == 4  # the first try plus one per delay
+
+
+# ─── 4. Steady rate after a flood pause ─────────────────────────────────────
+
+async def test_sending_resumes_at_the_steady_rate_after_a_flood_pause(db_path, clock):
+    rate = 8.0  # 1/8 is exact in binary, so the virtual clock adds up without drift
+    await _make_db(db_path, 6)
+    connect = _connect_factory(db_path)
+    broadcast_id, _ = await _new_job(connect)
+    vclock = VirtualClock()
+    pause = bw.SendPause(clock=vclock, sleep=vclock.sleep)
+    bucket = bw.TokenBucket(rate=rate, clock=vclock, sleep=vclock.sleep)
+    bot = FakeBot(
+        behaviour={BASE + 1: [TelegramRetryAfter(method=None, message="flood", retry_after=30)]},
+        clock=vclock,
+    )
+
+    await _run(bot, connect, broadcast_id, bucket=bucket, pause=pause)
+
+    assert bot.calls == [BASE + 1, BASE + 2, BASE + 3, BASE + 4, BASE + 5, BASE + 6]
+    resumed = bot.times[1:]
+    assert resumed[0] >= 30.0  # nothing went out during the pause
+    # A full bucket would have let all five go at the same instant.
+    gaps = [later - earlier for earlier, later in zip(resumed, resumed[1:])]
+    assert all(gap == pytest.approx(1 / rate) for gap in gaps), gaps
+    assert resumed[0] - 30.0 == pytest.approx(1 / rate)
+
+
+async def test_token_bucket_drain_empties_it():
+    vclock = VirtualClock()
+    bucket = bw.TokenBucket(rate=4.0, clock=vclock, sleep=vclock.sleep)
+    await bucket.acquire()
+    assert vclock.t == 0.0  # starts full: the first send is immediate
+    vclock.t = 100.0  # a long idle refills it to capacity
+    bucket.drain()
+    await bucket.acquire()
+    assert vclock.t == pytest.approx(100.25)
+
+
+async def test_pause_wait_reports_whether_it_waited():
+    vclock = VirtualClock()
+    pause = bw.SendPause(clock=vclock, sleep=vclock.sleep)
+    assert await pause.wait() is False
+    pause.pause_for(5)
+    assert await pause.wait() is True
+    assert vclock.t == pytest.approx(5.0)
