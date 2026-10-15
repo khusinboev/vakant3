@@ -199,6 +199,7 @@ STRINGS: dict[str, str] = {
     "admin.denied": "⛔ You are not allowed to do this.",
     "bc.prompt_content": "Send the message to broadcast: text, photo, video, document or GIF.\nFormatting and emoji are kept.",
     "bc.bad_content": "This kind of message is not supported. Send text, a photo, video, document or GIF.",
+    "bc.album_unsupported": "Albums (several photos or videos) are not supported. Send a single message: one photo, video or document, with a caption if needed.",
     "bc.prompt_button": "To add a button send <code>Text | https://...</code> or tap «Skip».",
     "bc.bad_button": "Invalid button. Example: <code>Details | https://bandlik.uz</code> (text up to 64 characters, an http or https link).",
     "bc.prompt_audience": "👥 Who should receive it?",

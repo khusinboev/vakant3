@@ -229,3 +229,57 @@ async def test_watchers_per_broadcast_are_capped(harness):
     # The newest cards keep ticking; the oldest (OWNER's queue card first) stopped.
     assert (broadcast_id, OWNER, CARD) not in live
     assert all(key[1] == ADMIN for key in live)
+
+
+# ─── 3. albums at the content step ──────────────────────────────────────────
+
+def _album_part(i):
+    return {
+        "photo": [b1.PhotoSize(file_id=f"ph{i}", file_unique_id=f"u{i}", width=10, height=10)],
+        "media_group_id": "13579",
+        "caption": "Albom" if i == 0 else None,
+    }
+
+
+async def _state(harness, user_id=OWNER):
+    return b1.FSMContext(
+        harness.dp.storage, b1.StorageKey(bot_id=harness.bot.id, chat_id=user_id, user_id=user_id)
+    )
+
+
+async def test_an_album_is_refused_once_and_its_parts_are_not_button_input(harness):
+    await harness.send(OWNER, t("uz", "btn.admin.bc_new"))
+    for i in range(3):
+        await harness.send(OWNER, **_album_part(i))
+    assert harness.texts() == [t("uz", "bc.prompt_content"), t("uz", "bc.album_unsupported")]
+    state = await _state(harness)
+    assert await state.get_state() == b1.admin_handlers.BroadcastWizard.content.state
+    assert "src_msg" not in await state.get_data()
+
+    # A single message afterwards is the content, as usual.
+    single = await harness.send(OWNER, "Bitta xabar")
+    assert harness.texts()[-1] == t("uz", "bc.prompt_button")
+    assert (await state.get_data())["src_msg"] == single.message_id
+    assert t("uz", "bc.bad_button") not in harness.texts()
+
+
+async def test_concurrent_album_parts_get_one_answer(harness):
+    await harness.send(OWNER, t("uz", "btn.admin.bc_new"))
+    await asyncio.gather(*(harness.send(OWNER, **_album_part(i)) for i in range(4)))
+    assert harness.texts().count(t("uz", "bc.album_unsupported")) == 1
+    assert await (await _state(harness)).get_state() == b1.admin_handlers.BroadcastWizard.content.state
+
+
+async def test_an_album_at_the_button_step_is_answered_once(harness):
+    await harness.send(OWNER, t("uz", "btn.admin.bc_new"))
+    await harness.send(OWNER, "hello")
+    for i in range(3):
+        await harness.send(OWNER, **_album_part(i))
+    assert harness.texts().count(t("uz", "bc.bad_button")) == 1
+    assert await (await _state(harness)).get_state() == b1.admin_handlers.BroadcastWizard.button.state
+
+
+def test_album_message_is_translated():
+    texts = {lang: t(lang, "bc.album_unsupported") for lang in ("uz", "ru", "en")}
+    assert all(text != "bc.album_unsupported" for text in texts.values())
+    assert len(set(texts.values())) == 3

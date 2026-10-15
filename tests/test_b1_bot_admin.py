@@ -216,6 +216,7 @@ async def harness(tmp_path):
         task.cancel()
     admin_handlers._watchers.clear()
     admin_handlers._stop_pending.clear()
+    admin_handlers._albums_seen.clear()
     admin_filter.reset_admin_candidates()
 
 

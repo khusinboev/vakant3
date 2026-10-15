@@ -97,6 +97,11 @@ BUTTON_TEXT_MAX = 64
 BUTTON_URL_MAX = 1024
 LIST_LIMIT = 5
 WIZARD_SEGMENTS = frozenset(segment for segment, _ in BROADCAST_SEGMENTS)
+#: An album arrives as one update per item, all within about a second; its
+#: ``media_group_id`` is remembered this long so only the first part is answered.
+ALBUM_MEMORY_SECONDS = 60.0
+#: (chat id, media_group_id) -> when the first part was seen (monotonic).
+_albums_seen: dict[tuple[int, str], float] = {}
 
 
 class AdminStates(StatesGroup):
@@ -121,6 +126,23 @@ def admin_webapp_url() -> str:
     """
     parts = urlsplit(WEBAPP_URL)
     return urlunsplit((parts.scheme, parts.netloc, "/admin", "", ""))
+
+
+def _first_album_part(message: Message) -> bool:
+    """True for the first update of an album in this chat, False for the others.
+
+    Check-and-set with no await in between, so parts handled concurrently
+    cannot both count as the first.
+    """
+    now = time.monotonic()
+    for key, seen in list(_albums_seen.items()):
+        if now - seen > ALBUM_MEMORY_SECONDS:
+            del _albums_seen[key]
+    key = (message.chat.id, str(message.media_group_id))
+    if key in _albums_seen:
+        return False
+    _albums_seen[key] = now
+    return True
 
 
 def _is_back(message: Message) -> bool:
@@ -456,6 +478,12 @@ async def broadcast_list(message: Message, lang: str = DEFAULT_LANG):
 
 @router.message(BroadcastWizard.content, IsAdmin("admin"))
 async def wizard_content(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    if message.media_group_id:
+        # copyMessage sends one message; the album's other parts would reach
+        # the button step. Refuse once, stay here and drop the remaining parts.
+        if _first_album_part(message):
+            await message.answer(t(lang, "bc.album_unsupported"))
+        return
     if message.content_type not in CONTENT_TYPES:
         await message.answer(t(lang, "bc.bad_content"))
         return
@@ -489,6 +517,8 @@ def parse_button(text: Any) -> dict[str, str] | None:
 
 @router.message(BroadcastWizard.button, IsAdmin("admin"))
 async def wizard_button(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    if message.media_group_id and not _first_album_part(message):
+        return  # one answer per album, not one per item
     button = parse_button(message.text)
     if button is None:
         data = await state.get_data()
@@ -504,6 +534,8 @@ async def wizard_button(message: Message, state: FSMContext, lang: str = DEFAULT
 
 @router.message(StateFilter(BroadcastWizard.audience, BroadcastWizard.creating), IsAdmin("admin"))
 async def wizard_audience_text(message: Message, state: FSMContext, lang: str = DEFAULT_LANG):
+    if message.media_group_id and not _first_album_part(message):
+        return
     data = await state.get_data()
     await message.answer(
         t(lang, "bc.prompt_audience"), reply_markup=bc_audience_kb(lang, data.get("nonce", ""))
