@@ -207,6 +207,29 @@ Qo'lda backup:  ssh root@193.187.129.197 /home/vakant/backup_db.sh
 Tiklash:        gunzip -c data/backups/database_YYYYMMDD.sqlite3.gz > data/database.sqlite3
                 (avval systemctl stop vakant-api vakant-bot)
 
+Backup tiklanishini tekshirish (2026-10-15 dan, repo'da ops/restore_check.sh):
+  Eng yangi data/backups/*.sqlite3.gz ni vaqtinchalik papkaga ochadi, PRAGMA integrity_check
+  qiladi, users va schema_migrations ni sanaydi, bitta qator chiqaradi va nusxani o'chiradi.
+  Jonli DB ga umuman tegmaydi. Natija: "OK restore_check: ..." (exit 0) yoki "FAIL ..." (exit 1).
+  Qo'lda:   ssh root@193.187.129.197 /home/vakant/ops/restore_check.sh
+  Diqqat:   /tmp da bitta ochilgan DB nusxasi uchun joy bo'lishi kerak.
+
+CRON QATORLARINI QO'LDA O'RNATISH (egasi bajaradi, AI serverga kirmaydi):
+  1) ssh root@193.187.129.197
+  2) crontab -l > /root/crontab.bak.$(date +%Y%m%d)      # avval nusxa
+  3) crontab -e  va:
+     - eski "/home/vakant/healthcheck.sh" qatorini shu bilan ALMASHTIRING
+       (yangi versiya DB tekshiruvlari bilan, deploy bilan ops/ ichida yangilanib turadi):
+         */5 * * * * /home/vakant/ops/healthcheck.sh >> /var/log/vakant-health.log 2>&1
+     - yangi qator qo'shing (har yakshanba 03:40, kunlik backup 03:20 dan keyin):
+         40 3 * * 0 /home/vakant/ops/restore_check.sh >> /var/log/vakant-restore-check.log 2>&1
+  4) Tekshirish:
+       /home/vakant/ops/healthcheck.sh --db-only     # bo'sh qator = DB holati joyida
+       /home/vakant/ops/restore_check.sh             # "OK restore_check: ..." chiqishi kerak
+       tail -n 5 /var/log/vakant-restore-check.log   # haftalik natija
+  Eslatma: skriptlar bajariladigan (chmod 755) holda deploy qilinadi; agar
+  "Permission denied" bo'lsa: chmod 755 /home/vakant/ops/healthcheck.sh /home/vakant/ops/restore_check.sh
+
 
 ========================================================
   10. ADMIN PANEL v2 (2026-09-21 dan)
@@ -239,6 +262,12 @@ Tekshiruv (deploy'dan keyin):
 Monitoring (2026-09-21 dan): har 5 daqiqada /home/vakant/healthcheck.sh (cron) API health,
 servislar va disk (>=92%) ni tekshiradi; muammo boshlanganda va tiklanganda ADMIN_IDS ga
 bot orqali bir marta xabar yuboradi. Log: /var/log/vakant-health.log. Nusxa: ops/healthcheck.sh
+2026-10-15 dan ops/healthcheck.sh DB holatini ham tekshiradi (faqat o'qiydi, mode=ro):
+  - broadcast_<id>_stalled_<N>min : 'running' tarqatma 30 daqiqadan beri oldinga siljimagan
+  - errors_<N>_in_10min           : so'nggi 10 daqiqada error_log da 50 tadan ko'p yozuv
+  - db_size_<N>MB                 : DB fayli 1 GB dan katta
+  - db_missing / db_unreadable / db_check_failed : DB tekshiruvining o'zi ishlamadi
+  Cron qatorini yangi yo'lga o'tkazish: yuqoridagi 9-bo'lim, "CRON QATORLARINI QO'LDA O'RNATISH".
 
 
 ========================================================
