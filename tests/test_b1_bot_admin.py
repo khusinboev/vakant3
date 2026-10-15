@@ -207,6 +207,7 @@ async def harness(tmp_path):
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(admin_handlers.router)
     bound = functools.partial(real_connect, str(db_path))
+    admin_filter.reset_admin_candidates()
     with patch.object(admin_handlers, "connect", bound), patch.object(admin_filter, "connect", bound), \
             patch.object(admin_handlers, "bot", bot):
         yield Harness(bot, dp, session, db_path)
@@ -215,6 +216,7 @@ async def harness(tmp_path):
         task.cancel()
     admin_handlers._watchers.clear()
     admin_handlers._stop_pending.clear()
+    admin_filter.reset_admin_candidates()
 
 
 async def _wizard_to_audience(h: Harness, user_id=OWNER):

@@ -4,7 +4,8 @@
 #
 # Access: the role comes from the ``admins`` table on EVERY message and every
 # callback (src/filters/admin.py, src/functions/admin_roles.py), the same rule
-# as the API. Permissions mirror the API routers: statistics and the channel
+# as the API. Users outside a 30 s candidate set (enabled rows + ADMIN_IDS) are
+# refused without a query, so ordinary users' messages cost no connection here. Permissions mirror the API routers: statistics and the channel
 # list are viewer+, channel add/delete and broadcasts are admin+.
 #
 # Every mutation writes an ``admin_audit_log`` row (source=bot) in the same
