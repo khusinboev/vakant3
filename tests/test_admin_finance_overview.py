@@ -49,6 +49,7 @@ async def test_overview_aggregates(harness):
     await _order(h, "o1", user=USER, amount=10_000, state="paid", method="card", paid_at=now)
     await _order(h, "o2", user=USER, amount=5_000, state="paid", method="app", paid_at=now)
     await _order(h, "o3", user=USER, amount=7_000, state="paid", method="card", paid_at=old, created=old)
+    await _order(h, "o6", user=USER, amount=2_000, state="paid", method="card", paid_at=now - 3 * 86400, created=now - 3 * 86400)
     await _order(h, "o4", user=USER, amount=1_000, state="pending", method="card")
     await _order(h, "o5", user=USER, amount=1_000, state="cancelled", method="card")
     await _tx(h, USER, "pro_activation", -30_000, now)
@@ -60,11 +61,11 @@ async def test_overview_aggregates(harness):
     r = await h.http.get("/api/admin/finance/overview?days=7", headers=await h.session(VIEWER))
     assert r.status_code == 200, r.text
     b = r.json()
-    assert b["paid_period"] == {"count": 2, "sum": 15_000}
-    assert b["paid_all_time"] == {"count": 3, "sum": 22_000}
+    assert b["paid_period"] == {"count": 3, "sum": 17_000}
+    assert b["paid_all_time"] == {"count": 4, "sum": 24_000}
     assert b["pending_count"] == 1 and b["cancelled_count"] == 1
     assert {m["method"]: (m["count"], m["sum"]) for m in b["by_method"]} == {
-        "card": (1, 10_000),
+        "card": (2, 12_000),
         "app": (1, 5_000),
     }
     assert b["pro_buyers_period"] == 1 and b["pro_buyers_all_time"] == 2
