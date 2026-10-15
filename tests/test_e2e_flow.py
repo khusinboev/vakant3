@@ -552,6 +552,13 @@ def test_07_admin_users_list_detail_and_ban(env, tokens):
     assert banned.status_code == 200, banned.text
     assert banned.json()["banned"] is True
 
+    # A ban also revokes the user's sessions: the old token is dead.
+    expired = env.client.get("/api/jobs/search", headers=auth(tokens, "user"))
+    assert expired.status_code == 401, expired.text
+    assert query("SELECT COUNT(*) AS n FROM webapp_sessions WHERE user_id = ?", (USER_ID,)) == [{"n": 0}]
+
+    # Logging in again works (identity is still verified), but the gate refuses the banned user.
+    tokens["user"] = login(env.client, USER_ID)
     locked = env.client.get("/api/jobs/search", headers=auth(tokens, "user"))
     assert locked.status_code == 403, locked.text
     # The gate reports the ban before /start, subscription and the referral gate.
