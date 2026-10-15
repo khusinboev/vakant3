@@ -1,4 +1,5 @@
 import asyncio
+import re
 
 from fastapi import APIRouter, Depends, Query, Request
 
@@ -20,7 +21,7 @@ MAX_PARALLEL_DETAIL_FETCHES = 5
 
 def _row_to_raw_id(value: object) -> int | None:
     """saves.save_id is an INTEGER, but tolerate legacy 'osonish_<id>' text rows."""
-    s = str(value or "").strip()
+    s = "" if value is None else str(value).strip()
     if s.startswith("osonish_"):
         s = s.split("_", 1)[1]
     try:
@@ -30,8 +31,24 @@ def _row_to_raw_id(value: object) -> int | None:
 
 
 def _uid_to_raw_id(uid: str) -> int:
+    """Strict: what POST accepts as a new save."""
     raw_id = parse_osonish_uid(uid)
     if raw_id is None:
+        raise errors.api_error(400, errors.INVALID_UID, uid=uid[:64])
+    return raw_id
+
+
+_STORED_UID = re.compile(r"osonish_(-?[0-9]{1,19})")
+_INT64_MIN, _INT64_MAX = -(2**63), 2**63 - 1
+
+
+def _stored_uid_to_raw_id(uid: str) -> int:
+    """Lenient: any id a row can hold, so DELETE can remove saves made before
+    the strict check (``osonish_0``, negative or > 2**53 ids) — the list shows
+    them and they count toward ``FREE_SAVE_LIMIT``."""
+    match = _STORED_UID.fullmatch(uid)
+    raw_id = int(match.group(1)) if match else None
+    if raw_id is None or not (_INT64_MIN <= raw_id <= _INT64_MAX):
         raise errors.api_error(400, errors.INVALID_UID, uid=uid[:64])
     return raw_id
 
@@ -160,11 +177,12 @@ async def remove_save(
     user_id = int(user["user_id"])
     raise_if_referral_locked(await get_referral_gate_state(db, user_id))
 
-    raw_id = _uid_to_raw_id(uid)
+    raw_id = _stored_uid_to_raw_id(uid)
 
+    # Integer rows, plus legacy 'osonish_<id>' text rows the list also shows.
     await db.execute(
-        "DELETE FROM saves WHERE user_id = ? AND save_id = ?",
-        (user_id, raw_id),
+        "DELETE FROM saves WHERE user_id = ? AND save_id IN (?, ?)",
+        (user_id, raw_id, f"osonish_{raw_id}"),
     )
     await db.commit()
 

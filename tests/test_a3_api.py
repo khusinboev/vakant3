@@ -14,6 +14,7 @@ import json
 import time
 import urllib.parse
 
+import aiohttp
 import aiosqlite
 import httpx
 import pytest
@@ -89,6 +90,11 @@ async def client(monkeypatch, pool_size):
     await database.init_db()
     entry_gate.reset_users_columns_cache()
     monkeypatch.setattr(subscription, "_request", _telegram_member)
+
+    async def _no_network(*args, **kwargs):
+        raise AssertionError("an outbound HTTP call escaped the stubs")
+
+    monkeypatch.setattr(aiohttp.ClientSession, "_request", _no_network)
     cache_module._mem_cache.clear()
 
     await _sql("INSERT OR IGNORE INTO users (user_id, date, lang) VALUES (?, ?, 'uz')", (USER_ID, int(time.time())))
@@ -351,6 +357,46 @@ async def test_add_save_accepts_the_largest_id(client, monkeypatch):
     assert response.status_code == 200, response.text
     rows = await _sql("SELECT save_id FROM saves WHERE user_id = ?", (USER_ID,))
     assert [r["save_id"] for r in rows] == [MAX_OSONISH_ID]
+
+
+@pytest.mark.parametrize(
+    "stored, uid",
+    [
+        (0, "osonish_0"),
+        (-5, "osonish_-5"),
+        (MAX_OSONISH_ID + 1, f"osonish_{MAX_OSONISH_ID + 1}"),
+        (2**63 - 1, f"osonish_{2**63 - 1}"),
+        ("osonish_77", "osonish_77"),  # legacy text row
+    ],
+)
+async def test_legacy_rows_rejected_by_post_can_still_be_deleted(client, monkeypatch, stored, uid):
+    """Rows stored before the strict uid check must not stay stuck in the free 5-save limit."""
+    async def gone(raw_id):
+        return None
+
+    monkeypatch.setattr(saves_router, "get_osonish_detail", gone)
+    await _sql("INSERT INTO saves (user_id, save_id) VALUES (?, ?)", (USER_ID, stored))
+    listed = (await client.get("/api/saves", headers=HEADERS)).json()
+    assert [item["uid"] for item in listed["items"]] == [uid]
+
+    response = await client.delete(f"/api/saves/{uid}", headers=HEADERS)
+    assert response.status_code == 200, response.text
+    assert await _sql("SELECT save_id FROM saves WHERE user_id = ?", (USER_ID,)) == []
+
+
+@pytest.mark.parametrize("uid", ["osonish_abc", "osonish_" + "9" * 40, "12345", "osonish_"])
+async def test_delete_still_rejects_garbage_uids(client, uid):
+    response = await client.delete(f"/api/saves/{uid}", headers=HEADERS)
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "INVALID_UID"
+
+
+async def test_delete_only_removes_the_matching_row(client):
+    await _sql("INSERT INTO saves (user_id, save_id) VALUES (?, ?)", (USER_ID, 900000000081))
+    await _sql("INSERT INTO saves (user_id, save_id) VALUES (?, ?)", (USER_ID, 900000000082))
+    assert (await client.delete("/api/saves/osonish_900000000081", headers=HEADERS)).status_code == 200
+    rows = await _sql("SELECT save_id FROM saves WHERE user_id = ?", (USER_ID,))
+    assert [r["save_id"] for r in rows] == [900000000082]
 
 
 @pytest.mark.parametrize(
