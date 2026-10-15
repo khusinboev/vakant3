@@ -204,6 +204,15 @@ async def test_private_member_clears_blocked(dispatcher, bot, db_path):
     assert await blocked_of(db_path) == 0
 
 
+async def test_set_blocked_reports_only_real_changes(db_path):
+    """The `blocked IS NOT ?` guard skips redundant writes; the return value is the observable part."""
+    assert await membership.set_blocked(UID, True) is True
+    assert await membership.set_blocked(UID, True) is False
+    assert await membership.set_blocked(UID, False) is True
+    assert await membership.set_blocked(UID, False) is False
+    assert await membership.set_blocked(UID + 1, True) is False  # unknown user: nothing written
+
+
 async def test_blocked_updates_are_idempotent(dispatcher, bot, db_path):
     for _ in range(2):
         await dispatcher.feed_update(bot, my_chat_member("member", "kicked"))
