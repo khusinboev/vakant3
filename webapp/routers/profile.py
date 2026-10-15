@@ -1,6 +1,7 @@
 import json
 
 from fastapi import APIRouter, Depends
+from pydantic import Field
 
 from webapp.core import errors
 from webapp.core.auth import current_user
@@ -14,6 +15,20 @@ from webapp.models.schemas import (
     ProfileFiltersPatchRequest,
     UpdateResultResponse,
 )
+
+#: Upper bound for the salary filter (so'm). Far above any real salary and far
+#: below SQLite's 64-bit INTEGER, which an unbounded int would overflow (500).
+MAX_FILTER_MONEY = 10**12
+
+
+class FiltersPatch(ProfileFiltersPatchRequest):
+    """The shared request schema plus the bounds this endpoint enforces (422 otherwise)."""
+
+    region: str | None = Field(default=None, max_length=32)
+    district: str | None = Field(default=None, max_length=32)
+    specs: str | None = Field(default=None, max_length=256)
+    money: int | None = Field(default=None, ge=0, le=MAX_FILTER_MONEY)
+
 
 router = APIRouter(prefix="/profile", tags=["profile"], dependencies=[Depends(require_entry)])
 
@@ -43,7 +58,7 @@ async def patch_lang(
 
 @router.patch("/filters", response_model=UpdateResultResponse)
 async def patch_filters(
-    payload: ProfileFiltersPatchRequest,
+    payload: FiltersPatch,
     user=Depends(current_user),
     db=Depends(get_db),
 ) -> UpdateResultResponse:
@@ -78,9 +93,10 @@ async def patch_filters(
     if specs:
         pref_filters["specs"] = str(specs)
 
-    if pref_filters:
-        fields.append("pref_filters_json = ?")
-        values.append(json.dumps(pref_filters, ensure_ascii=False))
+    # Always rewritten, so clearing every filter also clears what the
+    # notification scheduler matches on (NULL = no filters, same as '{}').
+    fields.append("pref_filters_json = ?")
+    values.append(json.dumps(pref_filters, ensure_ascii=False) if pref_filters else None)
 
     values.append(user_id)
     await db.execute(f"UPDATE users SET {', '.join(fields)} WHERE user_id = ?", tuple(values))

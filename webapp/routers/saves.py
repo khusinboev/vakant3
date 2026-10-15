@@ -3,10 +3,10 @@ import asyncio
 from fastapi import APIRouter, Depends, Query, Request
 
 from src.functions.cache import cache_get, cache_set, make_cache_key
-from src.functions.scraping import fetch_osonish_detail
+from src.functions.scraping import UpstreamError, get_osonish_detail, parse_osonish_uid
 from webapp.core import errors
 from webapp.core.auth import current_user
-from webapp.core.database import get_db
+from webapp.core.database import get_db, release_db
 from webapp.core.entry_gate import require_entry
 from webapp.core.limiter import limiter
 from webapp.core.referral_gate import get_referral_gate_state, raise_if_referral_locked
@@ -30,12 +30,10 @@ def _row_to_raw_id(value: object) -> int | None:
 
 
 def _uid_to_raw_id(uid: str) -> int:
-    if not uid.startswith("osonish_"):
-        raise errors.api_error(400, errors.INVALID_UID, uid=uid)
-    try:
-        return int(uid.split("_", 1)[1])
-    except (IndexError, ValueError) as exc:
-        raise errors.api_error(400, errors.INVALID_UID, uid=uid) from exc
+    raw_id = parse_osonish_uid(uid)
+    if raw_id is None:
+        raise errors.api_error(400, errors.INVALID_UID, uid=uid[:64])
+    return raw_id
 
 
 @router.get("", response_model=SavesResponse)
@@ -66,6 +64,8 @@ async def list_saves(
         all_ids.append(raw_id)
     total = len(all_ids)
     save_ids = all_ids[offset: offset + limit]
+    # Up to ``limit`` detail fetches follow; none of them may pin a pool slot.
+    await release_db(db)
 
     semaphore = asyncio.Semaphore(MAX_PARALLEL_DETAIL_FETCHES)
 
@@ -79,11 +79,12 @@ async def list_saves(
 
         async with semaphore:
             try:
-                detail = await fetch_osonish_detail(save_id)
-            except Exception:
+                detail = await get_osonish_detail(save_id)
+            except UpstreamError:
                 detail = None
         if not isinstance(detail, dict):
-            # Keep the row so `items` and `total` always agree.
+            # Gone or upstream down (never cached either way). Keep the row so
+            # `items` and `total` always agree.
             return {"uid": uid, "title": None, "unavailable": True, "data": None}
 
         await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
@@ -131,16 +132,17 @@ async def add_save(
         "INSERT OR IGNORE INTO saves (user_id, save_id) VALUES (?, ?)",
         (user_id, raw_id),
     )
-    # Commit before any network call: never hold the write transaction across HTTP.
+    # Commit and hand the pooled connection back before any network call.
     await db.commit()
+    await release_db(db)
 
     # Warm the detail cache so /saves opens immediately.
     cache_key = make_cache_key("detail", uid=f"osonish_{raw_id}")
     cached = await cache_get(cache_key)
     if not (isinstance(cached, dict) and isinstance(cached.get("data"), dict)):
         try:
-            detail = await fetch_osonish_detail(raw_id)
-        except Exception:
+            detail = await get_osonish_detail(raw_id)
+        except UpstreamError:
             detail = None
         if isinstance(detail, dict):
             await cache_set(cache_key, {"source": "osonish", "data": detail}, ttl=DETAIL_CACHE_TTL)
