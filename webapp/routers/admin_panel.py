@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from webapp.core import errors
+from webapp.core import errors, ledger
 from webapp.core.audit import client_ip, log_admin_action
 from webapp.core.auth import require_admin, require_role
 from webapp.core.database import get_db
@@ -79,8 +79,14 @@ class AdminSettingsPatch(BaseModel):
     channel_lang: str | None = Field(default=None, pattern="^(uz|ru|en)$")
     referral_enabled: bool | None = None
     referral_required_count: int | None = Field(default=None, ge=0)
-    pro_price: int | None = Field(default=None, ge=0)
-    referral_reward: int | None = Field(default=None, ge=0)
+    #: Money settings are bounded by the ledger's own guard rail: a price above
+    #: ``ledger.MAX_AMOUNT`` would make every activation fail inside
+    #: ``ledger.activate_pro``. ``pro_price`` must be at least 1 because
+    #: ``activate_pro`` accepts a price of 0 and would hand Pro out for free to
+    #: every user who presses the button; there is no "free Pro" product.
+    #: ``referral_reward`` may be 0, which switches referral payouts off.
+    pro_price: int | None = Field(default=None, ge=1, le=ledger.MAX_AMOUNT)
+    referral_reward: int | None = Field(default=None, ge=0, le=ledger.MAX_AMOUNT)
     pro_min_salary: int | None = Field(default=None, ge=0)
     resume_target_creation_minutes: float | None = Field(default=None, ge=0)
     resume_target_completion_rate: float | None = Field(default=None, ge=0)
@@ -193,6 +199,11 @@ async def _settings_row(db):
     return row
 
 
+def _stored_int(value, default: int) -> int:
+    """``default`` only for a NULL column; any stored number (0 included) wins."""
+    return default if value is None else int(value)
+
+
 def _state_response(row, role: str) -> AdminStateResponse:
     return AdminStateResponse(
         is_admin=True,
@@ -206,8 +217,9 @@ def _state_response(row, role: str) -> AdminStateResponse:
         channel_lang=str(row["channel_lang"] or "uz"),
         referral_enabled=bool(int(row["referral_enabled"] or 0)),
         referral_required_count=int(row["referral_required_count"] or 0),
-        pro_price=int(row["pro_price"] or 10000),
-        referral_reward=int(row["referral_reward"] or 2000),
+        # Show what is stored: a stored 0 must read back as 0, not as the default.
+        pro_price=_stored_int(row["pro_price"], 10000),
+        referral_reward=_stored_int(row["referral_reward"], 2000),
         pro_min_salary=int(row["pro_min_salary"] or 8000000),
         resume_target_creation_minutes=float(row["resume_target_creation_minutes"] or 8),
         resume_target_completion_rate=float(row["resume_target_completion_rate"] or 60),

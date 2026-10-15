@@ -21,6 +21,18 @@ MAX_PHOTO_BYTES = 5 * 1024 * 1024
 MAX_DATA_URI_BYTES = 10 * 1024 * 1024
 FETCH_TIMEOUT_SECONDS = 3.0
 
+#: Decompression-bomb guard for :func:`clip_photo`. A few KB of PNG can
+#: declare tens of thousands of pixels per side, and ``convert("RGBA")``
+#: allocates 4 bytes per pixel before the crop/resize shrinks it (a 1.28 GB RSS
+#: spike was measured). The header is read first and anything above these
+#: limits is refused without decoding. 25 MP covers every phone camera photo.
+MAX_PHOTO_PIXELS = 25_000_000
+MAX_PHOTO_SIDE = 12_000
+
+
+class PhotoRejected(ValueError):
+    """The image declares dimensions that are unsafe to decode."""
+
 # Only Telegram-hosted images may be fetched server-side; anything else is skipped.
 ALLOWED_HOST_RE = re.compile(
     r"^(?:[a-z0-9-]+\.)*(?:t\.me|telegram\.org|telegram\.me|telesco\.pe)$",
@@ -79,8 +91,16 @@ def clip_photo(img_bytes: bytes, shape: str = "square", size_px: int = 220) -> b
     if not PILLOW_AVAILABLE:
         return img_bytes
 
-    img = _PILImage.open(io.BytesIO(img_bytes)).convert("RGBA")
-    w, h = img.size
+    # Callers treat any exception as "no photo" and draw the placeholder, so
+    # refusing here is the module's normal failure path.
+    try:
+        img = _PILImage.open(io.BytesIO(img_bytes))
+    except _PILImage.DecompressionBombError as exc:
+        raise PhotoRejected(str(exc)) from exc
+    w, h = img.size  # header only: nothing is decoded until convert()
+    if w <= 0 or h <= 0 or w > MAX_PHOTO_SIDE or h > MAX_PHOTO_SIDE or w * h > MAX_PHOTO_PIXELS:
+        raise PhotoRejected(f"photo dimensions {w}x{h} exceed the decode limit")
+    img = img.convert("RGBA")
     side = min(w, h)
     left = (w - side) // 2
     top = (h - side) // 2
