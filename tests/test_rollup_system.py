@@ -193,7 +193,7 @@ async def test_missing_tables_tolerated(tmp_path):
     conn = await _connect(tmp_path / "empty.sqlite3")
     await run_migrations(conn)  # only creates daily_stats/error_log/etc., no users/saves/...
     try:
-        stats = await compute_day(conn, day_key())
+        stats = await compute_day(conn, "2025-06-10")
         assert all(v == 0 for k, v in stats.items() if k != "computed_at")
         assert stats["computed_at"] > 0
     finally:
@@ -388,13 +388,21 @@ def test_analytics_overview_endpoint(tmp_path, monkeypatch):
     from webapp.routers import admin_analytics
 
     db_path = tmp_path / "analytics.sqlite3"
+    # One pinned "now" for the test and the router: reading the clock twice
+    # could straddle Tashkent midnight and move "today"/"yesterday" apart.
+    now = datetime(2026, 10, 14, 12, 0, tzinfo=TZ)
+    monkeypatch.setattr(admin_analytics, "now_tz", lambda: now)
+    monkeypatch.setattr(admin_analytics, "day_key", lambda moment=None: day_key(moment or now))
+    yesterday = day_key(now - timedelta(days=1))
 
     async def _prepare():
         conn = await _connect(db_path)
         await _seed_full_schema(conn)
-        await conn.execute("INSERT INTO users (user_id, date, user_pro) VALUES (42, ?, 1)", (int(time.time()),))
-        stats = await compute_day(conn, day_key(datetime.now(TZ) - timedelta(days=1)))
-        await upsert_daily_stats(conn, day_key(datetime.now(TZ) - timedelta(days=1)), stats)
+        await conn.execute(
+            "INSERT INTO users (user_id, date, user_pro) VALUES (42, ?, 1)", (int(now.timestamp()),)
+        )
+        stats = await compute_day(conn, yesterday)
+        await upsert_daily_stats(conn, yesterday, stats)
         await conn.close()
 
     asyncio.run(_prepare())

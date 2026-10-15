@@ -20,7 +20,12 @@ from src.i18n import DEFAULT_LANG, t
 _TAG_RE = re.compile(r"<[^>]+>")
 _MULTI_NL_RE = re.compile(r"\n{3,}")
 
-_MAX_DESCRIPTION_CHARS = 3500
+#: Telegram rejects a message whose text is longer than this *after* entity
+#: parsing (tags stripped, entities decoded), counted in UTF-16 code units.
+TELEGRAM_TEXT_LIMIT = 4096
+_ELLIPSIS = "..."
+#: A title longer than this (UTF-16 units) is clipped before layout.
+_MAX_TITLE = 512
 
 # Kod -> i18n kalit prefiksi
 _CODE_NAMESPACES = {
@@ -153,19 +158,7 @@ def normalize_vacancy_detail(
     region_obj = detail.get("soato_region") if isinstance(detail.get("soato_region"), dict) else {}
     hr_obj = detail.get("hr") if isinstance(detail.get("hr"), dict) else {}
 
-    min_salary = _to_int(detail.get("min_salary"))
-    max_salary = _to_int(detail.get("max_salary"))
-    if min_salary and max_salary:
-        salary = t(
-            lang,
-            "vacancy.salary.range",
-            min=_fmt_amount(min_salary),
-            max=_fmt_amount(max_salary),
-        )
-    elif min_salary:
-        salary = t(lang, "vacancy.salary.from", min=_fmt_amount(min_salary))
-    else:
-        salary = t(lang, "vacancy.salary.negotiable")
+    salary = format_salary(detail.get("min_salary"), detail.get("max_salary"), lang)
 
     district = str(district_obj.get("name_uz") or district_obj.get("name") or "").strip()
     region = str(region_obj.get("name_uz") or region_obj.get("name") or "").strip()
@@ -219,11 +212,49 @@ def _esc(value: Any) -> str:
     return html.escape(str(value or ""), quote=False)
 
 
+def _utf16_len(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
+def visible_length(html_text: str) -> int:
+    """Length Telegram checks against ``TELEGRAM_TEXT_LIMIT`` for an HTML message."""
+    return _utf16_len(html.unescape(_TAG_RE.sub("", html_text)))
+
+
+def _fit_telegram(html_text: str) -> str:
+    """Last resort: a message still over the limit (huge company/address...)
+    is sent as clipped plain text, which is always valid HTML."""
+    if visible_length(html_text) <= TELEGRAM_TEXT_LIMIT:
+        return html_text
+    plain = html.unescape(_TAG_RE.sub("", html_text))
+    return _esc(_clip_utf16(plain, TELEGRAM_TEXT_LIMIT))
+
+
+def _clip_utf16(text: str, budget: int) -> str:
+    """``text`` cut to at most ``budget`` UTF-16 units, ellipsis included."""
+    if _utf16_len(text) <= budget:
+        return text
+    limit = budget - len(_ELLIPSIS)
+    if limit <= 0:
+        return ""
+    kept: list[str] = []
+    used = 0
+    for char in text:
+        width = 2 if ord(char) > 0xFFFF else 1
+        if used + width > limit:
+            break
+        kept.append(char)
+        used += width
+    clipped = "".join(kept).rstrip()
+    return clipped + _ELLIPSIS if clipped else ""
+
+
 def format_vacancy_message_html(
     uid: str, detail: dict[str, Any], lang: str = DEFAULT_LANG, compact: bool = False
 ) -> str:
     """Telegram HTML xabari. `compact=True` — bildirishnoma uchun qisqa variant."""
     normalized = normalize_vacancy_detail(uid, detail, lang)
+    normalized["title"] = _clip_utf16(normalized["title"], _MAX_TITLE)
 
     def esc(key: str) -> str:
         return _esc(normalized.get(key, ""))
@@ -241,7 +272,7 @@ def format_vacancy_message_html(
         lines.append(
             f"\n🔗 <a href=\"{_esc(deeplink)}\">{_esc(t(lang, 'notify.details'))}</a>"
         )
-        return "\n".join(lines)
+        return _fit_telegram("\n".join(lines))
 
     lines: list[str] = [f"<b>💼 {esc('title')}</b>"]
 
@@ -267,12 +298,7 @@ def format_vacancy_message_html(
         if normalized.get(field):
             lines.append(f"{emoji} <b>{_esc(t(lang, label_key))}:</b> {esc(field)}")
 
-    if normalized.get("description"):
-        desc = normalized["description"]
-        if len(desc) > _MAX_DESCRIPTION_CHARS:
-            desc = desc[:_MAX_DESCRIPTION_CHARS].rstrip() + "..."
-        lines.append(f"\n<b>📝 {_esc(t(lang, 'vacancy.label.description'))}:</b>\n{_esc(desc)}")
-
+    tail: list[str] = []
     contacts: list[str] = []
     if normalized.get("hr_name"):
         contacts.append(esc("hr_name"))
@@ -281,10 +307,20 @@ def format_vacancy_message_html(
     if normalized.get("hr_email"):
         contacts.append(f"{_esc(t(lang, 'vacancy.label.email'))}: {esc('hr_email')}")
     if contacts:
-        lines.append(f"\n<b>📞 {_esc(t(lang, 'vacancy.label.contacts'))}:</b>\n" + "\n".join(contacts))
+        tail.append(f"\n<b>📞 {_esc(t(lang, 'vacancy.label.contacts'))}:</b>\n" + "\n".join(contacts))
 
-    lines.append("\n────────────────────")
-    lines.append(
+    tail.append("\n────────────────────")
+    tail.append(
         f"<b>🤖 {_esc(t(lang, 'vacancy.label.source'))}:</b> @{_esc(BOT_USERNAME)}"
     )
-    return "\n".join(lines)
+
+    if normalized.get("description"):
+        # The description is the only unbounded part: it gets whatever the
+        # rest of the message leaves of Telegram's limit.
+        header = f"\n<b>📝 {_esc(t(lang, 'vacancy.label.description'))}:</b>\n"
+        budget = TELEGRAM_TEXT_LIMIT - visible_length("\n".join([*lines, header, *tail]))
+        desc = _clip_utf16(normalized["description"], budget)
+        if desc:
+            lines.append(header + _esc(desc))
+
+    return _fit_telegram("\n".join([*lines, *tail]))

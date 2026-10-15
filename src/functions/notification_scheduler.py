@@ -262,18 +262,26 @@ async def _send_notification(user_id: int, lang: str, uid: str, data: dict) -> s
         return "failed"
 
 
+async def _has_banned_column(conn: aiosqlite.Connection) -> bool:
+    """``users.banned`` arrives with m009; a DB that predates it has no bans."""
+    cursor = await conn.execute("PRAGMA table_info(users)")
+    return any(row[1] == "banned" for row in await cursor.fetchall())
+
+
 async def _run_notifications(conn: aiosqlite.Connection) -> None:
     started = time.monotonic()
     now = _now_uzb()
     now_ts = int(now.timestamp())
     today_start = _today_start_ts()
 
+    # A banned user gets nothing from the bot, notifications included.
+    not_banned = " AND COALESCE(u.banned, 0) = 0" if await _has_banned_column(conn) else ""
     cursor = await conn.execute(
-        """
+        f"""
         SELECT ns.user_id, u.pref_filters_json, u.lang
         FROM notification_settings ns
         JOIN users u ON u.user_id = ns.user_id
-        WHERE ns.enabled = 1 AND u.user_pro = 1 AND u.blocked = 0
+        WHERE ns.enabled = 1 AND u.user_pro = 1 AND u.blocked = 0{not_banned}
         """
     )
     rows = await cursor.fetchall()

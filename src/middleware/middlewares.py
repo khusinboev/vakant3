@@ -244,17 +244,19 @@ async def fetch_user_state(
 
     `last_seen_at` ustuni m009 migratsiyasi va `ensure_user_columns` orqali
     keladi; juda eski bazada bo'lmasligi mumkin, shuning uchun fallback bor.
+    `banned` (m009) is read in the same query so the ban check needs no second
+    connection; without the column the row simply has no `banned` key.
     """
-    try:
-        cursor = await conn.execute(
-            "SELECT lang, blocked, last_seen_at FROM users WHERE user_id = ?", (user_id,)
-        )
-        return await cursor.fetchone(), True
-    except Exception:
-        cursor = await conn.execute(
-            "SELECT lang, blocked FROM users WHERE user_id = ?", (user_id,)
-        )
-        return await cursor.fetchone(), False
+    for columns in ("lang, blocked, last_seen_at, banned", "lang, blocked, last_seen_at"):
+        try:
+            cursor = await conn.execute(
+                f"SELECT {columns} FROM users WHERE user_id = ?", (user_id,)
+            )
+            return await cursor.fetchone(), True
+        except Exception:
+            continue
+    cursor = await conn.execute("SELECT lang, blocked FROM users WHERE user_id = ?", (user_id,))
+    return await cursor.fetchone(), False
 
 
 async def touch_last_seen(
@@ -289,6 +291,47 @@ async def touch_last_seen(
     except Exception as exc:
         logger.debug("last_seen_at yangilanmadi user_id=%s: %s", user_id, exc)
     return False
+
+
+# ─── Moderation: banned users ──────────────────────────────────────────────
+
+def row_is_banned(row: Any) -> bool:
+    """``users.banned`` from a ``fetch_user_state`` row; False without the column."""
+    try:
+        return bool(int(row["banned"] or 0))
+    except (IndexError, KeyError, TypeError, ValueError):
+        return False
+
+
+async def bypasses_ban(conn: aiosqlite.Connection, user_id: int) -> bool:
+    """Admins are never silenced by a ban, mirroring the API entry gate.
+
+    Same rule as ``webapp/core/entry_gate.py:admin_role``: an enabled row in
+    ``admins`` bypasses; a disabled row never does; an ``ADMIN_IDS`` id
+    bypasses only while the table is missing or holds no enabled owner. Only
+    called for banned users, so it costs nothing on the normal path.
+    """
+    import config  # local: tests patch config.ADMIN_IDS
+
+    env_admin = int(user_id) in set(config.ADMIN_IDS)
+    try:
+        cursor = await conn.execute(
+            "SELECT disabled FROM admins WHERE user_id = ?", (int(user_id),)
+        )
+        row = await cursor.fetchone()
+        if row is not None:
+            return not int(row[0] or 0)
+        if not env_admin:
+            return False
+        cursor = await conn.execute(
+            "SELECT 1 FROM admins WHERE role = 'owner' AND disabled = 0 LIMIT 1"
+        )
+        return await cursor.fetchone() is None
+    except Exception as exc:
+        if "no such table" in str(exc).lower():
+            return env_admin
+        logger.warning("ban bypass: admins lookup failed user_id=%s: %s", user_id, exc)
+        return False
 
 
 class StatsMiddleware(BaseMiddleware):
@@ -436,6 +479,13 @@ class StatsMiddleware(BaseMiddleware):
         self, user_id: int, language_code: Any, inviter_id: int | None
     ) -> tuple[str, bool]:
         """(lang, is_new) — foydalanuvchini kerak bo'lsa yozadi va tilini qaytaradi."""
+        lang, is_new, _silenced = await self.resolve_user_state(user_id, language_code, inviter_id)
+        return lang, is_new
+
+    async def resolve_user_state(
+        self, user_id: int, language_code: Any, inviter_id: int | None
+    ) -> tuple[str, bool, bool]:
+        """(lang, is_new, silenced) — ``silenced``: banned and not an admin."""
         async with connect(self.db_path) as conn:
             row, has_last_seen = await fetch_user_state(conn, user_id)
 
@@ -470,13 +520,17 @@ class StatsMiddleware(BaseMiddleware):
                                 await _notify_inviter(conn, inviter_id, reward)
                         except Exception as exc:
                             logger.error("referral to'lovida xato user_id=%s: %s", user_id, exc)
-                    return lang, True
+                    return lang, True, False
 
                 # Lost the race: the row is someone else's, so continue as an
                 # existing user with the language that writer stored.
                 row, has_last_seen = await fetch_user_state(conn, user_id)
                 if row is None:  # pragma: no cover - deleted in between
-                    return lang, False
+                    return lang, False, False
+
+            if row_is_banned(row) and not await bypasses_ban(conn, user_id):
+                # No writes for a banned user: the update is dropped anyway.
+                return normalize_lang(row[0]), False, True
 
             stored = row[0]
             lang = normalize_lang(stored)
@@ -509,7 +563,7 @@ class StatsMiddleware(BaseMiddleware):
                     previous_seen = None
                 await touch_last_seen(conn, user_id, previous_seen)
 
-            return lang, False
+            return lang, False, False
 
     async def __call__(
         self,
@@ -529,10 +583,15 @@ class StatsMiddleware(BaseMiddleware):
         )
 
         try:
-            lang, is_new = await self.resolve_user(user.id, user.language_code, inviter_id)
+            lang, is_new, silenced = await self.resolve_user_state(
+                user.id, user.language_code, inviter_id
+            )
         except Exception as exc:
             logger.error("StatsMiddleware xato user_id=%s: %s", user.id, exc)
-            lang, is_new = normalize_lang(user.language_code), False
+            lang, is_new, silenced = normalize_lang(user.language_code), False, False
+        if silenced:
+            # Silent drop: a banned user gets no handler response at all.
+            return None
 
         data["lang"] = lang
         data["is_new_user"] = is_new

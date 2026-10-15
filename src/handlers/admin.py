@@ -4,6 +4,7 @@
 # ============================================
 import asyncio
 import datetime
+import html
 import logging
 
 from aiogram import Router
@@ -197,14 +198,15 @@ async def channel_add_process(message: Message, state: FSMContext, lang: str = D
     except Exception as exc:
         logger.warning("channel_add tekshiruvi muvaffaqiyatsiz %s: %s", parsed.target, exc)
         await message.reply(
-            t(lang, "admin.channel_no_admin", username=raw), reply_markup=channel_btn(lang)
+            t(lang, "admin.channel_no_admin", username=html.escape(raw)),
+            reply_markup=channel_btn(lang),
         )
         await state.clear()
         return
 
     if not is_admin:
         await message.reply(
-            t(lang, "admin.channel_no_admin", username=chat.title or raw),
+            t(lang, "admin.channel_no_admin", username=html.escape(chat.title or raw)),
             reply_markup=channel_btn(lang),
         )
         await state.clear()
