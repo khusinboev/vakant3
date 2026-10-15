@@ -63,10 +63,19 @@ export default function EntryLockScreen({
         <button
           type="button"
           onClick={() => openTelegramLink(botDeepLink("app"))}
-          className="tap-target mt-4 inline-block rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primaryFg"
+          className="tap-target mt-4 block w-full rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primaryFg"
         >
           {t("gate.botStartAction")}
         </button>
+        <button
+          type="button"
+          onClick={recheck}
+          disabled={checking}
+          className="tap-target mt-2 block w-full rounded-2xl border border-border px-4 py-2 text-sm font-semibold text-text disabled:opacity-60"
+        >
+          {checking ? t("gate.checking") : t("gate.checkAgain")}
+        </button>
+        {failed ? <p className="mt-3 text-sm text-warning">{t("gate.stillLocked")}</p> : null}
       </Card>
     );
   }
