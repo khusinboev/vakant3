@@ -5,6 +5,46 @@ auto-deploy of the CI `deploy` branch, root cron every 2 min) and `logrotate-vak
 run on the production server (see `deploy.txt` §9–11). `loadtest.py` is a local-only tool —
 it is never run against production and never reads the server `.env`.
 
+## healthcheck.sh
+
+Cron, every 5 minutes. Collects problem tokens and alerts every `ADMIN_IDS` admin through
+the bot **once** when an incident starts (`⚠️ vakant3 muammo: ...`) and once when it is over
+(`✅ vakant3 tiklandi`); the state lives in `data/.health_state` (`ok`/`bad`).
+
+| Token | Check |
+|-------|-------|
+| `api_health` | `GET http://localhost:8001/api/health` fails |
+| `vakant-api`, `vakant-bot` | the systemd unit is not active |
+| `disk_NN%` | `/` is 92% full or more |
+| `broadcast_<id>_stalled_<N>min` | a `running` broadcast made no progress for > 30 min (newest of `started_at` and its targets' `sent_at`/`claimed_at`/`last_attempt_at`) |
+| `errors_<N>_in_10min` | more than 50 `error_log` rows in the last 10 minutes |
+| `db_size_<N>MB` | the DB file is larger than 1 GB |
+| `db_missing`, `db_unreadable`, `db_check_failed` | the DB checks themselves could not run |
+
+The DB checks open the DB read-only (`file:...?mode=ro`) with the venv python; nothing is
+written. `ops/healthcheck.sh --db-only` prints just the DB tokens (empty line = fine) without
+alerting or touching the state file. Paths and thresholds are env-overridable
+(`VAKANT_ENV`, `VAKANT_DB`, `VAKANT_PY`, `VAKANT_HEALTH_STATE`, `VAKANT_HEALTH_URL`,
+`HC_BROADCAST_STALL_MIN`, `HC_ERRORS_MAX`, `HC_DB_MAX_BYTES`); `tests/test_ops_scripts.py`
+runs the script that way with fake `curl`/`systemctl`/`df`.
+
+## restore_check.sh
+
+Proves the newest backup restores: gunzips the newest `data/backups/*.sqlite3.gz`
+(daily `database_*` or `predeploy_*`, by mtime) into a temp dir, runs `PRAGMA integrity_check`,
+counts `users` and `schema_migrations`, prints one line and deletes the temp copy. Exit 0 =
+`OK restore_check: <file> integrity=ok users=N schema_migrations=M`, exit 1 = `FAIL ...`
+(no backup, not gzip, not a database, integrity errors, empty `schema_migrations`). It never
+opens the live DB. Overrides: `VAKANT_BACKUP_DIR`, `VAKANT_PY`, `TMPDIR` (needs free space
+for one uncompressed copy).
+
+Cron lines (installed by hand on the server, root crontab — see `deploy.txt` §9):
+
+```
+*/5 * * * * /home/vakant/ops/healthcheck.sh >> /var/log/vakant-health.log 2>&1
+40 3 * * 0 /home/vakant/ops/restore_check.sh >> /var/log/vakant-restore-check.log 2>&1
+```
+
 ## loadtest.py
 
 A load generator for the Mini App API (`webapp/`), built for the Bosqich 4/5

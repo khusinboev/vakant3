@@ -14,11 +14,14 @@ import html
 import re
 from typing import Any
 
-from config import BOT_USERNAME
+from config import BOT_USERNAME, WEBAPP_URL
 from src.i18n import DEFAULT_LANG, t
 from src.ui.emoji import e as _icon
 
 _TAG_RE = re.compile(r"<[^>]+>")
+#: A vacancy uid the Mini App can deep-link to (``vacancy_<uid>`` fits the
+#: 64-char ``[A-Za-z0-9_-]`` start_param alphabet).
+_APP_UID_RE = re.compile(r"^osonish_\d{1,15}$")
 _MULTI_NL_RE = re.compile(r"\n{3,}")
 
 #: Telegram rejects a message whose text is longer than this *after* entity
@@ -253,6 +256,19 @@ def _clip_utf16(text: str, budget: int) -> str:
 def vacancy_deeplink(uid: str) -> str:
     """``t.me`` link that opens the vacancy card in the bot (``/start vacancy_<uid>``)."""
     return f"https://t.me/{BOT_USERNAME}?start=vacancy_{uid}"
+
+
+def vacancy_app_url(uid: str) -> str:
+    """Mini App URL that opens this vacancy's detail sheet.
+
+    For an inline ``web_app`` button (private chats only: it carries
+    initData). ``App.tsx`` reads ``?go=vacancy_<uid>``; no Mini App short
+    name is configured, so a ``t.me/<bot>/<app>?startapp=`` link is not used.
+    An unexpected uid falls back to the plain app URL.
+    """
+    if not _APP_UID_RE.match(uid or ""):
+        return WEBAPP_URL
+    return f"{WEBAPP_URL}?go=vacancy_{uid}"
 
 
 def format_vacancy_message_html(

@@ -670,14 +670,14 @@ async def detail(
 ):
     """Counters, per-kind failure counts, retry state and the last 20 per-user errors."""
     job = _row_to_dict(await _fetch(db, broadcast_id))
-    # Failed/blocked rows never get ``sent_at`` and no failure time is stored
-    # (the worker clears ``claimed_at`` on every result), so ``sent_at DESC``
-    # sorted nothing. ``rowid`` is the insertion order of the targets: the
-    # newest-materialized rows first. Not the failure time.
+    # Newest failure first: the worker stamps ``last_attempt_at`` (m019) on
+    # every result. Rows from before m019 have NULL there and sort after the
+    # stamped ones, by ``rowid`` (insertion order of the targets).
     cursor = await db.execute(
-        "SELECT user_id, status, error, error_kind, attempts, sent_at FROM broadcast_targets "
+        "SELECT user_id, status, error, error_kind, attempts, sent_at, last_attempt_at "
+        "FROM broadcast_targets "
         "WHERE broadcast_id = ? AND status IN ('failed', 'blocked') "
-        "ORDER BY rowid DESC LIMIT 20",
+        "ORDER BY last_attempt_at IS NULL, last_attempt_at DESC, rowid DESC LIMIT 20",
         (broadcast_id,),
     )
     job["errors"] = [dict(row) for row in await cursor.fetchall()]

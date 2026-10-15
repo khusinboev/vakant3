@@ -819,13 +819,14 @@ async def _write_results(
         await conn.executemany(
             # claimed_at is cleared: the row is terminal or back in the queue,
             # so it must not look like an outstanding claim to reset_stale_claims.
+            # last_attempt_at (m019) is the only timestamp a failed row gets.
             "UPDATE broadcast_targets SET status = ?, error = ?, error_kind = ?, attempts = ?, "
-            "next_attempt_at = ?, sent_at = ?, claimed_at = NULL "
+            "next_attempt_at = ?, sent_at = ?, claimed_at = NULL, last_attempt_at = ? "
             "WHERE broadcast_id = ? AND user_id = ?",
             [
                 (
                     o["status"], o["error"], o["error_kind"], o["attempts"],
-                    o["next_attempt_at"], o["sent_at"], broadcast_id, r["user_id"],
+                    o["next_attempt_at"], o["sent_at"], now, broadcast_id, r["user_id"],
                 )
                 for r, o in planned
             ],
