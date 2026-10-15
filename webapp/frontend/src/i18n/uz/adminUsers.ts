@@ -105,6 +105,31 @@ const adminUsers = {
   "adminUsers.reset.confirmTitle": "Hisobni tozalash",
   "adminUsers.reset.confirmDesc": "{id}: balans nolga tushadi va Pro bekor qilinadi.",
   "adminUsers.reset.success": "Hisob tozalandi.",
+  "adminUsers.ban.sessionsNote": "Bloklash foydalanuvchining barcha ochiq sessiyalarini ham yopadi.",
+
+  // ── Sessions ─────────────────────────────────────────────────────────────
+  "adminUsers.action.sessions": "Sessiyalarni yopish",
+  "adminUsers.sessions.desc":
+    "{id} Mini App'dagi barcha sessiyalardan chiqariladi. Bu blok emas: ilovani qayta ochsa, yangi sessiya oladi.",
+  "adminUsers.sessions.confirmTitle": "Sessiyalarni yopish",
+  "adminUsers.sessions.confirmDesc": "{id} foydalanuvchining barcha sessiyalari yopiladi.",
+  "adminUsers.sessions.success": "Sessiyalar yopildi.",
+
+  // ── Rank protection ──────────────────────────────────────────────────────
+  "adminUsers.detail.protected":
+    "Bu foydalanuvchi — {role}. Uning darajasi sizniki bilan teng yoki yuqori, shuning uchun amallar yopiq.",
+
+  // ── CSV export ───────────────────────────────────────────────────────────
+  "adminUsers.export.action": "CSV yuklab olish",
+  "adminUsers.export.success": "Fayl tayyor: {count} qator.",
+  "adminUsers.export.truncated": "Faqat birinchi {count} qator yuklandi. Filtrlarni toraytiring.",
+  "adminUsers.export.rateLimited": "Eksport daqiqasiga 2 marta. Birozdan so'ng urinib ko'ring.",
+
+  // ── Errors only these endpoints return ───────────────────────────────────
+  "adminUsers.error.CANNOT_TARGET_ADMIN":
+    "Bu foydalanuvchi — {role}. Teng yoki yuqori darajadagi adminga amal qo'llab bo'lmaydi.",
+  "adminUsers.error.IDEMPOTENCY_CONFLICT":
+    "Bu so'rov boshqa qiymatlar bilan allaqachon yuborilgan. Oynani yopib, qaytadan kiriting.",
 };
 export type AdminUsersDict = typeof adminUsers;
 export default adminUsers;

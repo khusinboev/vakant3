@@ -26,6 +26,27 @@ subqueries, and one small query per recent-rows block.
 Every mutation writes its ``admin_audit_log`` row *before* the commit, so the
 mutation and its audit trail land together or not at all. Balance movements go
 through ``webapp.core.ledger`` — this module never touches ``users.user_balance``.
+
+*Rank protection.* No action on a user (Pro, balance, reset, ban/unban, message,
+session revocation) may target an admin whose role ranks at or above the
+actor's: a moderator cannot ban an admin, an admin cannot touch another admin,
+and nobody — not even another owner — can act on an owner. The target's role is
+read with the same rule as ``auth.resolve_admin_role`` (an enabled ``admins``
+row, else the ``ADMIN_IDS`` bootstrap owner while no enabled owner exists) but
+without its lazy INSERT. Refusal: 403 ``CANNOT_TARGET_ADMIN{role}``.
+
+*Sessions.* A ``webapp_sessions`` row is the identity behind a Bearer token, so
+banning deletes the user's rows in the ban's own transaction (and the unused
+bot hand-off tokens that could mint new ones); ``/sessions/revoke`` does the
+same without banning.
+
+*Idempotent balance changes.* ``X-Idempotency-Key`` claims a row in
+``admin_idempotency`` (m018) as the first write of the transaction; see
+:func:`_claim_idempotency`.
+
+*CSV export* (``/export.csv``) streams the list's filters and sort in keyset
+chunks of ``EXPORT_CHUNK`` rows on its own connection, capped at
+``EXPORT_MAX_ROWS``; see :func:`export_users_csv`.
 """
 
 # NOTE: no ``from __future__ import annotations`` here — slowapi wraps the
@@ -33,21 +54,28 @@ through ``webapp.core.ledger`` — this module never touches ``users.user_balanc
 # models against slowapi's module globals and fail.
 import base64
 import binascii
+import csv
+import hashlib
+import io
 import json
 import logging
+import re
 import time
-from typing import Any
+from datetime import datetime
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 import httpx
-from fastapi import APIRouter, Depends, Path, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from src.core.timeutil import TZ
 from webapp.core import errors, ledger
 from webapp.core.audit import log_admin_action
-from webapp.core.auth import require_role
+from webapp.core.auth import ROLES, has_enabled_owner, require_role, resolve_admin_role, role_rank
 from webapp.core.config import get_settings
-from webapp.core.confirm import require_confirmation
-from webapp.core.database import get_db
+from webapp.core.confirm import canonical_params, require_confirmation, verify_confirm_token
+from webapp.core.database import get_db, open_connection
 from webapp.core.limiter import limiter
 from webapp.core.request_ip import client_ip as _client_ip
 
@@ -61,9 +89,30 @@ require_viewer = require_role("viewer")
 require_moderator = require_role("moderator")
 require_admin_role = require_role("admin")
 require_balance_confirmation = require_confirmation("users.balance", ["user_id", "amount"])
+require_reset_confirmation = require_confirmation("users.reset", ["user_id"])
+require_sessions_confirmation = require_confirmation("users.sessions_revoke", ["user_id"])
 
 #: Beyond this many matching rows the list endpoint reports ``total = null``.
 COUNT_CAP = 100_000
+
+#: Hard cap on one CSV export. A bigger result is cut here (the response says
+#: so in ``X-Export-Truncated``); narrow the filters to export the rest.
+EXPORT_MAX_ROWS = 100_000
+#: Rows per keyset query while streaming; also the unit the response is flushed in.
+EXPORT_CHUNK = 500
+
+#: How long an ``X-Idempotency-Key`` is remembered for one actor and action.
+IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
+_IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9_.:-]{8,128}$")
+IDEMPOTENCY_HEADER = "x-idempotency-key"
+REPLAYED_HEADER = "Idempotent-Replayed"
+
+#: Confirmation action a single-use CSV download link is signed for.
+EXPORT_DOWNLOAD_ACTION = "users.export_download"
+
+#: Error codes this module adds (the frontend translates them in adminUsers.ts).
+CANNOT_TARGET_ADMIN = "CANNOT_TARGET_ADMIN"
+IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
 
 MAX_NOTE = 500
 MAX_MESSAGE = 4000
@@ -167,6 +216,289 @@ def _raise_ledger_error(exc: ledger.LedgerError) -> None:
 
 
 # ---------------------------------------------------------------------------
+# rank protection
+# ---------------------------------------------------------------------------
+async def target_admin_role(db, user_id: int) -> str | None:
+    """The admin role the TARGET of an action holds, or None.
+
+    Same rule as ``webapp.core.auth.resolve_admin_role`` — an enabled
+    ``admins`` row wins, a disabled one means "not an admin", and an
+    ``ADMIN_IDS`` id counts as the bootstrap owner while no enabled owner
+    exists — but strictly read-only: resolving someone else's role must never
+    provision them (``resolve_admin_role`` inserts and commits).
+    """
+    user_id = int(user_id)
+    if "admins" not in await _existing_tables(db, ("admins",)):
+        return "owner" if user_id in get_settings().admin_ids_set else None
+    cursor = await db.execute("SELECT role, disabled FROM admins WHERE user_id = ?", (user_id,))
+    row = await cursor.fetchone()
+    if row is not None:
+        if int(row["disabled"] or 0):
+            return None
+        role = str(row["role"] or "")
+        return role if role in ROLES else "viewer"
+    if user_id in get_settings().admin_ids_set and not await has_enabled_owner(db):
+        return "owner"
+    return None
+
+
+def outranks_or_equals(target_role: str | None, actor_role: str) -> bool:
+    """True when ``target_role`` is an admin role ranked at or above the actor's."""
+    return target_role is not None and role_rank(target_role) >= role_rank(actor_role)
+
+
+async def _guard_target(db, admin: dict[str, Any], user_id: int) -> None:
+    """403 ``CANNOT_TARGET_ADMIN{role}`` when the target outranks (or equals) the actor."""
+    role = await target_admin_role(db, user_id)
+    if outranks_or_equals(role, str(admin.get("role") or "")):
+        raise errors.api_error(403, CANNOT_TARGET_ADMIN, role=role)
+
+
+# ---------------------------------------------------------------------------
+# sessions
+# ---------------------------------------------------------------------------
+async def _revoke_sessions(db, user_id: int) -> dict[str, int]:
+    """Delete the user's Mini App sessions (and unused bot hand-off tokens).
+
+    Runs inside the caller's transaction and does not commit. A session row is
+    the identity behind a Bearer token (``webapp.core.session``), so once it is
+    gone every token minted for it answers 401 ``SESSION_EXPIRED``.
+    """
+    revoked = {"sessions": 0, "handoff_tokens": 0}
+    tables = await _existing_tables(db, ("webapp_sessions", "bot_handoff_tokens"))
+    if "webapp_sessions" in tables:
+        cursor = await db.execute("DELETE FROM webapp_sessions WHERE user_id = ?", (user_id,))
+        revoked["sessions"] = max(0, int(cursor.rowcount or 0))
+    if "bot_handoff_tokens" in tables:
+        cursor = await db.execute(
+            "DELETE FROM bot_handoff_tokens WHERE user_id = ? AND used = 0", (user_id,)
+        )
+        revoked["handoff_tokens"] = max(0, int(cursor.rowcount or 0))
+    return revoked
+
+
+# ---------------------------------------------------------------------------
+# idempotency (admin_idempotency, m018)
+# ---------------------------------------------------------------------------
+def _idempotency_key(request: Request) -> str | None:
+    """The ``X-Idempotency-Key`` header, or None when the client sent none.
+
+    Optional so older clients keep working; a present but malformed key is a
+    400 rather than silently ignored (ignoring it would drop the protection the
+    client asked for).
+    """
+    raw = request.headers.get(IDEMPOTENCY_HEADER)
+    if raw is None:
+        return None
+    key = raw.strip()
+    if not _IDEMPOTENCY_KEY_RE.fullmatch(key):
+        raise errors.validation_error("idempotency_key")
+    return key
+
+
+def _body_hash(fields: dict[str, Any]) -> str:
+    return hashlib.sha256(canonical_params(fields).encode()).hexdigest()
+
+
+async def _claim_idempotency(
+    db,
+    *,
+    actor_id: int,
+    action: str,
+    key: str,
+    target_id: str | None,
+    body_hash: str,
+) -> dict[str, Any] | None:
+    """Claim ``(actor, action, key)`` or return the response it already produced.
+
+    This is the FIRST write of the mutation's transaction. The expired-row
+    DELETE takes SQLite's write lock, so a concurrent request with the same key
+    blocks right here (busy_timeout) until the first one commits or rolls back,
+    and then its INSERT sees the committed row. Taking the lock with a write
+    (not a read) is also what keeps ``ledger``'s rule intact: no read snapshot
+    is pinned before the balance UPDATE.
+
+    Returns None when the key was claimed (the caller performs the mutation and
+    stores its response with :func:`_store_idempotent_response` before the
+    commit), or the stored response dict for a replay. A key reused with a
+    different body is 409 ``IDEMPOTENCY_CONFLICT``. On a replay and on a
+    conflict the transaction is rolled back, so nothing is written.
+    """
+    now = int(time.time())
+    await db.execute(
+        "DELETE FROM admin_idempotency WHERE created_at < ?", (now - IDEMPOTENCY_TTL_SECONDS,)
+    )
+    cursor = await db.execute(
+        "INSERT INTO admin_idempotency "
+        "(actor_id, action, idem_key, target_id, body_hash, response_json, created_at) "
+        "VALUES (?, ?, ?, ?, ?, NULL, ?) "
+        "ON CONFLICT (actor_id, action, idem_key) DO NOTHING",
+        (int(actor_id), action, key, target_id, body_hash, now),
+    )
+    if cursor.rowcount:
+        return None
+
+    cursor = await db.execute(
+        "SELECT body_hash, response_json FROM admin_idempotency "
+        "WHERE actor_id = ? AND action = ? AND idem_key = ?",
+        (int(actor_id), action, key),
+    )
+    row = await cursor.fetchone()
+    await db.rollback()
+    # A committed claim always carries its response (both are written in one
+    # transaction), so a missing response can only be a mismatched body.
+    if row is None or row["body_hash"] != body_hash or row["response_json"] is None:
+        raise errors.api_error(409, IDEMPOTENCY_CONFLICT)
+    return json.loads(row["response_json"])
+
+
+async def _store_idempotent_response(
+    db, *, actor_id: int, action: str, key: str, response: dict[str, Any]
+) -> None:
+    await db.execute(
+        "UPDATE admin_idempotency SET response_json = ? "
+        "WHERE actor_id = ? AND action = ? AND idem_key = ?",
+        (json.dumps(response, separators=(",", ":")), int(actor_id), action, key),
+    )
+
+
+# ---------------------------------------------------------------------------
+# CSV
+# ---------------------------------------------------------------------------
+#: A text cell starting with one of these is evaluated as a formula by
+#: Excel / LibreOffice / Google Sheets (CSV injection).
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+UTF8_BOM = chr(0xFEFF)
+
+#: Exactly the fields the admin list already shows (``UserListItem``), no more.
+CSV_COLUMNS = (
+    "user_id",
+    "first_name",
+    "username",
+    "lang",
+    "region",
+    "district",
+    "joined_at",
+    "is_pro",
+    "pro_until",
+    "balance",
+    "banned",
+    "banned_reason",
+    "blocked",
+    "last_seen_at",
+    "ref_by",
+)
+
+
+def csv_cell(value: Any) -> Any:
+    """A value made safe for a spreadsheet cell.
+
+    Text starting with ``= + - @ TAB CR`` gets a leading apostrophe so it is
+    shown, never evaluated. Real numbers are left alone (a negative balance is
+    data, and quoting it would turn it into text). NUL bytes are dropped. The
+    ``csv`` writer does the RFC 4180 quoting of commas, quotes and newlines.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, (int, float)):
+        return value
+    text = str(value).replace("\x00", "")
+    if text.startswith(_FORMULA_PREFIXES):
+        text = "'" + text
+    return text
+
+
+def _ts_cell(value: Any) -> str:
+    """Unix seconds -> ``YYYY-MM-DD HH:MM:SS`` in Asia/Tashkent; empty when unset."""
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if seconds <= 0:
+        return ""
+    return datetime.fromtimestamp(seconds, TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _csv_row(row) -> list[Any]:
+    item = _list_item(row)
+    return [
+        csv_cell(item["user_id"]),
+        csv_cell(item["first_name"]),
+        csv_cell(item["username"]),
+        csv_cell(item["lang"]),
+        csv_cell(item["region"]),
+        csv_cell(item["district"]),
+        _ts_cell(item["date"]),
+        csv_cell(item["is_pro"]),
+        _ts_cell(item["pro_until"]),
+        csv_cell(item["balance"]),
+        csv_cell(item["banned"]),
+        csv_cell(item["banned_reason"]),
+        csv_cell(item["blocked"]),
+        _ts_cell(item["last_seen_at"]),
+        csv_cell(item["ref_by"]),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# list filters (shared by the list and the CSV export)
+# ---------------------------------------------------------------------------
+def _user_filters(
+    *,
+    q: str | None,
+    pro: bool | None,
+    banned: bool | None,
+    blocked: bool | None,
+    lang: str | None,
+    region: str | None,
+    date_from: int | None,
+    date_to: int | None,
+) -> tuple[list[str], list[Any], bool]:
+    """``(where_clauses, params, like_search)`` for the list filters."""
+    where: list[str] = []
+    params: list[Any] = []
+    like_search = False
+
+    term = (q or "").strip()
+    if term:
+        if term.lstrip("-").isdigit():
+            where.append("u.user_id = ?")
+            params.append(int(term))
+        else:
+            like_search = True
+            needle = _like_term(term.lstrip("@"))
+            where.append("(u.username LIKE ? ESCAPE '\\' OR u.first_name LIKE ? ESCAPE '\\')")
+            params.extend([needle, needle])
+
+    if pro is not None:
+        # Plain equality keeps idx_users_user_pro usable; the column is nullable
+        # on old rows, hence the explicit IS NULL branch for the negative case.
+        where.append("u.user_pro = 1" if pro else "(u.user_pro IS NULL OR u.user_pro = 0)")
+    if banned is not None:
+        where.append("u.banned = 1" if banned else "(u.banned IS NULL OR u.banned = 0)")
+    if blocked is not None:
+        where.append("u.blocked = 1" if blocked else "(u.blocked IS NULL OR u.blocked = 0)")
+    if lang:
+        if lang not in LANGS:
+            raise errors.validation_error("lang")
+        where.append("u.lang = ?")
+        params.append(lang)
+    if region:
+        where.append("u.region = ?")
+        params.append(str(region))
+    if date_from is not None:
+        where.append("u.date >= ?")
+        params.append(int(date_from))
+    if date_to is not None:
+        where.append("u.date <= ?")
+        params.append(int(date_to))
+    return where, params, like_search
+
+
+# ---------------------------------------------------------------------------
 # response models
 # ---------------------------------------------------------------------------
 class UserListItem(BaseModel):
@@ -201,6 +533,10 @@ class UserDetailResponse(BaseModel):
     recent_events: list[dict[str, Any]]
     notification_settings: dict[str, Any] | None = None
     referrer: dict[str, Any] | None = None
+    #: The admin role the user holds (None for a regular user) ...
+    target_role: str | None = None
+    #: ... and whether the viewing admin outranks it, i.e. may act on this user.
+    actionable: bool = True
 
 
 class SavesResponse(BaseModel):
@@ -249,6 +585,33 @@ class BanResponse(BaseModel):
     user_id: int
     banned: bool
     reason: str | None = None
+    #: Mini App sessions deleted by this ban (0 on unban).
+    sessions_revoked: int = 0
+
+
+class ResetRequest(BaseModel):
+    # In the body for the same reason as ``BalanceRequest.user_id``.
+    user_id: int = Field(gt=0)
+    note: str | None = Field(default=None, max_length=MAX_NOTE)
+
+
+class ResetResponse(BaseModel):
+    ok: bool
+    user_id: int
+    amount: int
+    new_balance: int
+    tx_id: int
+
+
+class RevokeSessionsRequest(BaseModel):
+    # Bound into the confirmation token, so it travels in the body as well.
+    user_id: int = Field(gt=0)
+
+
+class RevokeSessionsResponse(BaseModel):
+    ok: bool
+    user_id: int
+    revoked: int
 
 
 class MessageRequest(BaseModel):
@@ -307,43 +670,16 @@ async def list_users(
         raise errors.validation_error("sort")
     sort_column = SORT_COLUMNS[sort]
 
-    where: list[str] = []
-    params: list[Any] = []
-    like_search = False
-
-    term = (q or "").strip()
-    if term:
-        if term.lstrip("-").isdigit():
-            where.append("u.user_id = ?")
-            params.append(int(term))
-        else:
-            like_search = True
-            needle = _like_term(term.lstrip("@"))
-            where.append("(u.username LIKE ? ESCAPE '\\' OR u.first_name LIKE ? ESCAPE '\\')")
-            params.extend([needle, needle])
-
-    if pro is not None:
-        # Plain equality keeps idx_users_user_pro usable; the column is nullable
-        # on old rows, hence the explicit IS NULL branch for the negative case.
-        where.append("u.user_pro = 1" if pro else "(u.user_pro IS NULL OR u.user_pro = 0)")
-    if banned is not None:
-        where.append("u.banned = 1" if banned else "(u.banned IS NULL OR u.banned = 0)")
-    if blocked is not None:
-        where.append("u.blocked = 1" if blocked else "(u.blocked IS NULL OR u.blocked = 0)")
-    if lang:
-        if lang not in LANGS:
-            raise errors.validation_error("lang")
-        where.append("u.lang = ?")
-        params.append(lang)
-    if region:
-        where.append("u.region = ?")
-        params.append(str(region))
-    if date_from is not None:
-        where.append("u.date >= ?")
-        params.append(int(date_from))
-    if date_to is not None:
-        where.append("u.date <= ?")
-        params.append(int(date_to))
+    where, params, like_search = _user_filters(
+        q=q,
+        pro=pro,
+        banned=banned,
+        blocked=blocked,
+        lang=lang,
+        region=region,
+        date_from=date_from,
+        date_to=date_to,
+    )
 
     filter_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
@@ -414,6 +750,321 @@ async def list_users(
     return UsersListResponse(
         items=[UserListItem(**item) for item in items], next_cursor=next_cursor, total=total
     )
+
+
+# ---------------------------------------------------------------------------
+# CSV export
+#
+# Registered BEFORE ``/{user_id}``: that route's path pattern would otherwise
+# swallow ``export.csv`` and answer 422.
+# ---------------------------------------------------------------------------
+ExportConnector = Callable[[], Awaitable[Any]]
+
+
+def get_export_connector() -> ExportConnector:
+    """How the export stream opens its own connection (a dependency for tests).
+
+    The request's pooled connection cannot serve the body: FastAPI closes
+    ``yield`` dependencies before a StreamingResponse starts iterating. The
+    stream therefore opens one standalone connection and closes it when the
+    body ends (or the client goes away). Exports are limited to 2/minute per
+    actor, so this never competes with the pool in a meaningful way.
+    """
+    return open_connection
+
+
+def export_filters(
+    q: str | None = Query(default=None, max_length=64),
+    pro: bool | None = Query(default=None),
+    banned: bool | None = Query(default=None),
+    blocked: bool | None = Query(default=None),
+    lang: str | None = Query(default=None, max_length=8),
+    region: str | None = Query(default=None, max_length=32),
+    date_from: int | None = Query(default=None, alias="from", ge=0),
+    date_to: int | None = Query(default=None, alias="to", ge=0),
+    sort: str = Query(default="date"),
+) -> dict[str, Any]:
+    """Dependency: the list endpoint's filter and sort parameters, parsed."""
+    return {
+        "q": q,
+        "pro": pro,
+        "banned": banned,
+        "blocked": blocked,
+        "lang": lang,
+        "region": region,
+        "date_from": date_from,
+        "date_to": date_to,
+        "sort": sort,
+    }
+
+
+def canonical_export_filters(filters: dict[str, Any]) -> dict[str, Any]:
+    """The filters as one canonical dict: what the audit row records and what a
+    download link's token is signed over. Unset filters are left out (not
+    ``null``), matching what a JSON client sends for ``undefined``; the keys are
+    the query-string names (``from``/``to``)."""
+    params: dict[str, Any] = {"sort": filters["sort"]}
+    term = (filters["q"] or "").strip()
+    if term:
+        params["q"] = term
+    for name, value in (
+        ("pro", filters["pro"]),
+        ("banned", filters["banned"]),
+        ("blocked", filters["blocked"]),
+        ("lang", filters["lang"] or None),
+        ("region", filters["region"] or None),
+        ("from", filters["date_from"]),
+        ("to", filters["date_to"]),
+    ):
+        if value is not None:
+            params[name] = value
+    return params
+
+
+async def require_export_link(
+    filters: dict[str, Any] = Depends(export_filters),
+    actor: int = Query(..., gt=0),
+    dl: str = Query(..., min_length=1, max_length=256),
+    db=Depends(get_db),
+) -> dict[str, Any]:
+    """Dependency: the admin (``admin``+) a CSV download link was minted for.
+
+    ``Telegram.WebApp.downloadFile`` fetches a plain HTTPS URL without our
+    headers, so it cannot carry the Bearer session the normal export uses.
+    The link carries ``actor=<id>&dl=<token>`` instead: ``dl`` is a
+    confirmation token (``POST /admin/confirm``, action
+    ``users.export_download``) whose MAC binds that actor and exactly these
+    filters and which dies after 60 s. The actor's role is re-read from the
+    ``admins`` table here (so a revoked admin's link is dead), and the endpoint
+    claims the token once (:func:`_consume_download_link`), so a leaked link
+    cannot be replayed.
+    """
+    params = canonical_export_filters(filters)
+    if not verify_confirm_token(dl, int(actor), EXPORT_DOWNLOAD_ACTION, params):
+        raise errors.api_error(403, errors.CONFIRMATION_REQUIRED, action=EXPORT_DOWNLOAD_ACTION)
+    role = await resolve_admin_role(db, int(actor))
+    if role is None:
+        raise errors.api_error(403, errors.ADMIN_REQUIRED)
+    if role_rank(role) < role_rank("admin"):
+        raise errors.api_error(403, errors.ADMIN_REQUIRED, required_role="admin")
+    return {"user_id": int(actor), "role": role, "link_token": dl}
+
+
+# Same marker ``require_role`` sets: this dependency enforces role ``admin``
+# (tests/test_admin_routes_protected.py walks route trees for it).
+require_export_link.__require_role__ = "admin"  # type: ignore[attr-defined]
+
+
+async def _consume_download_link(
+    db, actor_id: int, link_token: str, params: dict[str, Any]
+) -> None:
+    """Claim the link once (``admin_idempotency``); a second use is refused.
+
+    Committed together with the export's audit row, before the body streams.
+    """
+    cursor = await db.execute(
+        "INSERT INTO admin_idempotency "
+        "(actor_id, action, idem_key, target_id, body_hash, response_json, created_at) "
+        "VALUES (?, ?, ?, NULL, ?, NULL, ?) "
+        "ON CONFLICT (actor_id, action, idem_key) DO NOTHING",
+        (
+            int(actor_id),
+            EXPORT_DOWNLOAD_ACTION,
+            hashlib.sha256(link_token.encode()).hexdigest(),
+            _body_hash(params),
+            int(time.time()),
+        ),
+    )
+    if not cursor.rowcount:
+        await db.rollback()
+        raise errors.api_error(403, errors.CONFIRMATION_REQUIRED, action=EXPORT_DOWNLOAD_ACTION)
+
+
+async def _iter_export_rows(
+    conn, where: list[str], params: list[Any], sort_column: str, max_rows: int
+) -> AsyncIterator[list[Any]]:
+    """Chunks of at most ``EXPORT_CHUNK`` rows, in the list endpoint's order.
+
+    Same keyset walk as the list: non-NULL sort values by ``(value, user_id)``
+    DESC, then the NULL tail by ``user_id`` DESC. Never more than one chunk is
+    held in memory.
+    """
+    remaining = max_rows
+    last: tuple[Any, int] | None = None
+    while remaining > 0:
+        clauses = [*where, f"{sort_column} IS NOT NULL"]
+        args = list(params)
+        if last is not None:
+            clause, extra = _keyset_clause(sort_column, last[0], last[1])
+            clauses.append(clause)
+            args.extend(extra)
+        want = min(EXPORT_CHUNK, remaining)
+        cursor = await conn.execute(
+            f"SELECT {LIST_COLUMNS}, {sort_column} AS sort_value FROM users u "
+            f"WHERE {' AND '.join(clauses)} ORDER BY {sort_column} DESC, u.user_id DESC LIMIT ?",
+            (*args, want),
+        )
+        rows = list(await cursor.fetchall())
+        if not rows:
+            break
+        yield rows
+        remaining -= len(rows)
+        last = (rows[-1]["sort_value"], int(rows[-1]["user_id"]))
+        if len(rows) < want:
+            break
+
+    last_id: int | None = None
+    while remaining > 0:
+        clauses = [*where, f"{sort_column} IS NULL"]
+        args = list(params)
+        if last_id is not None:
+            clauses.append("u.user_id < ?")
+            args.append(last_id)
+        want = min(EXPORT_CHUNK, remaining)
+        cursor = await conn.execute(
+            f"SELECT {LIST_COLUMNS} FROM users u WHERE {' AND '.join(clauses)} "
+            "ORDER BY u.user_id DESC LIMIT ?",
+            (*args, want),
+        )
+        rows = list(await cursor.fetchall())
+        if not rows:
+            break
+        yield rows
+        remaining -= len(rows)
+        last_id = int(rows[-1]["user_id"])
+        if len(rows) < want:
+            break
+
+
+def _drain(buffer: io.StringIO) -> bytes:
+    data = buffer.getvalue().encode("utf-8")
+    buffer.seek(0)
+    buffer.truncate(0)
+    return data
+
+
+async def _csv_stream(
+    connect: ExportConnector,
+    where: list[str],
+    params: list[Any],
+    sort_column: str,
+    max_rows: int,
+) -> AsyncIterator[bytes]:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    # BOM: Excel only reads a CSV as UTF-8 (Cyrillic, o'/g') when it starts with one.
+    buffer.write(UTF8_BOM)
+    writer.writerow(CSV_COLUMNS)
+    yield _drain(buffer)
+
+    conn = await connect()
+    try:
+        async for rows in _iter_export_rows(conn, where, params, sort_column, max_rows):
+            for row in rows:
+                writer.writerow(_csv_row(row))
+            yield _drain(buffer)
+    finally:
+        await conn.close()
+
+
+async def _export_response(
+    request: Request,
+    db,
+    connect: ExportConnector,
+    admin: dict[str, Any],
+    filters: dict[str, Any],
+) -> StreamingResponse:
+    """Shared body of both export routes: count, audit, commit, then stream."""
+    sort = filters["sort"]
+    if sort not in SORT_COLUMNS:
+        raise errors.validation_error("sort")
+    sort_column = SORT_COLUMNS[sort]
+    where, params, _like = _user_filters(
+        q=filters["q"],
+        pro=filters["pro"],
+        banned=filters["banned"],
+        blocked=filters["blocked"],
+        lang=filters["lang"],
+        region=filters["region"],
+        date_from=filters["date_from"],
+        date_to=filters["date_to"],
+    )
+    canonical = canonical_export_filters(filters)
+    link_token = admin.get("link_token")
+    if link_token is not None:
+        await _consume_download_link(db, int(admin["user_id"]), link_token, canonical)
+
+    filter_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    count_cursor = await db.execute(
+        f"SELECT COUNT(*) FROM (SELECT 1 FROM users u{filter_sql} LIMIT ?)",
+        (*params, EXPORT_MAX_ROWS + 1),
+    )
+    matched = int((await count_cursor.fetchone())[0])
+    row_count = min(matched, EXPORT_MAX_ROWS)
+    truncated = matched > EXPORT_MAX_ROWS
+
+    await log_admin_action(
+        db,
+        actor_id=int(admin["user_id"]),
+        action="users.export",
+        target_type="users",
+        target_id=None,
+        payload={
+            "filters": canonical,
+            "row_count": row_count,
+            "truncated": truncated,
+            "via": "link" if link_token is not None else "session",
+        },
+        ip=_client_ip(request),
+    )
+    await db.commit()
+
+    filename = f"users-{datetime.now(TZ):%Y%m%d-%H%M}.csv"
+    return StreamingResponse(
+        _csv_stream(connect, where, params, sort_column, row_count),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "X-Export-Rows": str(row_count),
+            "X-Export-Truncated": "1" if truncated else "0",
+        },
+    )
+
+
+@router.get("/export.csv")
+@limiter.limit("2/minute")
+async def export_users_csv(
+    request: Request,
+    filters: dict[str, Any] = Depends(export_filters),
+    admin=Depends(require_admin_role),
+    db=Depends(get_db),
+    connect: ExportConnector = Depends(get_export_connector),
+) -> StreamingResponse:
+    """The user list as CSV: the list's filters and sort, every page.
+
+    Role ``admin``+ (Bearer session), 2/minute, at most ``EXPORT_MAX_ROWS``
+    (100k) rows — the response says how many it carries (``X-Export-Rows``)
+    and whether the cap cut it (``X-Export-Truncated: 1``). Columns are exactly
+    the list's fields (``CSV_COLUMNS``), text cells are formula-injection safe,
+    the file starts with a UTF-8 BOM. One ``users.export`` audit row records
+    the filters and the row count; it is committed before the first byte.
+    """
+    return await _export_response(request, db, connect, admin, filters)
+
+
+@router.get("/export/download.csv")
+@limiter.limit("2/minute")
+async def export_users_csv_link(
+    request: Request,
+    filters: dict[str, Any] = Depends(export_filters),
+    admin=Depends(require_export_link),
+    db=Depends(get_db),
+    connect: ExportConnector = Depends(get_export_connector),
+) -> StreamingResponse:
+    """The same export behind a single-use download link (``require_export_link``)."""
+    return await _export_response(request, db, connect, admin, filters)
 
 
 # ---------------------------------------------------------------------------
@@ -518,6 +1169,8 @@ async def get_user(
         if ref_row is not None:
             referrer = dict(ref_row)
 
+    target_role = await target_admin_role(db, user_id)
+
     return UserDetailResponse(
         user=UserListItem(**user),
         wallet={
@@ -530,6 +1183,8 @@ async def get_user(
         recent_events=recent_events,
         notification_settings=notification_settings,
         referrer=referrer,
+        target_role=target_role,
+        actionable=not outranks_or_equals(target_role, str(admin.get("role") or "")),
     )
 
 
@@ -609,6 +1264,9 @@ async def set_user_pro(
     if body.enabled and body.days:
         pro_until = int(time.time()) + int(body.days) * 86400
 
+    # Reads only, outside any transaction: nothing is pinned before the UPDATE.
+    await _guard_target(db, admin, user_id)
+
     # The UPDATE is the first statement of the transaction (see ledger docs) and
     # its rowcount doubles as the existence check.
     if body.enabled:
@@ -671,16 +1329,41 @@ async def set_user_pro(
 @limiter.limit("10/minute")
 async def change_user_balance(
     request: Request,
+    response: Response,
     body: BalanceRequest,
     user_id: int = Path(..., gt=0),
     admin=Depends(require_admin_role),
     db=Depends(get_db),
 ) -> BalanceResponse:
+    """Credit or debit the balance (confirm token ``users.balance``).
+
+    ``X-Idempotency-Key`` (optional for old clients, always sent by the Mini
+    App): the same actor + key within 24 h returns the original response with
+    ``Idempotent-Replayed: true`` and writes nothing; the same key with a
+    different body is 409 ``IDEMPOTENCY_CONFLICT``.
+    """
     if int(body.user_id) != user_id:
         raise errors.validation_error("user_id")
     if body.amount == 0:
         raise errors.validation_error("amount")
     note = _clean_note(body.note)
+    idem_key = _idempotency_key(request)
+    actor_id = int(admin["user_id"])
+
+    await _guard_target(db, admin, user_id)
+
+    if idem_key is not None:
+        replay = await _claim_idempotency(
+            db,
+            actor_id=actor_id,
+            action="users.balance",
+            key=idem_key,
+            target_id=str(user_id),
+            body_hash=_body_hash({"user_id": user_id, "amount": int(body.amount), "note": note}),
+        )
+        if replay is not None:
+            response.headers[REPLAYED_HEADER] = "true"
+            return BalanceResponse(**replay)
 
     try:
         result = await ledger.apply_balance_change(
@@ -688,7 +1371,7 @@ async def change_user_balance(
             user_id=user_id,
             amount=int(body.amount),
             kind="admin_credit",
-            actor_id=int(admin["user_id"]),
+            actor_id=actor_id,
             note=note,
             require_sufficient=body.amount < 0,
         )
@@ -698,9 +1381,17 @@ async def change_user_balance(
     except ValueError as exc:
         raise errors.validation_error("amount") from exc
 
+    outcome = BalanceResponse(
+        ok=True,
+        user_id=user_id,
+        amount=int(body.amount),
+        new_balance=int(result["balance_after"]),
+        tx_id=int(result["tx_id"]),
+    )
+
     await log_admin_action(
         db,
-        actor_id=int(admin["user_id"]),
+        actor_id=actor_id,
         action="users.balance",
         target_type="user",
         target_id=str(user_id),
@@ -709,16 +1400,64 @@ async def change_user_balance(
             "balance_after": int(result["balance_after"]),
             "tx_id": int(result["tx_id"]),
             "note": note,
+            "idempotency_key": idem_key,
         },
         ip=_client_ip(request),
     )
+    if idem_key is not None:
+        await _store_idempotent_response(
+            db, actor_id=actor_id, action="users.balance", key=idem_key, response=outcome.model_dump()
+        )
     await db.commit()
+    return outcome
 
-    return BalanceResponse(
+
+@router.post(
+    "/{user_id}/reset",
+    response_model=ResetResponse,
+    dependencies=[Depends(require_reset_confirmation)],
+)
+@limiter.limit("10/minute")
+async def reset_user(
+    request: Request,
+    body: ResetRequest,
+    user_id: int = Path(..., gt=0),
+    admin=Depends(require_admin_role),
+    db=Depends(get_db),
+) -> ResetResponse:
+    """Zero the balance and drop Pro (confirm token ``users.reset``).
+
+    The rank-checked twin of ``POST /wallet/admin/reset-user``; the Users page
+    calls this one.
+    """
+    if int(body.user_id) != user_id:
+        raise errors.validation_error("user_id")
+    note = _clean_note(body.note)
+    actor_id = int(admin["user_id"])
+
+    await _guard_target(db, admin, user_id)
+
+    try:
+        result = await ledger.reset_user(db, user_id=user_id, actor_id=actor_id, note=note)
+    except ledger.LedgerError as exc:
+        _raise_ledger_error(exc)
+        raise  # pragma: no cover - _raise_ledger_error always raises
+
+    await log_admin_action(
+        db,
+        actor_id=actor_id,
+        action="users.reset",
+        target_type="user",
+        target_id=str(user_id),
+        payload={"amount": int(result["amount"]), "tx_id": int(result["tx_id"]), "note": note},
+        ip=_client_ip(request),
+    )
+    await db.commit()
+    return ResetResponse(
         ok=True,
         user_id=user_id,
-        amount=int(body.amount),
-        new_balance=int(result["balance_after"]),
+        amount=int(result["amount"]),
+        new_balance=0,
         tx_id=int(result["tx_id"]),
     )
 
@@ -732,7 +1471,10 @@ async def set_user_ban(
     admin=Depends(require_moderator),
     db=Depends(get_db),
 ) -> BanResponse:
+    """Ban or unban. A ban also deletes the user's sessions, in the same transaction."""
     reason = _clean_note(body.reason)
+    await _guard_target(db, admin, user_id)
+
     db_cursor = await db.execute(
         "UPDATE users SET banned = ?, banned_reason = ? WHERE user_id = ?",
         (1 if body.banned else 0, reason if body.banned else None, user_id),
@@ -740,20 +1482,77 @@ async def set_user_ban(
     if not db_cursor.rowcount:
         raise errors.not_found("user")
 
+    revoked = {"sessions": 0, "handoff_tokens": 0}
+    if body.banned:
+        revoked = await _revoke_sessions(db, user_id)
+
     await log_admin_action(
         db,
         actor_id=int(admin["user_id"]),
         action="users.ban",
         target_type="user",
         target_id=str(user_id),
-        payload={"banned": body.banned, "reason": reason},
+        payload={
+            "banned": body.banned,
+            "reason": reason,
+            "sessions_revoked": revoked["sessions"],
+            "handoff_revoked": revoked["handoff_tokens"],
+        },
         ip=_client_ip(request),
     )
     await db.commit()
 
     return BanResponse(
-        ok=True, user_id=user_id, banned=body.banned, reason=reason if body.banned else None
+        ok=True,
+        user_id=user_id,
+        banned=body.banned,
+        reason=reason if body.banned else None,
+        sessions_revoked=revoked["sessions"],
     )
+
+
+@router.post(
+    "/{user_id}/sessions/revoke",
+    response_model=RevokeSessionsResponse,
+    dependencies=[Depends(require_sessions_confirmation)],
+)
+@limiter.limit("10/minute")
+async def revoke_user_sessions(
+    request: Request,
+    body: RevokeSessionsRequest,
+    user_id: int = Path(..., gt=0),
+    admin=Depends(require_admin_role),
+    db=Depends(get_db),
+) -> RevokeSessionsResponse:
+    """Sign the user out of the Mini App everywhere, without banning them.
+
+    Confirm token ``users.sessions_revoke`` bound to ``user_id``. The user can
+    open the Mini App again (a new ``/auth/launch`` mints a new session); what
+    this ends is every session that exists now.
+    """
+    if int(body.user_id) != user_id:
+        raise errors.validation_error("user_id")
+    await _guard_target(db, admin, user_id)
+
+    db_cursor = await db.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
+    if await db_cursor.fetchone() is None:
+        raise errors.not_found("user")
+
+    revoked = await _revoke_sessions(db, user_id)
+    await log_admin_action(
+        db,
+        actor_id=int(admin["user_id"]),
+        action="users.sessions_revoke",
+        target_type="user",
+        target_id=str(user_id),
+        payload={
+            "sessions_revoked": revoked["sessions"],
+            "handoff_revoked": revoked["handoff_tokens"],
+        },
+        ip=_client_ip(request),
+    )
+    await db.commit()
+    return RevokeSessionsResponse(ok=True, user_id=user_id, revoked=revoked["sessions"])
 
 
 async def send_telegram_message(token: str, chat_id: int, text: str) -> dict[str, Any]:
@@ -781,6 +1580,7 @@ async def message_user(
     text = body.text.strip()
     if not text:
         raise errors.validation_error("text")
+    await _guard_target(db, admin, user_id)
 
     db_cursor = await db.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
     if await db_cursor.fetchone() is None:

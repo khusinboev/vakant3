@@ -106,6 +106,31 @@ const adminUsers: Record<keyof AdminUsersDict, string> = {
   "adminUsers.reset.confirmTitle": "Reset account",
   "adminUsers.reset.confirmDesc": "{id}: the balance is zeroed and Pro is cancelled.",
   "adminUsers.reset.success": "Account reset.",
+  "adminUsers.ban.sessionsNote": "Banning also ends every open session of this user.",
+
+  // ── Sessions ─────────────────────────────────────────────────────────────
+  "adminUsers.action.sessions": "Revoke sessions",
+  "adminUsers.sessions.desc":
+    "{id} is signed out of every Mini App session. This is not a ban: opening the app again starts a new session.",
+  "adminUsers.sessions.confirmTitle": "Revoke sessions",
+  "adminUsers.sessions.confirmDesc": "Every session of user {id} will be ended.",
+  "adminUsers.sessions.success": "Sessions revoked.",
+
+  // ── Rank protection ──────────────────────────────────────────────────────
+  "adminUsers.detail.protected":
+    "This user is {role}. Their rank equals or exceeds yours, so actions are unavailable.",
+
+  // ── CSV export ───────────────────────────────────────────────────────────
+  "adminUsers.export.action": "Export CSV",
+  "adminUsers.export.success": "File ready: {count} rows.",
+  "adminUsers.export.truncated": "Only the first {count} rows were exported. Narrow the filters.",
+  "adminUsers.export.rateLimited": "Exports are limited to 2 per minute. Try again shortly.",
+
+  // ── Errors only these endpoints return ───────────────────────────────────
+  "adminUsers.error.CANNOT_TARGET_ADMIN":
+    "This user is {role}. You cannot act on an admin of equal or higher rank.",
+  "adminUsers.error.IDEMPOTENCY_CONFLICT":
+    "This request was already sent with different values. Close the sheet and enter it again.",
 };
 
 export default adminUsers;
