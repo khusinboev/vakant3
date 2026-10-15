@@ -230,6 +230,18 @@ const common: Record<keyof CommonDict, string> = {
   "error.BOT_START_REQUIRED": "Сначала нажмите /start в боте.",
   "error.SUBSCRIPTION_REQUIRED": "Сначала подпишитесь на обязательные каналы.",
   "error.USER_BANNED": "Ваш аккаунт заблокирован.",
+  "error.FORBIDDEN": "Это действие запрещено.",
+  "error.CONFIRMATION_REQUIRED": "Срок подтверждения истёк. Попробуйте ещё раз.",
+  "error.SERVER_BUSY": "Сервер занят. Попробуйте чуть позже.",
+  "error.SERVER_MISCONFIGURED": "Ошибка настройки сервера. Сообщите администратору.",
+  "error.INTERNAL_ERROR": "Ошибка на сервере. Попробуйте ещё раз.",
+  "error.PDF_RENDER_FAILED": "Не удалось создать PDF. Попробуйте ещё раз.",
+  "error.JOB_ALREADY_QUEUED": "Эта задача уже в очереди.",
+  "error.BROADCAST_INVALID": "Некорректные данные рассылки.",
+  "error.BROADCAST_NOT_CANCELLABLE": "Эту рассылку уже нельзя отменить.",
+  "error.UPLOAD_EMPTY": "Файл пустой.",
+  "error.UPLOAD_TOO_LARGE": "Файл слишком большой.",
+  "error.UPLOAD_TYPE_NOT_ALLOWED": "Этот тип файла не разрешён.",
   "error.UNKNOWN": "Произошла ошибка. Попробуйте ещё раз.",
 };
 

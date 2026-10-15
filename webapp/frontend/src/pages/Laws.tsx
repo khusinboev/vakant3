@@ -183,7 +183,18 @@ export default function Laws() {
           )
         }
       >
-        {detail.isLoading || !article ? (
+        {openId && detail.isError && !article ? (
+          <div className="flex min-h-32 flex-col items-center justify-center gap-3 text-center">
+            <p role="alert" className="text-sm text-muted">{t("laws.error")}</p>
+            <button
+              type="button"
+              className="tap-target text-sm font-medium text-primary"
+              onClick={() => void detail.refetch()}
+            >
+              {t("common.retry")}
+            </button>
+          </div>
+        ) : detail.isLoading || !article ? (
           <div className="flex h-32 items-center justify-center">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>

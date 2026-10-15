@@ -164,6 +164,8 @@ export default function Home() {
         data={detail.data ?? null}
         isLoading={detail.isLoading && Boolean(activeUid)}
         isLocked={isLocked}
+        error={detail.isError ? detail.error : undefined}
+        onRetry={() => void detail.refetch()}
       />
 
       {showLoginPrompt && <LoginPrompt onClose={() => setShowLoginPrompt(false)} />}

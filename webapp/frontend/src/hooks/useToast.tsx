@@ -3,9 +3,8 @@ import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { create } from "zustand";
 
-import parseApiError from "../lib/parseApiError";
+import { apiErrorMessage } from "../lib/parseApiError";
 import { useT } from "../i18n/useT";
-import type { TranslationKey } from "../i18n";
 
 export type ToastKind = "success" | "error" | "info";
 
@@ -67,13 +66,7 @@ export function useToast(): ToastApi {
       success: (message: string) => push(message, "success"),
       error: (message: string) => push(message, "error"),
       info: (message: string) => push(message, "info"),
-      apiError: (error: unknown) => {
-        const parsed = parseApiError(error);
-        const key = `error.${parsed.code}` as TranslationKey;
-        let text = t(key, parsed.params as Record<string, string | number>);
-        if (text === key) text = parsed.message || t("error.UNKNOWN");
-        return push(text, "error", 5000);
-      },
+      apiError: (error: unknown) => push(apiErrorMessage(error, t), "error", 5000),
       dismiss,
     }),
     [push, dismiss, t],
