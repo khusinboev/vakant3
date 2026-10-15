@@ -1,21 +1,22 @@
-"""Wallet endpoints. Every balance change goes through ``webapp.core.ledger``.
+"""Wallet endpoints for the signed-in user. Every balance change goes through
+``webapp.core.ledger``.
 
-Admin mutations require a role (``admin``), a short-lived confirmation token and
-leave an ``admin_audit_log`` row.
+Admin balance changes are NOT here: they live in ``webapp/routers/admin_users.py``
+(``POST /admin/users/{id}/balance`` and ``/reset``), which apply the rank rule.
+The old ``/wallet/admin/add-balance`` and ``/wallet/admin/reset-user`` checked
+only the role, so an admin could credit the owner or themselves; they were
+removed.
 """
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from webapp.core import errors, ledger
 from webapp.core.admin_settings import get_admin_settings
-from webapp.core.audit import log_admin_action
-from webapp.core.auth import current_user, require_role
-from webapp.core.confirm import require_confirmation
+from webapp.core.auth import current_user
 from webapp.core.database import get_db
 from webapp.core.entry_gate import require_entry
 from webapp.core.limiter import limiter
-from webapp.core.request_ip import client_ip as _client_ip
 
 router = APIRouter(prefix="/wallet", tags=["wallet"], dependencies=[Depends(require_entry)])
 
@@ -34,23 +35,6 @@ class ActivateProResponse(BaseModel):
     tx_id: int
 
 
-class AddBalanceRequest(BaseModel):
-    user_id: int
-    amount: int = Field(gt=0, le=ledger.MAX_AMOUNT)
-    note: str | None = Field(default=None, max_length=500)
-
-
-class AddBalanceResponse(BaseModel):
-    ok: bool
-    new_balance: int
-    tx_id: int
-
-
-class ResetUserRequest(BaseModel):
-    user_id: int
-    note: str | None = Field(default=None, max_length=500)
-
-
 class TransactionItem(BaseModel):
     id: int
     kind: str
@@ -64,8 +48,6 @@ class TransactionItem(BaseModel):
 class TransactionsResponse(BaseModel):
     items: list[TransactionItem]
     next_cursor: int | None = None
-
-
 
 
 def _raise_ledger_error(exc: ledger.LedgerError) -> None:
@@ -150,84 +132,3 @@ async def activate_pro(
     return ActivateProResponse(
         ok=True, balance=int(result["balance_after"]), is_pro=True, tx_id=int(result["tx_id"])
     )
-
-
-@router.post("/admin/add-balance", response_model=AddBalanceResponse)
-@limiter.limit("10/minute")
-async def admin_add_balance(
-    request: Request,
-    payload: AddBalanceRequest,
-    admin=Depends(require_role("admin")),
-    _confirmed=Depends(require_confirmation("wallet.add_balance", ["user_id", "amount"])),
-    db=Depends(get_db),
-) -> AddBalanceResponse:
-    """Admin only: credit a user's balance (audited, confirmation token required)."""
-    actor_id = int(admin["user_id"])
-    try:
-        result = await ledger.apply_balance_change(
-            db,
-            user_id=int(payload.user_id),
-            amount=int(payload.amount),
-            kind="admin_credit",
-            actor_id=actor_id,
-            note=payload.note,
-        )
-    except ledger.LedgerError as exc:
-        await db.rollback()
-        _raise_ledger_error(exc)
-
-    await log_admin_action(
-        db,
-        actor_id=actor_id,
-        action="wallet.add_balance",
-        target_type="user",
-        target_id=str(payload.user_id),
-        payload={
-            "amount": int(payload.amount),
-            "balance_after": int(result["balance_after"]),
-            "tx_id": int(result["tx_id"]),
-            "note": payload.note,
-        },
-        ip=_client_ip(request),
-    )
-    await db.commit()
-    return AddBalanceResponse(
-        ok=True, new_balance=int(result["balance_after"]), tx_id=int(result["tx_id"])
-    )
-
-
-@router.post("/admin/reset-user")
-@limiter.limit("10/minute")
-async def admin_reset_user(
-    request: Request,
-    payload: ResetUserRequest,
-    admin=Depends(require_role("admin")),
-    _confirmed=Depends(require_confirmation("wallet.reset_user", ["user_id"])),
-    db=Depends(get_db),
-) -> dict[str, object]:
-    """Admin only: zero the balance and drop Pro (audited, confirmation required)."""
-    actor_id = int(admin["user_id"])
-    try:
-        result = await ledger.reset_user(
-            db, user_id=int(payload.user_id), actor_id=actor_id, note=payload.note
-        )
-    except ledger.LedgerError as exc:
-        await db.rollback()
-        _raise_ledger_error(exc)
-
-    await log_admin_action(
-        db,
-        actor_id=actor_id,
-        action="wallet.reset_user",
-        target_type="user",
-        target_id=str(payload.user_id),
-        payload={"amount": int(result["amount"]), "tx_id": int(result["tx_id"])},
-        ip=_client_ip(request),
-    )
-    await db.commit()
-    return {
-        "ok": True,
-        "user_id": int(payload.user_id),
-        "new_balance": 0,
-        "tx_id": int(result["tx_id"]),
-    }

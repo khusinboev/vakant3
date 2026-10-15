@@ -32,6 +32,12 @@ BROADCAST_TARGETS_TTL_SECONDS = 30 * 24 * 60 * 60
 #: m006: a cache of getChatMember answers that is trusted for at most 10 min;
 #: a row a day old is never read again (a returning user is re-checked anyway).
 SUBSCRIPTION_CHECKS_TTL_SECONDS = 24 * 60 * 60
+#: m018: admin replay keys are honoured for 24 h
+#: (``webapp.routers.admin_users.IDEMPOTENCY_TTL_SECONDS``) and single-use CSV
+#: link claims only need to outlive their 300 s link. The router deletes
+#: expired rows only while claiming a new balance key, so this sweep is what
+#: keeps a quiet table small.
+ADMIN_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
 
 #: Rows per DELETE transaction. Each chunk commits on its own, so the SQLite
 #: write lock (shared with the bot process) is held for milliseconds, not for
@@ -79,6 +85,8 @@ def _rules(now: int) -> list[tuple[str, tuple[str, ...], str, tuple]]:
         ),
         # m006.
         ("subscription_checks", (), "checked_at < ?", (now - SUBSCRIPTION_CHECKS_TTL_SECONDS,)),
+        # m018.
+        ("admin_idempotency", (), "created_at < ?", (now - ADMIN_IDEMPOTENCY_TTL_SECONDS,)),
     ]
 
 

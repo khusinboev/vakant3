@@ -170,7 +170,7 @@ export async function fetchUsersCsv(params: ExportParams): Promise<CsvExport> {
 /**
  * Absolute URL of the single-use link `/export/download.csv` for
  * `Telegram.WebApp.downloadFile` (which fetches it without our headers).
- * `token` is a `users.export_download` confirmation token over `params`.
+ * `token` comes from `mintUsersExportLink(params)` (`POST /admin/users/export/link`).
  */
 export function usersCsvDownloadUrl(params: ExportParams, actorId: number, token: string): string {
   const search = new URLSearchParams();

@@ -13,6 +13,7 @@ Roles come from the ``admins`` table; ``ADMIN_IDS`` merely bootstraps the first
 owner.
 """
 
+import sqlite3
 import time
 from typing import Any
 
@@ -27,6 +28,10 @@ from webapp.core.telegram_auth import verify_webapp_init_data
 from webapp.core.users import ensure_user, touch_last_seen
 
 _STATE_KEY = "_auth_resolution"
+
+#: Same code the entry gate raises (``webapp.core.entry_gate.USER_BANNED``);
+#: repeated here because entry_gate imports this module.
+USER_BANNED = "USER_BANNED"
 
 
 def _remember_identity(request: Request, user_id: Any) -> None:
@@ -194,6 +199,23 @@ async def resolve_admin_role(db, user_id: int) -> str | None:
     return None
 
 
+async def is_banned(db, user_id: int) -> bool:
+    """``users.banned`` for this user, read fresh (never from a cached row).
+
+    A database that predates m009 has no ``banned`` column: nobody is banned.
+    """
+    try:
+        cursor = await db.execute(
+            "SELECT COALESCE(banned, 0) FROM users WHERE user_id = ?", (int(user_id),)
+        )
+    except sqlite3.OperationalError as exc:
+        if "no such column" in str(exc).lower():
+            return False
+        raise
+    row = await cursor.fetchone()
+    return bool(row is not None and int(row[0] or 0))
+
+
 async def require_admin(request: Request, db=Depends(get_db)) -> dict[str, Any]:
     """Dependency: an admin actor, identified by a Bearer session only.
 
@@ -201,6 +223,11 @@ async def require_admin(request: Request, db=Depends(get_db)) -> dict[str, Any]:
     replayable for its whole validity window and is accepted anonymously by
     every other route, so admin actions require the session the Mini App
     obtained through ``/auth/launch``.
+
+    A banned user is refused (403 ``USER_BANNED``) whatever their role: a ban
+    deletes the sessions that existed, but a later ``/auth/launch`` can mint a
+    new one and the entry gate lets admins through, so the ban is checked here
+    on every admin request. Non-admins still get ``ADMIN_REQUIRED`` first.
 
     Returns ``{"user_id": int, "role": str, "user": {...}}``.
     """
@@ -212,6 +239,8 @@ async def require_admin(request: Request, db=Depends(get_db)) -> dict[str, Any]:
     role = await resolve_admin_role(db, int(user["user_id"]))
     if role is None:
         raise errors.api_error(403, errors.ADMIN_REQUIRED)
+    if await is_banned(db, int(user["user_id"])):
+        raise errors.api_error(403, USER_BANNED)
     return {"user_id": int(user["user_id"]), "role": role, "user": user}
 
 

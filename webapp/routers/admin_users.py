@@ -56,10 +56,12 @@ import base64
 import binascii
 import csv
 import hashlib
+import hmac
 import io
 import json
 import logging
 import re
+import secrets
 import time
 from datetime import datetime
 from typing import Any, AsyncIterator, Awaitable, Callable
@@ -72,9 +74,17 @@ from pydantic import BaseModel, Field
 from src.core.timeutil import TZ
 from webapp.core import errors, ledger
 from webapp.core.audit import log_admin_action
-from webapp.core.auth import ROLES, has_enabled_owner, require_role, resolve_admin_role, role_rank
+from webapp.core.auth import (
+    ROLES,
+    USER_BANNED,
+    has_enabled_owner,
+    is_banned,
+    require_role,
+    resolve_admin_role,
+    role_rank,
+)
 from webapp.core.config import get_settings
-from webapp.core.confirm import canonical_params, require_confirmation, verify_confirm_token
+from webapp.core.confirm import canonical_params, require_confirmation
 from webapp.core.database import get_db, open_connection
 from webapp.core.limiter import limiter
 from webapp.core.request_ip import client_ip as _client_ip
@@ -107,8 +117,12 @@ _IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9_.:-]{8,128}$")
 IDEMPOTENCY_HEADER = "x-idempotency-key"
 REPLAYED_HEADER = "Idempotent-Replayed"
 
-#: Confirmation action a single-use CSV download link is signed for.
+#: Action name of the single-use CSV download link: the ``admin_idempotency``
+#: claim, the error params and the MAC's domain all use it.
 EXPORT_DOWNLOAD_ACTION = "users.export_download"
+#: How long a download link stays valid. Longer than the 60 s confirm TTL:
+#: Telegram's native ``downloadFile`` popup waits for the admin to tap it.
+EXPORT_LINK_TTL_SECONDS = 300
 
 #: Error codes this module adds (the frontend translates them in adminUsers.ts).
 CANNOT_TARGET_ADMIN = "CANNOT_TARGET_ADMIN"
@@ -821,6 +835,57 @@ def canonical_export_filters(filters: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
+def _export_link_mac(actor_id: int, params: dict[str, Any], exp: int, nonce: str) -> str:
+    """HMAC-SHA256 (``WEBAPP_SECRET``) over actor, filters, expiry and nonce.
+
+    The message starts with ``EXPORT_DOWNLOAD_ACTION`` while a confirm token's
+    starts with the actor id, so neither kind of token verifies as the other.
+    """
+    message = (
+        f"{EXPORT_DOWNLOAD_ACTION}|{int(actor_id)}|{canonical_params(params)}|{int(exp)}|{nonce}"
+    ).encode()
+    return hmac.new(get_settings().WEBAPP_SECRET.encode(), message, hashlib.sha256).hexdigest()
+
+
+def issue_export_link_token(actor_id: int, params: dict[str, Any]) -> str:
+    """``<exp>.<nonce>.<mac>``: valid ``EXPORT_LINK_TTL_SECONDS``, unique per mint.
+
+    The random nonce is what the single-use claim stores, so two links minted
+    for the same actor and filters in the same second are still two links.
+    """
+    exp = int(time.time()) + EXPORT_LINK_TTL_SECONDS
+    nonce = secrets.token_hex(16)
+    return f"{exp}.{nonce}.{_export_link_mac(actor_id, params, exp, nonce)}"
+
+
+_NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def verify_export_link_token(token: str, actor_id: int, params: dict[str, Any]) -> str | None:
+    """The token's nonce when it is valid for this actor and these filters, else None."""
+    parts = str(token or "").strip().split(".")
+    if len(parts) != 3:
+        return None
+    exp_str, nonce, signature = parts
+    try:
+        exp = int(exp_str)
+    except ValueError:
+        return None
+    now = int(time.time())
+    if exp <= now or exp > now + EXPORT_LINK_TTL_SECONDS + 5:
+        return None
+    if not _NONCE_RE.fullmatch(nonce):
+        return None
+    if not hmac.compare_digest(_export_link_mac(actor_id, params, exp, nonce), signature):
+        return None
+    return nonce
+
+
+class ExportLinkResponse(BaseModel):
+    token: str
+    expires_in: int
+
+
 async def require_export_link(
     filters: dict[str, Any] = Depends(export_filters),
     actor: int = Query(..., gt=0),
@@ -831,23 +896,27 @@ async def require_export_link(
 
     ``Telegram.WebApp.downloadFile`` fetches a plain HTTPS URL without our
     headers, so it cannot carry the Bearer session the normal export uses.
-    The link carries ``actor=<id>&dl=<token>`` instead: ``dl`` is a
-    confirmation token (``POST /admin/confirm``, action
-    ``users.export_download``) whose MAC binds that actor and exactly these
-    filters and which dies after 60 s. The actor's role is re-read from the
-    ``admins`` table here (so a revoked admin's link is dead), and the endpoint
-    claims the token once (:func:`_consume_download_link`), so a leaked link
+    The link carries ``actor=<id>&dl=<token>`` instead: ``dl`` comes from
+    ``POST /admin/users/export/link`` (:func:`issue_export_link_token`); its
+    MAC binds that actor and exactly these filters, and it dies after
+    ``EXPORT_LINK_TTL_SECONDS``. The actor's role and ban are re-read here (so
+    a revoked or banned admin's link is dead), and the endpoint claims the
+    token's nonce once (:func:`_consume_download_link`), so a leaked link
     cannot be replayed.
     """
     params = canonical_export_filters(filters)
-    if not verify_confirm_token(dl, int(actor), EXPORT_DOWNLOAD_ACTION, params):
+    nonce = verify_export_link_token(dl, int(actor), params)
+    if nonce is None:
         raise errors.api_error(403, errors.CONFIRMATION_REQUIRED, action=EXPORT_DOWNLOAD_ACTION)
     role = await resolve_admin_role(db, int(actor))
     if role is None:
         raise errors.api_error(403, errors.ADMIN_REQUIRED)
     if role_rank(role) < role_rank("admin"):
         raise errors.api_error(403, errors.ADMIN_REQUIRED, required_role="admin")
-    return {"user_id": int(actor), "role": role, "link_token": dl}
+    # The same ban check ``require_admin`` makes: this route skips that dependency.
+    if await is_banned(db, int(actor)):
+        raise errors.api_error(403, USER_BANNED)
+    return {"user_id": int(actor), "role": role, "link_nonce": nonce}
 
 
 # Same marker ``require_role`` sets: this dependency enforces role ``admin``
@@ -856,11 +925,13 @@ require_export_link.__require_role__ = "admin"  # type: ignore[attr-defined]
 
 
 async def _consume_download_link(
-    db, actor_id: int, link_token: str, params: dict[str, Any]
+    db, actor_id: int, nonce: str, params: dict[str, Any]
 ) -> None:
-    """Claim the link once (``admin_idempotency``); a second use is refused.
+    """Claim the link's nonce once (``admin_idempotency``); a second use is refused.
 
     Committed together with the export's audit row, before the body streams.
+    The row outlives the link (retention purges ``admin_idempotency`` after
+    ``IDEMPOTENCY_TTL_SECONDS``), so a replay is refused for the link's whole life.
     """
     cursor = await db.execute(
         "INSERT INTO admin_idempotency "
@@ -870,7 +941,7 @@ async def _consume_download_link(
         (
             int(actor_id),
             EXPORT_DOWNLOAD_ACTION,
-            hashlib.sha256(link_token.encode()).hexdigest(),
+            nonce,
             _body_hash(params),
             int(time.time()),
         ),
@@ -990,9 +1061,9 @@ async def _export_response(
         date_to=filters["date_to"],
     )
     canonical = canonical_export_filters(filters)
-    link_token = admin.get("link_token")
-    if link_token is not None:
-        await _consume_download_link(db, int(admin["user_id"]), link_token, canonical)
+    link_nonce = admin.get("link_nonce")
+    if link_nonce is not None:
+        await _consume_download_link(db, int(admin["user_id"]), link_nonce, canonical)
 
     filter_sql = (" WHERE " + " AND ".join(where)) if where else ""
     count_cursor = await db.execute(
@@ -1013,7 +1084,7 @@ async def _export_response(
             "filters": canonical,
             "row_count": row_count,
             "truncated": truncated,
-            "via": "link" if link_token is not None else "session",
+            "via": "link" if link_nonce is not None else "session",
         },
         ip=_client_ip(request),
     )
@@ -1052,6 +1123,26 @@ async def export_users_csv(
     the filters and the row count; it is committed before the first byte.
     """
     return await _export_response(request, db, connect, admin, filters)
+
+
+@router.post("/export/link", response_model=ExportLinkResponse)
+@limiter.limit("10/minute")
+async def mint_export_link(
+    request: Request,
+    filters: dict[str, Any] = Depends(export_filters),
+    admin=Depends(require_admin_role),
+) -> ExportLinkResponse:
+    """Mint a single-use ``/export/download.csv`` token for these filters.
+
+    Takes the same query parameters as ``/export.csv`` and signs their
+    canonical form, so the link must repeat them exactly. Role ``admin``+
+    (Bearer session). Minting writes nothing: the download is what gets
+    claimed and audited.
+    """
+    if filters["sort"] not in SORT_COLUMNS:
+        raise errors.validation_error("sort")
+    token = issue_export_link_token(int(admin["user_id"]), canonical_export_filters(filters))
+    return ExportLinkResponse(token=token, expires_in=EXPORT_LINK_TTL_SECONDS)
 
 
 @router.get("/export/download.csv")
@@ -1425,11 +1516,7 @@ async def reset_user(
     admin=Depends(require_admin_role),
     db=Depends(get_db),
 ) -> ResetResponse:
-    """Zero the balance and drop Pro (confirm token ``users.reset``).
-
-    The rank-checked twin of ``POST /wallet/admin/reset-user``; the Users page
-    calls this one.
-    """
+    """Zero the balance and drop Pro (confirm token ``users.reset``), rank-checked."""
     if int(body.user_id) != user_id:
         raise errors.validation_error("user_id")
     note = _clean_note(body.note)
