@@ -18,7 +18,12 @@ Design notes worth keeping:
   A claimed row is owned by exactly one worker.
 * **Resumable.** Everything the worker knows lives in the DB, so a restart
   picks the job up at the first ``pending`` target. Claims left behind by a
-  crash are reset once at loop start (``reset_stale_claims``).
+  crash are reset at loop start and then every ``STALE_RESET_INTERVAL_SECONDS``
+  (``reset_stale_claims``), so a worker that died shortly before a restart
+  does not leave its rows ``sending`` forever.
+* **No starvation.** The picker skips a job whose remaining rows are all
+  claimed by someone else, so such a job neither blocks later broadcasts nor
+  makes the loop spin.
 * **Cancellable.** ``status`` is re-read at every batch boundary.
 
 Both the bot (``src/handlers/admin.py``) and the API
@@ -378,8 +383,26 @@ async def _load_job(conn, broadcast_id: int) -> dict[str, Any] | None:
 
 
 async def _next_broadcast_id(conn) -> int | None:
+    """Oldest active job this worker can make progress on.
+
+    That is a job with a ``pending`` target to claim, or one with nothing left
+    in flight (so ``run_broadcast`` can mark it done). A job whose remaining
+    rows are all ``sending`` belongs to another worker — or to a dead one, until
+    ``reset_stale_claims`` hands its rows back — and is skipped, so it neither
+    starves the broadcasts queued after it nor makes the loop spin on it.
+    """
     cursor = await conn.execute(
-        "SELECT id FROM broadcasts WHERE status IN ('queued', 'running') ORDER BY id LIMIT 1"
+        """
+        SELECT b.id FROM broadcasts b
+        WHERE b.status IN ('queued', 'running')
+          AND (
+            EXISTS (SELECT 1 FROM broadcast_targets t
+                    WHERE t.broadcast_id = b.id AND t.status = 'pending')
+            OR NOT EXISTS (SELECT 1 FROM broadcast_targets t
+                           WHERE t.broadcast_id = b.id AND t.status = 'sending')
+          )
+        ORDER BY b.id LIMIT 1
+        """
     )
     row = await cursor.fetchone()
     return int(row[0]) if row else None
@@ -549,6 +572,9 @@ async def run_broadcast(
 #: retried after a Telegram ``RetryAfter`` adds at most a minute, so ten minutes
 #: is far beyond any healthy batch.
 STALE_CLAIM_SECONDS = 600
+#: How often the running loop looks for stale claims. The UPDATE goes through
+#: the partial index on ``claimed_at WHERE status = 'sending'``, so it is cheap.
+STALE_RESET_INTERVAL_SECONDS = 60
 
 
 async def reset_stale_claims(conn, *, older_than: int = STALE_CLAIM_SECONDS) -> int:
@@ -582,24 +608,38 @@ async def process_once(bot, *, connect=None, bucket: TokenBucket | None = None) 
     return True
 
 
-async def broadcast_worker_loop(bot=None, *, poll_interval: float = POLL_INTERVAL_SECONDS) -> None:
+async def _reset_stale(connect) -> int:
+    try:
+        async with connect() as conn:
+            restored = await reset_stale_claims(conn)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # pragma: no cover - fresh DB without the tables yet
+        logger.exception("broadcast worker: stale claim reset failed")
+        return 0
+    if restored:
+        logger.info("broadcast worker: %s stale claims reset to pending", restored)
+    return restored
+
+
+async def broadcast_worker_loop(
+    bot=None, *, poll_interval: float = POLL_INTERVAL_SECONDS, connect=None
+) -> None:
     """Entry point wired into the bot process by ``main.py``."""
     if bot is None:
         from config import bot as default_bot
 
         bot = default_bot
-    connect = _default_connect()
+    connect = connect or _default_connect()
     bucket = TokenBucket()
-    try:
-        async with connect() as conn:
-            restored = await reset_stale_claims(conn)
-        if restored:
-            logger.info("broadcast worker: %s stale claims reset to pending", restored)
-    except Exception:  # pragma: no cover - fresh DB without the tables yet
-        logger.exception("broadcast worker: stale claim reset failed")
+    last_reset: float | None = None
 
     logger.info("broadcast worker started (poll %.1fs)", poll_interval)
     while True:
+        now = time.monotonic()
+        if last_reset is None or now - last_reset >= STALE_RESET_INTERVAL_SECONDS:
+            last_reset = now
+            await _reset_stale(connect)
         try:
             worked = await process_once(bot, connect=connect, bucket=bucket)
         except asyncio.CancelledError:

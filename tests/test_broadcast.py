@@ -347,6 +347,90 @@ class TestWorker:
     async def test_process_once_returns_false_without_work(self, connect):
         assert await bw.process_once(FakeBot(), connect=connect) is False
 
+    async def _strand_claims(self, connect, broadcast_id, age_seconds):
+        """Every target of the job claimed by a worker that died ``age_seconds`` ago."""
+        async with connect() as conn:
+            await conn.execute(
+                "UPDATE broadcast_targets SET status = 'sending', claimed_at = ? "
+                "WHERE broadcast_id = ?",
+                (int(time.time()) - age_seconds, broadcast_id),
+            )
+            await conn.execute(
+                "UPDATE broadcasts SET status = 'running' WHERE id = ?", (broadcast_id,)
+            )
+            await conn.commit()
+
+    async def test_a_job_with_only_fresh_claims_does_not_starve_the_next_one(self, connect):
+        stuck_id, _ = await _new_job(connect, segment="pro")         # users 1, 4
+        await self._strand_claims(connect, stuck_id, age_seconds=30)
+        next_id, _ = await _new_job(connect, segment="free")         # users 2, 5
+
+        bot = FakeBot()
+        bucket = bw.TokenBucket(rate=10_000)
+        assert await bw.process_once(bot, connect=connect, bucket=bucket) is True
+        assert sorted(uid for _, uid in bot.calls) == [2, 5]
+        assert (await _job_row(connect, next_id))["status"] == "done"
+
+        # Only the stuck job is left and nothing in it is claimable: the tick
+        # reports "no work" so the loop sleeps the poll interval instead of
+        # re-picking the same job every 0.1 s.
+        assert await bw.process_once(bot, connect=connect, bucket=bucket) is False
+        assert len(bot.calls) == 2
+        assert set((await _targets(connect, stuck_id)).values()) == {"sending"}
+
+    async def test_the_loop_resets_stale_claims_while_running(self, connect, monkeypatch):
+        """A claim 30 s old at restart is handed back once it passes the threshold."""
+        stuck_id, _ = await _new_job(connect, segment="pro")         # users 1, 4
+        await self._strand_claims(connect, stuck_id, age_seconds=30)
+        next_id, _ = await _new_job(connect, segment="free")         # users 2, 5
+        monkeypatch.setattr(bw, "STALE_RESET_INTERVAL_SECONDS", 0)
+        bot = FakeBot()
+        runs = []
+        real_run = bw.run_broadcast
+
+        async def counting_run(bot_, broadcast_id, **kwargs):
+            runs.append(broadcast_id)
+            return await real_run(bot_, broadcast_id, **kwargs)
+
+        monkeypatch.setattr(bw, "run_broadcast", counting_run)
+        task = asyncio.create_task(
+            bw.broadcast_worker_loop(bot, poll_interval=0.05, connect=connect)
+        )
+        try:
+            for _ in range(100):
+                if (await _job_row(connect, next_id))["status"] == "done":
+                    break
+                await asyncio.sleep(0.02)
+            assert (await _job_row(connect, next_id))["status"] == "done"
+            # The claim is younger than STALE_CLAIM_SECONDS: still owned.
+            assert (await _job_row(connect, stuck_id))["status"] == "running"
+            assert sorted(uid for _, uid in bot.calls) == [2, 5]
+
+            runs.clear()
+            await asyncio.sleep(0.3)
+            # The loop keeps ticking but never picks the unclaimable job again.
+            assert runs == []
+            assert len(bot.calls) == 2
+
+            # Time passes: the dead worker's claim is now older than the threshold.
+            async with connect() as conn:
+                await conn.execute(
+                    "UPDATE broadcast_targets SET claimed_at = claimed_at - ? WHERE broadcast_id = ?",
+                    (bw.STALE_CLAIM_SECONDS, stuck_id),
+                )
+                await conn.commit()
+            for _ in range(100):
+                if (await _job_row(connect, stuck_id))["status"] == "done":
+                    break
+                await asyncio.sleep(0.02)
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert (await _job_row(connect, stuck_id))["status"] == "done"
+        assert sorted(uid for _, uid in bot.calls) == [1, 2, 4, 5]
+
     async def test_media_file_id_is_reused_after_the_first_send(self, connect, monkeypatch):
         async with connect() as conn:
             broadcast_id = await bw.create_broadcast(
