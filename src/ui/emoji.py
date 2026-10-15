@@ -124,8 +124,29 @@ CALLBACK_MAX_BYTES = 64
 STYLES = ("primary", "success", "danger")
 
 
+#: Process-wide kill switch, set by ``src/ui/emoji_fallback.py`` when Telegram
+#: rejected a request with custom emoji and its plain retry went through.
+_premium_killed = False
+
+
+def disable_premium() -> bool:
+    """Switch premium emoji off for this process. True if it was on before."""
+    global _premium_killed
+    was_on = not _premium_killed
+    _premium_killed = True
+    return was_on
+
+
+def reset_premium_kill_switch() -> None:
+    """Tests only: undo :func:`disable_premium`."""
+    global _premium_killed
+    _premium_killed = False
+
+
 def premium_enabled() -> bool:
-    """True unless ``BOT_PREMIUM_EMOJI`` is explicitly switched off."""
+    """True unless ``BOT_PREMIUM_EMOJI`` is switched off or the kill switch fired."""
+    if _premium_killed:
+        return False
     return (os.getenv("BOT_PREMIUM_EMOJI") or "1").strip().lower() not in _OFF_VALUES
 
 

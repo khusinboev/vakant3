@@ -59,4 +59,8 @@ def build_fsm_storage() -> BaseStorage:
 
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+# Custom emoji rejected by Telegram -> one plain retry and premium off (src/ui/emoji_fallback.py).
+from src.ui.emoji_fallback import PremiumEmojiFallback  # noqa: E402
+
+bot.session.middleware(PremiumEmojiFallback())
 dp = Dispatcher(storage=build_fsm_storage())
