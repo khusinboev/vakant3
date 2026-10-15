@@ -19,7 +19,12 @@ export type ConfirmHeaders = { headers: { "X-Confirm-Token": string } };
 
 const withToken = (token: string): ConfirmHeaders => ({ headers: { "X-Confirm-Token": token } });
 
-/** `POST /admin/users/{id}/balance` — confirmation action `users.balance`. */
+/**
+ * `POST /admin/users/{id}/balance` — confirmation action `users.balance`,
+ * param keys `[user_id, amount]`. The backend `BalanceRequest` requires
+ * `user_id` in the body (it must equal the path id) and the token MAC is
+ * recomputed from the body's `user_id`/`amount`, so both travel in the body.
+ */
 export async function postUserBalance(
   userId: number,
   body: AdminUserBalanceBody,
@@ -27,7 +32,7 @@ export async function postUserBalance(
 ): Promise<AdminAddBalanceResponse> {
   const { data } = await client.post<AdminAddBalanceResponse>(
     `/admin/users/${userId}/balance`,
-    body,
+    { user_id: userId, amount: body.amount, note: body.note },
     withToken(token),
   );
   return data;
