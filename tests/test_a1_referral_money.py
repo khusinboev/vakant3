@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 import test_admin_auth as admin_fx
 from src.db.migrate import run_migrations
 from src.middleware.middlewares import StatsMiddleware, pay_referral_reward
+from src.middleware.middlewares import fetch_user_state as real_fetch_user_state
 from webapp.core import ledger
 from webapp.core.config import get_settings
 from webapp.core.database import get_db
@@ -125,23 +126,28 @@ async def test_no_payout_when_another_writer_created_the_user_first(tmp_path):
     # The concurrent creator already inserted the invitee (without paying yet).
     async with aiosqlite.connect(path) as conn:
         await conn.execute(
-            "INSERT INTO users (user_id, date, lang, ref_by) VALUES (?, 0, 'uz', ?)", (INVITEE, INVITER)
+            "INSERT INTO users (user_id, date, lang, ref_by) VALUES (?, 0, 'ru', ?)", (INVITEE, INVITER)
         )
         await conn.commit()
 
     middleware = StatsMiddleware(path)
+    calls = {"n": 0}
 
-    async def stale_state(conn, user_id):
-        return None, True  # what the losing process read before the winner's INSERT
+    async def stale_then_real(conn, user_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None, True  # what the losing process read before the winner's INSERT
+        return await real_fetch_user_state(conn, user_id)
 
-    with patch(f"{MW_MODULE}.fetch_user_state", side_effect=stale_state), patch(
+    with patch(f"{MW_MODULE}.fetch_user_state", side_effect=stale_then_real), patch(
         f"{MW_MODULE}._notify_inviter", new_callable=AsyncMock
     ) as notify:
-        lang, is_new = await middleware.resolve_user(INVITEE, "uz", INVITER)
+        # Telegram says "en", but the winner already stored "ru": the stored one wins.
+        assert await middleware.resolve_user(INVITEE, "en", INVITER) == ("ru", False)
         notify.assert_not_awaited()
 
-    assert is_new is False
     assert await _money_state(path) == (0, 0, 0)
+    assert await _scalar(path, "SELECT lang FROM users WHERE user_id = ?", (INVITEE,)) == "ru"
 
 
 # --------------------------------------------------------------------------

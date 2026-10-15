@@ -460,17 +460,23 @@ class StatsMiddleware(BaseMiddleware):
                 inserted = cursor.rowcount == 1
                 await conn.commit()
 
-                if has_last_seen:
-                    await touch_last_seen(conn, user_id, 0, today)
+                if inserted:
+                    if has_last_seen:
+                        await touch_last_seen(conn, user_id, 0, today)
+                    if inviter_id:
+                        try:
+                            reward = await pay_referral_reward(conn, user_id, inviter_id)
+                            if reward:
+                                await _notify_inviter(conn, inviter_id, reward)
+                        except Exception as exc:
+                            logger.error("referral to'lovida xato user_id=%s: %s", user_id, exc)
+                    return lang, True
 
-                if inviter_id and inserted:
-                    try:
-                        reward = await pay_referral_reward(conn, user_id, inviter_id)
-                        if reward:
-                            await _notify_inviter(conn, inviter_id, reward)
-                    except Exception as exc:
-                        logger.error("referral to'lovida xato user_id=%s: %s", user_id, exc)
-                return lang, inserted
+                # Lost the race: the row is someone else's, so continue as an
+                # existing user with the language that writer stored.
+                row, has_last_seen = await fetch_user_state(conn, user_id)
+                if row is None:  # pragma: no cover - deleted in between
+                    return lang, False
 
             stored = row[0]
             lang = normalize_lang(stored)
