@@ -11,7 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from webapp.core import errors
 from webapp.core.auth import current_user
 from webapp.core.config import get_settings
-from webapp.core.database import get_db
+from webapp.core.database import get_db, get_pool, release_db
 from webapp.core.entry_gate import require_entry
 from webapp.core.event_queue import enqueue_event
 from webapp.core.i18n import get_lang
@@ -80,6 +80,36 @@ def is_autosave_key(idempotency_key: str) -> bool:
     ``webapp/frontend/src/pages/ResumeStudio/useResumeSync.ts``.
     """
     return idempotency_key.lower().startswith(AUTOSAVE_KEY_PREFIX)
+
+
+async def _record_export_result(export_id: int, status: str, error_text: str | None = None) -> None:
+    """Write the export outcome on a short-lived pooled connection.
+
+    ``send-telegram`` hands its request connection back before the slow
+    work, so the final status is written on a connection taken just for this
+    one UPDATE. A failure here (pool exhausted, locked DB) is logged and
+    swallowed: the user-visible outcome (document sent, or the original
+    error) must not turn into a 503 because a bookkeeping row could not be
+    updated — a 503 after a successful send would invite a duplicate retry.
+    """
+    pool = get_pool()
+    try:
+        conn = await pool.acquire()
+    except Exception as exc:
+        _log.warning("resume export %s: could not record %s: %s", export_id, status, exc)
+        return
+    usable = False
+    try:
+        await repository.complete_export_row(conn, export_id, status, error_text)
+        await conn.commit()
+        usable = True
+    except Exception as exc:
+        _log.warning("resume export %s: could not record %s: %s", export_id, status, exc)
+    finally:
+        if usable and not conn.in_transaction:
+            await pool.release(conn)
+        else:
+            await pool.discard(conn)
 
 
 def track_event(
@@ -219,16 +249,22 @@ async def send_resume_to_telegram(
     if not settings.TOKEN:
         raise errors.api_error(500, errors.SERVER_MISCONFIGURED)
 
+    # DB phase: every read and the "pending" export row, committed, before any
+    # network or PDF work. The pooled connection goes back right after, so a
+    # slow photo host, fpdf2 or Telegram cannot pin a pool slot (with a small
+    # pool that would turn unrelated routes into 503 SERVER_BUSY).
     row = await repository.load_resume_row(db, user_id)
     profile, accent_hex = repository.load_profile_for_generation(
         row, str(user.get("first_name") or ""), template_id
     )
-
-    doc = build_resume_document(profile, lang)
-    doc["photo_bytes"] = await fetch_photo_bytes(doc.get("photo_url") or "")
-
     export_id = await repository.create_export_row(db, user_id, "pdf", template_id, "pending")
     await db.commit()
+    await release_db(db)
+    del db  # never touched again in this request
+
+    # Network / CPU phase: no pooled connection is held from here on.
+    doc = build_resume_document(profile, lang)
+    doc["photo_bytes"] = await fetch_photo_bytes(doc.get("photo_url") or "")
 
     # fpdf2 is synchronous and CPU-bound: keep it off the event loop.
     try:
@@ -237,8 +273,7 @@ async def send_resume_to_telegram(
         )
     except Exception as exc:
         _log.exception("PDF render failed for template=%s: %s", template_id, exc)
-        await repository.complete_export_row(db, export_id, "failed", "pdf_render_error")
-        await db.commit()
+        await _record_export_result(export_id, "failed", "pdf_render_error")
         raise errors.api_error(500, errors.PDF_RENDER_FAILED, template_id=template_id) from exc
 
     endpoint = f"https://api.telegram.org/bot{settings.TOKEN}/sendDocument"
@@ -264,23 +299,19 @@ async def send_resume_to_telegram(
 
     if response is None:
         _log.warning("telegram sendDocument failed: %s", last_error)
-        await repository.complete_export_row(db, export_id, "failed", "telegram_network_error")
-        await db.commit()
+        await _record_export_result(export_id, "failed", "telegram_network_error")
         raise errors.api_error(502, errors.TELEGRAM_SEND_FAILED)
 
     if response.status_code >= 400:
-        await repository.complete_export_row(db, export_id, "failed", "telegram_http_error")
-        await db.commit()
+        await _record_export_result(export_id, "failed", "telegram_http_error")
         raise errors.api_error(502, errors.TELEGRAM_SEND_FAILED)
 
     body = response.json() if response.content else {}
     if not body.get("ok"):
-        await repository.complete_export_row(db, export_id, "failed", "telegram_api_error")
-        await db.commit()
+        await _record_export_result(export_id, "failed", "telegram_api_error")
         raise errors.api_error(502, errors.TELEGRAM_SEND_FAILED)
 
-    await repository.complete_export_row(db, export_id, "completed")
-    await db.commit()
+    await _record_export_result(export_id, "completed")
 
     return ResumeSendResponse(ok=True, status="SENT")
 

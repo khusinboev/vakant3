@@ -482,3 +482,101 @@ async def test_unknown_api_path_is_404_json_with_the_spa_catch_all(client, spa_c
     # Known paths keep their 405, and non-API GETs still reach the SPA.
     assert (await client.delete("/api/health")).status_code == 405
     assert (await client.get("/some/page")).json() == {"spa": "some/page"}
+
+
+# ---------------------------------------------------------------------------
+# 2b. Resume send-telegram does not hold the connection across PDF/Telegram
+# ---------------------------------------------------------------------------
+
+
+class _FakeTelegramResponse:
+    def __init__(self, status_code: int, body: dict):
+        self.status_code = status_code
+        self._body = body
+        self.content = json.dumps(body).encode()
+
+    def json(self):
+        return self._body
+
+
+def _stub_telegram_send(monkeypatch, handler):
+    """Replace only the router's ``httpx.AsyncClient`` (the test client keeps the real one)."""
+    import importlib
+    import types
+
+    # ``webapp.resume`` re-exports the APIRouter as ``router``; load the module itself.
+    resume_router = importlib.import_module("webapp.resume.router")
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, data=None, files=None):
+            assert "/sendDocument" in url
+            assert data["chat_id"] == str(USER_ID)
+            return await handler()
+
+    fake_httpx = types.SimpleNamespace(AsyncClient=FakeClient, HTTPError=httpx.HTTPError)
+    monkeypatch.setattr(resume_router, "httpx", fake_httpx)
+
+
+async def _export_rows() -> list[dict]:
+    return await _sql(
+        "SELECT status, error_text, completed_at FROM resume_exports WHERE user_id = ? ORDER BY id",
+        (USER_ID,),
+    )
+
+
+@pytest.mark.parametrize("pool_size", [1])
+async def test_slow_resume_send_does_not_pin_the_only_connection(client, monkeypatch):
+    await _sql("DELETE FROM resume_exports WHERE user_id = ?", (USER_ID,))
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def blocked_send():
+        entered.set()
+        await release.wait()
+        return _FakeTelegramResponse(200, {"ok": True, "result": {}})
+
+    _stub_telegram_send(monkeypatch, blocked_send)
+    send = asyncio.create_task(
+        client.post("/api/resume/send-telegram", json={"template_id": "clean"}, headers=HEADERS)
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 15)
+        # Parked inside "Telegram": the export row is already committed as pending
+        # and an unrelated DB route still gets the only slot.
+        assert [r["status"] for r in await _export_rows()] == ["pending"]
+        other = await asyncio.wait_for(client.get("/api/filters/regions"), 5)
+        assert other.status_code == 200, other.text
+    finally:
+        release.set()
+    response = await asyncio.wait_for(send, 15)
+    assert response.status_code == 200, response.text
+    assert response.json() == {"ok": True, "status": "SENT"}
+    rows = await _export_rows()
+    assert len(rows) == 1
+    assert rows[0]["status"] == "completed" and rows[0]["error_text"] is None
+    assert rows[0]["completed_at"]
+
+
+@pytest.mark.parametrize("pool_size", [1])
+async def test_resume_send_failure_is_recorded_after_release(client, monkeypatch):
+    await _sql("DELETE FROM resume_exports WHERE user_id = ?", (USER_ID,))
+
+    async def rejected():
+        return _FakeTelegramResponse(403, {"ok": False, "description": "Forbidden"})
+
+    _stub_telegram_send(monkeypatch, rejected)
+    response = await client.post("/api/resume/send-telegram", json={"template_id": "clean"}, headers=HEADERS)
+    assert response.status_code == 502, response.text
+    assert response.json()["detail"]["code"] == "TELEGRAM_SEND_FAILED"
+    rows = await _export_rows()
+    assert [(r["status"], r["error_text"]) for r in rows] == [("failed", "telegram_http_error")]
+    # The single slot is free again for the next request.
+    assert (await client.get("/api/filters/regions")).status_code == 200
