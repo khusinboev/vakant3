@@ -1,7 +1,20 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminKeys, getFinanceReferrals, getFinanceSummary, getFinanceTransactions } from "../../../api/admin";
-import type { FinanceReferralItem, FinanceSummary, FinanceTransactionItem, FinanceTransactionsQuery } from "../../../api/adminTypes";
+import {
+  adminKeys,
+  getFinancePayments,
+  getFinanceReferrals,
+  getFinanceSummary,
+  getFinanceTransactions,
+} from "../../../api/admin";
+import type {
+  FinancePaymentItem,
+  FinancePaymentsQuery,
+  FinanceReferralItem,
+  FinanceSummary,
+  FinanceTransactionItem,
+  FinanceTransactionsQuery,
+} from "../../../api/adminTypes";
 import { useCursorQuery, type CursorQueryResult } from "../hooks/useCursorQuery";
 
 /** `GET /admin/finance/summary?days=` — totals + daily series for the KPI cards and chart. */
@@ -18,6 +31,14 @@ export function useFinanceTransactions(query: FinanceTransactionsQuery): CursorQ
   return useCursorQuery<FinanceTransactionItem>(
     adminKeys.financeTransactions(query),
     (cursor) => getFinanceTransactions({ ...query, cursor: cursor ?? undefined }),
+  );
+}
+
+/** `GET /admin/finance/payments` — Click orders, refetches whenever a filter changes. */
+export function useFinancePayments(query: FinancePaymentsQuery): CursorQueryResult<FinancePaymentItem> {
+  return useCursorQuery<FinancePaymentItem>(
+    adminKeys.financePayments(query),
+    (cursor) => getFinancePayments({ ...query, cursor: cursor ?? undefined }),
   );
 }
 

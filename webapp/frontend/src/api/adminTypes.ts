@@ -82,7 +82,9 @@ export type WalletTransactionKind =
   | "referral_reward"
   | "admin_credit"
   | "admin_reset"
-  | "adjustment";
+  | "adjustment"
+  | "topup"
+  | "topup_bonus";
 
 export type WalletTransactionItem = {
   id: number;
@@ -429,6 +431,37 @@ export type FinanceTotals = {
   admin_credits: number;
   referral_payouts: number;
   balance_outstanding: number;
+  topups: number;
+  topup_bonuses: number;
+};
+
+/** `GET /admin/finance/payments` — Click top-up orders (read-only). */
+export type PaymentOrderState = "created" | "pending" | "paid" | "cancelled";
+export type PaymentMethod = "page" | "card" | "phone" | "app";
+
+export type FinancePaymentItem = {
+  id: string;
+  user_id: number;
+  amount: number;
+  state: PaymentOrderState;
+  method: PaymentMethod | null;
+  provider_txn: string | null;
+  bonus_amount: number;
+  bonus_percent: number;
+  created_at: number;
+  paid_at: number | null;
+  cancelled_at: number | null;
+  cancel_reason: number | null;
+};
+
+export type FinancePaymentsQuery = {
+  status?: PaymentOrderState;
+  method?: PaymentMethod;
+  user_id?: number;
+  from?: number;
+  to?: number;
+  limit?: number;
+  cursor?: string;
 };
 
 export type FinanceSeriesPoint = {

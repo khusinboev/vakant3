@@ -5,14 +5,22 @@ import type { TranslationKey } from "../../../i18n";
 import { useLocale } from "../../../i18n/useLocale";
 import { useT } from "../../../i18n/useT";
 import type {
+  FinancePaymentsQuery,
   FinanceTransactionsQuery,
+  PaymentMethod,
+  PaymentOrderState,
   WalletTransactionKind,
 } from "../../../api/adminTypes";
 import ErrorCard from "../components/ErrorCard";
 import LoadMore from "../components/LoadMore";
 import QueryState from "../components/QueryState";
 import { downloadCsv } from "../finance/csv";
-import { useFinanceReferrals, useFinanceSummary, useFinanceTransactions } from "../finance/useFinanceQueries";
+import {
+  useFinancePayments,
+  useFinanceReferrals,
+  useFinanceSummary,
+  useFinanceTransactions,
+} from "../finance/useFinanceQueries";
 import {
   Accordion,
   EmptyState,
@@ -44,6 +52,8 @@ const KIND_LABEL: Record<WalletTransactionKind, TranslationKey> = {
   admin_credit: "adminFinance.kind.admin_credit",
   admin_reset: "adminFinance.kind.admin_reset",
   adjustment: "adminFinance.kind.adjustment",
+  topup: "adminFinance.kind.topup",
+  topup_bonus: "adminFinance.kind.topup_bonus",
 };
 
 const KIND_TONE: Record<WalletTransactionKind, Tone> = {
@@ -52,7 +62,59 @@ const KIND_TONE: Record<WalletTransactionKind, Tone> = {
   admin_credit: "primary",
   admin_reset: "warning",
   adjustment: "neutral",
+  topup: "success",
+  topup_bonus: "primary",
 };
+
+const STATE_LABEL: Record<PaymentOrderState, TranslationKey> = {
+  created: "adminFinance.state.created",
+  pending: "adminFinance.state.pending",
+  paid: "adminFinance.state.paid",
+  cancelled: "adminFinance.state.cancelled",
+};
+
+const STATE_TONE: Record<PaymentOrderState, Tone> = {
+  created: "neutral",
+  pending: "warning",
+  paid: "success",
+  cancelled: "danger",
+};
+
+const METHOD_LABEL: Record<PaymentMethod, TranslationKey> = {
+  page: "adminFinance.method.page",
+  card: "adminFinance.method.card",
+  phone: "adminFinance.method.phone",
+  app: "adminFinance.method.app",
+};
+
+/** Own URL keys (`p*`) so they never collide with the transactions filters. */
+const PAYMENT_FILTERS: FilterDef[] = [
+  {
+    key: "pstatus",
+    labelKey: "adminFinance.filter.statusLabel",
+    type: "select",
+    options: (Object.keys(STATE_LABEL) as PaymentOrderState[]).map((value) => ({
+      value,
+      labelKey: STATE_LABEL[value],
+    })),
+  },
+  {
+    key: "pmethod",
+    labelKey: "adminFinance.filter.methodLabel",
+    type: "select",
+    options: (Object.keys(METHOD_LABEL) as PaymentMethod[]).map((value) => ({
+      value,
+      labelKey: METHOD_LABEL[value],
+    })),
+  },
+  {
+    key: "puser",
+    labelKey: "adminFinance.filter.userId",
+    type: "text",
+    placeholderKey: "adminFinance.transactions.userIdPlaceholder",
+  },
+  { key: "pdate", labelKey: "adminFinance.filter.dateLabel", type: "date-range" },
+];
 
 const KIND_OPTIONS = (Object.keys(KIND_LABEL) as WalletTransactionKind[]).map((kind) => ({
   value: kind,
@@ -82,7 +144,7 @@ export default function FinancePage() {
   const t = useT();
   const { formatMoney, formatNumber, formatDateTime } = useLocale();
 
-  const [tab, setTab] = useUrlTabs<"summary" | "transactions" | "referrals">("tab", "summary");
+  const [tab, setTab] = useUrlTabs<"summary" | "transactions" | "payments" | "referrals">("tab", "summary");
   const [period, setPeriod] = useQueryState<PeriodValue>("period", "30");
   const summary = useFinanceSummary(periodDays(period));
 
@@ -105,6 +167,26 @@ export default function FinancePage() {
   }, [filters.values]);
 
   const transactions = useFinanceTransactions(transactionsQuery);
+
+  const paymentFilters = useAdminFilters(PAYMENT_FILTERS, "finance.paymentFilters");
+  const paymentsQuery = useMemo<FinancePaymentsQuery>(() => {
+    const query: FinancePaymentsQuery = {};
+    const status = paymentFilters.values.pstatus;
+    if (status) query.status = status as PaymentOrderState;
+    const method = paymentFilters.values.pmethod;
+    if (method) query.method = method as PaymentMethod;
+    const userIdRaw = paymentFilters.values.puser?.trim();
+    if (userIdRaw) {
+      const userId = Number(userIdRaw);
+      if (Number.isFinite(userId)) query.user_id = userId;
+    }
+    const from = dayBoundary(paymentFilters.values.pdate_from, false);
+    const to = dayBoundary(paymentFilters.values.pdate_to, true);
+    if (from !== undefined) query.from = from;
+    if (to !== undefined) query.to = to;
+    return query;
+  }, [paymentFilters.values]);
+  const payments = useFinancePayments(paymentsQuery);
   const referrals = useFinanceReferrals();
 
   const exportTransactions = () => {
@@ -154,6 +236,7 @@ export default function FinancePage() {
         tabs={[
           { id: "summary", labelKey: "adminFinance.tab.summary" },
           { id: "transactions", labelKey: "adminFinance.tab.transactions" },
+          { id: "payments", labelKey: "adminFinance.tab.payments" },
           { id: "referrals", labelKey: "adminFinance.tab.referrals" },
         ]}
         value={tab}
@@ -179,6 +262,11 @@ export default function FinancePage() {
                   <StatTile
                     labelKey="adminFinance.stat.referralPayouts"
                     value={formatMoney(data.totals.referral_payouts)}
+                  />
+                  <StatTile labelKey="adminFinance.stat.topups" value={formatMoney(data.totals.topups)} />
+                  <StatTile
+                    labelKey="adminFinance.stat.topupBonuses"
+                    value={formatMoney(data.totals.topup_bonuses)}
                   />
                 </div>
                 <KeyValue
@@ -246,6 +334,49 @@ export default function FinancePage() {
             loading={transactions.isFetchingMore}
             total={transactions.total}
             loaded={transactions.items.length}
+          />
+        </div>
+      </TabPanel>
+
+      <TabPanel id="payments" active={tab === "payments"}>
+        <div className="space-y-2">
+          <FilterChips defs={PAYMENT_FILTERS} state={paymentFilters} />
+
+          {payments.isLoading ? (
+            <Skeleton rows={5} />
+          ) : payments.error ? (
+            <ErrorCard error={payments.error} onRetry={payments.refetch} />
+          ) : payments.items.length === 0 ? (
+            <EmptyState labelKey="adminFinance.payments.empty" />
+          ) : (
+            <List>
+              {payments.items.map((row) => (
+                <ListRow
+                  key={row.id}
+                  title={
+                    <span className="inline-flex items-center gap-1.5">
+                      <StatusChip status={row.state} tone={STATE_TONE[row.state]} label={t(STATE_LABEL[row.state])} />
+                      <span className="tabular-nums text-text">{formatMoney(row.amount)}</span>
+                      {row.bonus_amount > 0 && (
+                        <span className="text-[11px] tabular-nums text-success">
+                          +{formatMoney(row.bonus_amount)} {t("adminFinance.payments.bonus")}
+                        </span>
+                      )}
+                    </span>
+                  }
+                  subtitle={`#${row.user_id}${row.method ? ` · ${t(METHOD_LABEL[row.method])}` : ""}`}
+                  meta={formatDateTime(row.paid_at ?? row.created_at)}
+                />
+              ))}
+            </List>
+          )}
+
+          <LoadMore
+            onLoadMore={payments.loadMore}
+            hasMore={payments.hasMore}
+            loading={payments.isFetchingMore}
+            total={payments.total}
+            loaded={payments.items.length}
           />
         </div>
       </TabPanel>
