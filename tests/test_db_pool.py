@@ -203,3 +203,81 @@ async def test_release_db_ignores_a_connection_the_pool_did_not_hand_out(db_file
         assert (await cursor.fetchone())[0] == 1
     finally:
         await conn.close()
+
+
+async def _open_write(conn) -> None:
+    await conn.execute("CREATE TABLE IF NOT EXISTS w (id INTEGER PRIMARY KEY)")
+    await conn.commit()
+    await conn.execute("INSERT INTO w (id) VALUES (1)")  # uncommitted
+    assert conn.in_transaction
+
+
+def _slow_rollback(conn, entered: asyncio.Event) -> None:
+    """Make this connection's rollback take a while (a busy disk), so a cancel lands inside it."""
+    real = conn.rollback
+
+    async def slow():
+        entered.set()
+        await asyncio.sleep(0.2)
+        await real()
+
+    conn.rollback = slow
+
+
+async def _assert_slot_back_and_clean(pool) -> None:
+    conn = await pool.acquire(timeout=1)  # 503 here = the slot leaked
+    try:
+        assert not conn.in_transaction
+        cursor = await conn.execute("SELECT COUNT(*) FROM w")
+        assert (await cursor.fetchone())[0] == 0
+    finally:
+        await pool.release(conn)
+
+
+@pytest.mark.parametrize("pool_size", [1, 2])
+async def test_cancel_during_rollback_never_leaks_a_slot(db_file, monkeypatch, pool_size):
+    """A client disconnect while a write is uncommitted cancels the request mid-cleanup."""
+    monkeypatch.setattr(database, "POOL_SIZE", pool_size)
+    await database.reset_pool()
+    pool = database.get_pool()
+
+    for _ in range(pool_size + 1):  # more cancellations than slots
+        gen = database.get_db()
+        conn = await gen.__anext__()
+        await _open_write(conn)
+        entered = asyncio.Event()
+        _slow_rollback(conn, entered)
+
+        task = asyncio.create_task(gen.athrow(RuntimeError("handler failed")))
+        await asyncio.wait_for(entered.wait(), 1)
+        task.cancel()
+        with pytest.raises((asyncio.CancelledError, RuntimeError)):
+            await task
+        await asyncio.sleep(0.3)  # the shielded hand-back finishes in the background
+        del conn.rollback
+
+    await _assert_slot_back_and_clean(pool)
+
+
+async def test_anyio_cancel_scope_during_cleanup_never_leaks_a_slot(db_file, monkeypatch):
+    import anyio
+
+    monkeypatch.setattr(database, "POOL_SIZE", 1)
+    await database.reset_pool()
+    pool = database.get_pool()
+
+    for _ in range(2):
+        gen = database.get_db()
+        conn = await gen.__anext__()
+        await _open_write(conn)
+        entered = asyncio.Event()
+        _slow_rollback(conn, entered)
+        # Level-triggered cancellation (what Starlette/anyio use): every await
+        # inside the scope after the deadline is cancelled again.
+        with anyio.move_on_after(0.05):
+            await _drain(gen)  # the handler forgot to commit -> rollback on exit
+        await asyncio.sleep(0.3)
+        del conn.rollback
+
+    await _assert_slot_back_and_clean(pool)
+

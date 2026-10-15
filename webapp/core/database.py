@@ -502,18 +502,32 @@ class _Lease:
         self.done = True
         if _leases.get(id(self.conn)) is self:
             del _leases[id(self.conn)]
-        conn = self.conn
-        usable = True
-        if failed:
-            usable = await _rollback_quietly(conn)
-        elif conn.in_transaction:
-            _log.warning("handler left an open transaction; rolling back")
-            usable = await _rollback_quietly(conn)
-        if usable:
-            await self.pool.release(conn)
-        else:
-            await self.pool.discard(conn)
+        # The rollback and the hand-back run in their own task: a cancellation
+        # of the request (client disconnect, an anyio cancel scope) must not
+        # interrupt them half way, or the slot would be lost for good and the
+        # worker would end up answering 503 SERVER_BUSY to everything.
+        task = asyncio.ensure_future(self._return_to_pool(failed))
+        _returning.add(task)
+        task.add_done_callback(_returning.discard)
+        await asyncio.shield(task)
 
+    async def _return_to_pool(self, failed: bool) -> None:
+        conn = self.conn
+        usable = False
+        try:
+            if not failed and conn.in_transaction:
+                _log.warning("handler left an open transaction; rolling back")
+            # Never hand a connection with an open transaction to the next request.
+            usable = await _rollback_quietly(conn) and not conn.in_transaction
+        finally:
+            if usable:
+                await self.pool.release(conn)
+            else:
+                await self.pool.discard(conn)
+
+
+#: Hand-back tasks still running after their request was cancelled (strong refs).
+_returning: set[asyncio.Future] = set()
 
 #: id(connection) -> the lease currently holding it (a connection has at most one).
 _leases: dict[int, _Lease] = {}
