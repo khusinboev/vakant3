@@ -65,6 +65,7 @@ import type {
   FinancePaymentItem,
   FinancePaymentsQuery,
   FinanceReferralItem,
+  FinanceOverview,
   FinanceSummary,
   FinanceTransactionItem,
   FinanceTransactionsQuery,
@@ -101,6 +102,7 @@ export const adminKeys = {
   autoPostHistory: (cursor?: string) => ["admin", "auto-post-history", cursor ?? null] as const,
   job: (id: number) => ["admin", "jobs", id] as const,
   financeSummary: (days: number) => ["admin", "finance-summary", days] as const,
+  financeOverview: (days: number) => ["admin", "finance-overview", days] as const,
   financeTransactions: (query?: FinanceTransactionsQuery) =>
     ["admin", "finance-transactions", query ?? {}] as const,
   financeReferrals: (cursor?: string) => ["admin", "finance-referrals", cursor ?? null] as const,
@@ -481,6 +483,11 @@ export async function getBotJob(id: number): Promise<BotJob> {
 /** Revenue/activations/payouts totals + a daily series over the last `days` days. */
 export async function getFinanceSummary(days = 30): Promise<FinanceSummary> {
   return (await client.get<FinanceSummary>("/admin/finance/summary", { params: { days } })).data;
+}
+
+/** Dashboard finance block: paid top-ups, Pro buyers, methods, daily series. */
+export async function getFinanceOverview(days = 7): Promise<FinanceOverview> {
+  return (await client.get<FinanceOverview>("/admin/finance/overview", { params: { days } })).data;
 }
 
 /** Raw ledger rows, filterable by kind/user/date range. */

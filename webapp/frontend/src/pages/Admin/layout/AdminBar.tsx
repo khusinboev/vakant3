@@ -1,4 +1,4 @@
-import { Home, Megaphone, MoreHorizontal, Users } from "lucide-react";
+import { Home, Megaphone, MoreHorizontal, Users, Wallet } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import type { ElementType } from "react";
 
@@ -25,7 +25,7 @@ export type AdminBarProps = {
 };
 
 /**
- * The panel's only bottom bar: 44px, four targets, never hidden by the soft
+ * The panel's only bottom bar: 44px, up to five targets, never hidden by the soft
  * keyboard (spec §1.2) — the app's own BottomNav is not rendered under
  * `/admin`, so this is the single one.
  */
@@ -43,6 +43,7 @@ export default function AdminBar({ role, broadcastBadge }: AdminBarProps) {
       minRole: "admin",
       badge: broadcastBadge,
     },
+    { id: "finance", to: "/admin/finance", labelKey: "admin.bar.finance", icon: Wallet, minRole: "viewer" },
     { id: "more", to: "/admin/more", labelKey: "admin.bar.more", icon: MoreHorizontal, minRole: "viewer" },
   ] as BarItem[]).filter((item) => roleAtLeast(role, item.minRole));
 
