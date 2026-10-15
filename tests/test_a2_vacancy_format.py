@@ -127,3 +127,27 @@ def test_other_salary_shapes_are_unchanged(min_salary, max_salary, expected):
         "osonish_1", {"min_salary": min_salary, "max_salary": max_salary}, "uz"
     )
     assert normalized["salary"] == expected
+
+
+@pytest.mark.parametrize("lang", LANGS)
+@pytest.mark.parametrize("compact", [False, True])
+def test_a_huge_title_is_clipped(lang, compact):
+    detail = _detail(lang, _PARAGRAPH[lang] * 60, title="Dasturchi &amp; QA " * 300)  # ~5100
+    text = format_vacancy_message_html("osonish_1", detail, lang, compact=compact)
+    assert visible_length(text) <= TELEGRAM_TEXT_LIMIT
+    visible = _telegram_visible(text)
+    # Clipping the title keeps the normal layout: the deep link / footer survive.
+    if compact:
+        assert "start=vacancy_osonish_1" in text
+    else:
+        assert visible.rstrip().endswith("@bandlikuzbot")
+    assert "<b>" in text and "..." in visible
+
+
+@pytest.mark.parametrize("compact", [False, True])
+def test_any_oversized_field_still_fits_as_plain_text(compact):
+    detail = _detail("uz", "", company={"name": "Acme & <Co> " * 600})  # ~7200
+    text = format_vacancy_message_html("osonish_1", detail, "uz", compact=compact)
+    assert visible_length(text) <= TELEGRAM_TEXT_LIMIT
+    assert "<" not in text  # plain text: no tag left half-open
+    assert "Acme &amp; &lt;Co&gt;" in text

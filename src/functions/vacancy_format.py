@@ -24,6 +24,8 @@ _MULTI_NL_RE = re.compile(r"\n{3,}")
 #: parsing (tags stripped, entities decoded), counted in UTF-16 code units.
 TELEGRAM_TEXT_LIMIT = 4096
 _ELLIPSIS = "..."
+#: A title longer than this (UTF-16 units) is clipped before layout.
+_MAX_TITLE = 512
 
 # Kod -> i18n kalit prefiksi
 _CODE_NAMESPACES = {
@@ -219,6 +221,15 @@ def visible_length(html_text: str) -> int:
     return _utf16_len(html.unescape(_TAG_RE.sub("", html_text)))
 
 
+def _fit_telegram(html_text: str) -> str:
+    """Last resort: a message still over the limit (huge company/address...)
+    is sent as clipped plain text, which is always valid HTML."""
+    if visible_length(html_text) <= TELEGRAM_TEXT_LIMIT:
+        return html_text
+    plain = html.unescape(_TAG_RE.sub("", html_text))
+    return _esc(_clip_utf16(plain, TELEGRAM_TEXT_LIMIT))
+
+
 def _clip_utf16(text: str, budget: int) -> str:
     """``text`` cut to at most ``budget`` UTF-16 units, ellipsis included."""
     if _utf16_len(text) <= budget:
@@ -243,6 +254,7 @@ def format_vacancy_message_html(
 ) -> str:
     """Telegram HTML xabari. `compact=True` — bildirishnoma uchun qisqa variant."""
     normalized = normalize_vacancy_detail(uid, detail, lang)
+    normalized["title"] = _clip_utf16(normalized["title"], _MAX_TITLE)
 
     def esc(key: str) -> str:
         return _esc(normalized.get(key, ""))
@@ -260,7 +272,7 @@ def format_vacancy_message_html(
         lines.append(
             f"\n🔗 <a href=\"{_esc(deeplink)}\">{_esc(t(lang, 'notify.details'))}</a>"
         )
-        return "\n".join(lines)
+        return _fit_telegram("\n".join(lines))
 
     lines: list[str] = [f"<b>💼 {esc('title')}</b>"]
 
@@ -311,4 +323,4 @@ def format_vacancy_message_html(
         if desc:
             lines.append(header + _esc(desc))
 
-    return "\n".join([*lines, *tail])
+    return _fit_telegram("\n".join([*lines, *tail]))
