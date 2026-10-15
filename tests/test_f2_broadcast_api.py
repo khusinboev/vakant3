@@ -1,8 +1,8 @@
 """F2: the broadcast detail's "last 20 errors" ordering.
 
-Failed and blocked targets never get ``sent_at`` and no failure timestamp is
-written (``claimed_at`` is cleared on every result write), so ordering by
-``sent_at`` sorted nothing. The list is ordered by ``rowid DESC`` instead.
+Failed and blocked targets never get ``sent_at``; since m019 the worker stamps
+``last_attempt_at`` on every result, so the list is newest failure first, with
+pre-m019 rows (NULL) after them in ``rowid DESC`` (insertion) order.
 User ids are synthetic (900000000000+).
 """
 import aiosqlite
@@ -66,3 +66,24 @@ async def test_last_errors_follow_row_order_not_user_id(db_path):
         errors = client.get("/api/admin/broadcasts/1").json()["errors"]
     # rowid DESC: last inserted first; user_id DESC would give 5, 3, 1.
     assert [row["user_id"] for row in errors] == [BASE + 3, BASE + 1, BASE + 5]
+
+
+async def test_last_errors_are_ordered_by_failure_time_then_rowid(db_path):
+    """m019: stamped rows newest failure first, legacy NULL rows after them by rowid."""
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute("DELETE FROM broadcast_targets WHERE user_id >= ?", (BASE + 100,))
+        # Insertion order 5, 1, 9(sent), 3. Failure times put 5 newest, then 3; 1 is legacy (NULL).
+        await conn.execute(
+            "UPDATE broadcast_targets SET last_attempt_at = ? WHERE user_id = ?", (1_800_000_500, BASE + 5)
+        )
+        await conn.execute(
+            "UPDATE broadcast_targets SET last_attempt_at = ? WHERE user_id = ?", (1_800_000_100, BASE + 3)
+        )
+        await conn.execute(  # a newer sent row never shows up among the errors
+            "UPDATE broadcast_targets SET last_attempt_at = ? WHERE user_id = ?", (1_800_000_900, BASE + 9)
+        )
+        await conn.commit()
+    with TestClient(_make_app(db_path)) as client:
+        errors = client.get("/api/admin/broadcasts/1").json()["errors"]
+    assert [row["user_id"] for row in errors] == [BASE + 5, BASE + 3, BASE + 1]
+    assert [row["last_attempt_at"] for row in errors] == [1_800_000_500, 1_800_000_100, None]

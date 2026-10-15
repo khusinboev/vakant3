@@ -509,3 +509,27 @@ async def test_pause_and_resume_through_the_shared_contract(connect, clock):
     await _run(bot, connect, broadcast_id, batch_size=2)
     assert sorted(bot.calls) == [BASE + 1, BASE + 2, BASE + 3, BASE + 4]
     assert (await _job(connect, broadcast_id))["status"] == "done"
+
+
+# ─── last_attempt_at (m019) ─────────────────────────────────────────────────
+
+async def test_every_result_write_stamps_last_attempt_at(connect, clock):
+    broadcast_id, _ = await _new_job(connect)
+    forbidden = TelegramForbiddenError(method=None, message="Forbidden: bot was blocked by the user")
+    bot = FakeBot({
+        BASE + 2: [forbidden],
+        BASE + 3: [_bad("Bad Request: chat not found")],
+        BASE + 4: [TelegramServerError(method=None, message="Internal Server Error")] * 3,
+    })
+    await _run(bot, connect, broadcast_id)  # the clock is pinned: the retry is not due yet
+    async with connect() as conn:
+        cursor = await conn.execute(
+            "SELECT user_id, status, last_attempt_at FROM broadcast_targets WHERE broadcast_id = ?",
+            (broadcast_id,),
+        )
+        rows = {row["user_id"]: (row["status"], row["last_attempt_at"]) for row in await cursor.fetchall()}
+    # Sent, blocked, failed and a transient retry back in the queue: all stamped with the write time.
+    assert rows[BASE + 1] == ("sent", T0)
+    assert rows[BASE + 2] == ("blocked", T0)
+    assert rows[BASE + 3] == ("failed", T0)
+    assert rows[BASE + 4] == ("pending", T0)

@@ -245,6 +245,8 @@ export type BroadcastTargetError = {
   status: string;
   error: string | null;
   sent_at: number | null;
+  /** When the worker last tried this row (m019); null for rows from before it. */
+  last_attempt_at?: number | null;
 };
 
 /** `GET /admin/broadcasts/{id}`: the row plus its last 20 target errors and a status breakdown. */
