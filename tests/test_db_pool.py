@@ -281,3 +281,40 @@ async def test_anyio_cancel_scope_during_cleanup_never_leaks_a_slot(db_file, mon
 
     await _assert_slot_back_and_clean(pool)
 
+
+async def test_second_release_db_cannot_release_another_requests_connection(db_file, monkeypatch):
+    monkeypatch.setattr(database, "POOL_SIZE", 1)
+    await database.reset_pool()
+    pool = database.get_pool()
+    a_released, b_holds, a_done = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def request_a():
+        gen = database.get_db()
+        conn = await gen.__anext__()
+        await database.release_db(conn)
+        a_released.set()
+        await b_holds.wait()
+        await database.release_db(conn)  # a buggy second call, after B got the same connection
+        await database.release_db(conn)
+        a_done.set()
+        await _drain(gen)
+        return conn
+
+    async def request_b():
+        await a_released.wait()
+        gen = database.get_db()
+        conn = await gen.__anext__()
+        b_holds.set()
+        await a_done.wait()
+        # B still owns the only connection: nobody else may get it.
+        with pytest.raises(HTTPException) as exc_info:
+            await pool.acquire(timeout=0.05)
+        assert exc_info.value.status_code == 503
+        cursor = await conn.execute("SELECT 1")
+        assert (await cursor.fetchone())[0] == 1
+        await _drain(gen)
+        return conn
+
+    conn_a, conn_b = await asyncio.wait_for(asyncio.gather(request_a(), request_b()), 5)
+    assert conn_a is conn_b  # same pooled connection, two requests
+    assert pool._idle == [conn_a]

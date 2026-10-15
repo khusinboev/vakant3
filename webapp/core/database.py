@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import logging
 import os
 from collections.abc import AsyncGenerator
@@ -500,8 +501,6 @@ class _Lease:
         if self.done:
             return
         self.done = True
-        if _leases.get(id(self.conn)) is self:
-            del _leases[id(self.conn)]
         # The rollback and the hand-back run in their own task: a cancellation
         # of the request (client disconnect, an anyio cancel scope) must not
         # interrupt them half way, or the slot would be lost for good and the
@@ -529,8 +528,14 @@ class _Lease:
 #: Hand-back tasks still running after their request was cancelled (strong refs).
 _returning: set[asyncio.Future] = set()
 
-#: id(connection) -> the lease currently holding it (a connection has at most one).
-_leases: dict[int, _Lease] = {}
+#: Per request (per task context): id(connection) -> the lease ``get_db`` made
+#: for it. ``release_db`` only ever sees the leases of its own request, so a
+#: second call after the connection went to another request is a no-op. The
+#: dict is copied on every ``set`` (never mutated), so a context copied into
+#: a child task cannot see leases taken later by its parent or siblings.
+_request_leases: contextvars.ContextVar[dict[int, _Lease] | None] = contextvars.ContextVar(
+    "vakant_request_db_leases", default=None
+)
 
 
 async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
@@ -547,7 +552,7 @@ async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
     pool = get_pool()
     conn = await pool.acquire()
     lease = _Lease(pool, conn)
-    _leases[id(conn)] = lease
+    _request_leases.set({**(_request_leases.get() or {}), id(conn): lease})
     try:
         yield conn
     except BaseException:
@@ -563,10 +568,11 @@ async def release_db(conn: aiosqlite.Connection) -> None:
     Pattern for routes that call osonish.uz: do every DB read/write (and
     ``commit``) first, ``await release_db(db)``, then do the network work —
     the handler must not touch ``db`` after this line. An open transaction is
-    rolled back. A connection that ``get_db`` did not hand out (a test's
-    dependency override) is left alone.
+    rolled back. Calling it twice, or with a connection that ``get_db`` did not
+    hand out to this request (a test's dependency override), does nothing.
     """
-    lease = _leases.get(id(conn))
+    registry = _request_leases.get()
+    lease = registry.get(id(conn)) if registry else None
     if lease is not None and lease.conn is conn:
         await lease.finish(failed=False)
 
