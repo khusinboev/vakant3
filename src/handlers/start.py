@@ -4,6 +4,7 @@
 import html
 import logging
 import time
+from urllib.parse import quote
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
@@ -13,11 +14,10 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
-    WebAppInfo,
 )
 
 from config import WEBAPP_URL, bot
-from src.buttons.buttuns import user_menu_btn
+from src.buttons.buttuns import key_inline, open_app_kb, referral_share_kb, user_menu_btn
 from src.db.connection import connect
 from src.filters.admin import IsAdmin
 from src.functions.functions import channel_row_target, functions, load_channel_rows
@@ -25,6 +25,7 @@ from src.functions.referral_gate import get_referral_gate_state, referral_gate_m
 from src.functions.scraping import fetch_osonish_detail
 from src.functions.vacancy_format import format_vacancy_message_html
 from src.i18n import DEFAULT_LANG, LANGS, normalize_lang, t
+from src.ui.emoji import clip
 
 logger = logging.getLogger(__name__)
 
@@ -36,26 +37,22 @@ def _esc(value) -> str:
 
 
 def build_main_webapp_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
+    """Inline web_app buttons (they carry initData, so the Mini App logs in silently)."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [key_inline(lang, "start.btn.jobs", web_app=WEBAPP_URL, style="primary")],
             [
-                InlineKeyboardButton(
-                    text=t(lang, "start.btn.jobs"),
-                    web_app=WebAppInfo(url=WEBAPP_URL),
-                ),
-                InlineKeyboardButton(
-                    text=t(lang, "start.btn.profile"),
-                    web_app=WebAppInfo(url=f"{WEBAPP_URL}?go=profile"),
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text=t(lang, "start.btn.saves"),
-                    web_app=WebAppInfo(url=f"{WEBAPP_URL}?go=saves"),
-                ),
+                key_inline(lang, "start.btn.profile", web_app=f"{WEBAPP_URL}?go=profile"),
+                key_inline(lang, "start.btn.saves", web_app=f"{WEBAPP_URL}?go=saves"),
             ],
         ]
     )
+
+
+def referral_share_url(ref_link: str, lang: str = DEFAULT_LANG) -> str:
+    """``t.me/share/url`` link that lets the user forward their referral link."""
+    text = t(lang, "referral.share_text", plain_emoji=True)
+    return f"https://t.me/share/url?url={quote(ref_link, safe='')}&text={quote(text, safe='')}"
 
 
 def build_lang_keyboard() -> InlineKeyboardMarkup:
@@ -89,12 +86,19 @@ async def mark_bot_started(user_id: int) -> None:
         logger.warning("started_at yozilmadi user_id=%s: %s", user_id, exc)
 
 
-async def _send_main_menu(message: Message, lang: str) -> None:
-    await message.answer(t(lang, "start.extra_sections"), reply_markup=user_menu_btn(lang))
+async def _send_main_menu(message: Message, lang: str, first_name: str | None) -> None:
+    """Greeting + menu.
+
+    A message carries ONE reply_markup, and the reply keyboard (laws / HR) and
+    the inline web_app buttons cannot share it. Inline web_app buttons must stay
+    inline: a reply-keyboard web_app button opens the Mini App without initData.
+    So the greeting itself sets the reply keyboard, and a short second message
+    carries the app buttons, ending the chat on the main call to action.
+    """
     await message.answer(
-        t(lang, "start.greeting", name=_esc(message.from_user.first_name)),
-        reply_markup=build_main_webapp_keyboard(lang),
+        t(lang, "start.greeting", name=_esc(first_name)), reply_markup=user_menu_btn(lang)
     )
+    await message.answer(t(lang, "start.app_prompt"), reply_markup=build_main_webapp_keyboard(lang))
 
 
 @router.message(CommandStart())
@@ -115,7 +119,10 @@ async def welcome(
     # Referral gate hamma tarmoqlardan oldin tekshiriladi (deeplink ham bypass qilmaydi).
     gate_state = await get_referral_gate_state(user_id)
     if not bool(gate_state.get("unlocked")):
-        await message.answer(referral_gate_message(gate_state, lang))
+        share = referral_share_url(str(gate_state.get("ref_link") or ""), lang)
+        await message.answer(
+            referral_gate_message(gate_state, lang), reply_markup=referral_share_kb(lang, share)
+        )
         return
 
     # ── Vakansiya deeplink: /start vacancy_osonish_12345 ────────────────
@@ -134,7 +141,12 @@ async def welcome(
             return
 
         text = format_vacancy_message_html(uid, detail, lang)
-        await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
+        await message.answer(
+            text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=open_app_kb(lang, WEBAPP_URL),
+        )
         return
     # ────────────────────────────────────────────────────────────────────
 
@@ -144,14 +156,14 @@ async def welcome(
     is_subscribed = await functions.check_on_start(user_id, bot)
 
     if is_subscribed:
-        await _send_main_menu(message, lang)
+        await _send_main_menu(message, lang, message.from_user.first_name)
         return
 
     join_keyboard = await build_channel_keyboard(lang)
     if join_keyboard:
         await message.answer(t(lang, "start.subscribe_prompt"), reply_markup=join_keyboard)
     else:
-        await _send_main_menu(message, lang)
+        await _send_main_menu(message, lang, message.from_user.first_name)
 
 
 # ── Til tanlash ─────────────────────────────────────────────────────────
@@ -177,9 +189,8 @@ async def set_language(call: CallbackQuery):
     except Exception:
         await call.message.answer(t(new_lang, "lang.saved"))
 
-    await call.message.answer(
-        t(new_lang, "start.extra_sections"), reply_markup=user_menu_btn(new_lang)
-    )
+    # Re-send the whole menu so the reply keyboard and buttons switch language too.
+    await _send_main_menu(call.message, new_lang, call.from_user.first_name)
 
 
 # ── Kanal obunasi ───────────────────────────────────────────────────────
@@ -215,21 +226,13 @@ async def build_channel_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMark
         if not invite_link:
             continue
 
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=f"{idx}. {title or t(lang, 'start.channel_fallback')}",
-                    url=invite_link,
-                )
-            ]
-        )
+        label = clip(f"{idx}. {title or t(lang, 'start.channel_fallback')}", 60)
+        buttons.append([InlineKeyboardButton(text=label, url=invite_link)])
 
     if not buttons:
         return None
 
-    buttons.append(
-        [InlineKeyboardButton(text=t(lang, "start.btn.subscribed"), callback_data="check")]
-    )
+    buttons.append([key_inline(lang, "start.btn.subscribed", callback_data="check", style="success")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -249,10 +252,13 @@ async def check_subscription(call: CallbackQuery, lang: str = DEFAULT_LANG):
     except Exception:
         pass
 
+    # Same two-message layout as /start: the reply keyboard was never sent to a
+    # user who had to subscribe first.
     await call.message.answer(
         t(lang, "start.check.welcome", name=_esc(call.from_user.first_name)),
-        reply_markup=build_main_webapp_keyboard(lang),
+        reply_markup=user_menu_btn(lang),
     )
+    await call.message.answer(t(lang, "start.app_prompt"), reply_markup=build_main_webapp_keyboard(lang))
 
 
 # ── Admin diagnostikasi ─────────────────────────────────────────────────

@@ -16,6 +16,7 @@ from typing import Any
 
 from config import BOT_USERNAME
 from src.i18n import DEFAULT_LANG, t
+from src.ui.emoji import e as _icon
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _MULTI_NL_RE = re.compile(r"\n{3,}")
@@ -249,54 +250,70 @@ def _clip_utf16(text: str, budget: int) -> str:
     return clipped + _ELLIPSIS if clipped else ""
 
 
+def vacancy_deeplink(uid: str) -> str:
+    """``t.me`` link that opens the vacancy card in the bot (``/start vacancy_<uid>``)."""
+    return f"https://t.me/{BOT_USERNAME}?start=vacancy_{uid}"
+
+
 def format_vacancy_message_html(
-    uid: str, detail: dict[str, Any], lang: str = DEFAULT_LANG, compact: bool = False
+    uid: str,
+    detail: dict[str, Any],
+    lang: str = DEFAULT_LANG,
+    compact: bool = False,
+    plain: bool = False,
 ) -> str:
-    """Telegram HTML xabari. `compact=True` — bildirishnoma uchun qisqa variant."""
+    """Telegram HTML xabari. `compact=True` — bildirishnoma uchun qisqa variant.
+
+    ``plain=True`` writes plain fallback emoji instead of premium custom emoji:
+    mandatory for CHANNEL posts (custom emoji only work in private/group chats
+    for this bot).
+    """
     normalized = normalize_vacancy_detail(uid, detail, lang)
     normalized["title"] = _clip_utf16(normalized["title"], _MAX_TITLE)
 
     def esc(key: str) -> str:
         return _esc(normalized.get(key, ""))
 
+    def ic(key: str) -> str:
+        return _icon(key, plain=plain)
+
     if compact:
-        lines = [t(lang, "notify.header"), ""]
-        lines.append(f"👔 <b>{esc('title')}</b>")
+        lines = [t(lang, "notify.header", plain_emoji=plain), ""]
+        lines.append(f"{ic('position')} <b>{esc('title')}</b>")
         if normalized.get("company"):
-            lines.append(f"🏢 {esc('company')}")
-        lines.append(f"💰 {esc('salary')}")
+            lines.append(f"{ic('company')} {esc('company')}")
+        lines.append(f"{ic('salary')} {esc('salary')}")
         location = normalized.get("region") or normalized.get("address")
         if location:
-            lines.append(f"📍 {_esc(location)}")
-        deeplink = f"https://t.me/{BOT_USERNAME}?start=vacancy_{uid}"
+            lines.append(f"{ic('location')} {_esc(location)}")
         lines.append(
-            f"\n🔗 <a href=\"{_esc(deeplink)}\">{_esc(t(lang, 'notify.details'))}</a>"
+            f"\n{ic('link')} <a href=\"{_esc(vacancy_deeplink(uid))}\">{_esc(t(lang, 'notify.details'))}</a>"
         )
         return _fit_telegram("\n".join(lines))
 
-    lines: list[str] = [f"<b>💼 {esc('title')}</b>"]
+    lines: list[str] = [f"{ic('job')} <b>{esc('title')}</b>"]
 
     field_rows = (
-        ("address", "📍", "vacancy.label.address"),
-        ("work_type", "🧩", "vacancy.label.work_type"),
-        ("busyness_type", "⏱", "vacancy.label.busyness"),
-        ("payment_type", "💳", "vacancy.label.payment"),
-        ("education", "🎓", "vacancy.label.education"),
-        ("experience", "🛠", "vacancy.label.experience"),
-        ("gender", "👤", "vacancy.label.gender"),
-        ("count", "🔢", "vacancy.label.count"),
-        ("working_hours", "🕘", "vacancy.label.hours"),
-        ("posted_at", "📅", "vacancy.label.posted"),
-        ("deadline", "⏳", "vacancy.label.deadline"),
+        ("address", "location", "vacancy.label.address"),
+        ("work_type", "work_type", "vacancy.label.work_type"),
+        ("busyness_type", "busyness", "vacancy.label.busyness"),
+        ("payment_type", "payment", "vacancy.label.payment"),
+        ("education", "education", "vacancy.label.education"),
+        ("experience", "experience", "vacancy.label.experience"),
+        ("gender", "gender", "vacancy.label.gender"),
+        ("count", "count", "vacancy.label.count"),
+        ("working_hours", "hours", "vacancy.label.hours"),
+        ("posted_at", "calendar", "vacancy.label.posted"),
+        ("deadline", "deadline", "vacancy.label.deadline"),
     )
 
     if normalized.get("company"):
-        lines.append(f"🏢 <b>{_esc(t(lang, 'vacancy.label.company'))}:</b> {esc('company')}")
-    lines.append(f"💰 <b>{_esc(t(lang, 'vacancy.label.salary'))}:</b> {esc('salary')}")
+        lines.append(f"{ic('company')} <b>{_esc(t(lang, 'vacancy.label.company'))}:</b> {esc('company')}")
+    lines.append(f"{ic('salary')} <b>{_esc(t(lang, 'vacancy.label.salary'))}:</b> {esc('salary')}")
 
-    for field, emoji, label_key in field_rows:
+    for field, icon, label_key in field_rows:
         if normalized.get(field):
-            lines.append(f"{emoji} <b>{_esc(t(lang, label_key))}:</b> {esc(field)}")
+            lines.append(f"{ic(icon)} <b>{_esc(t(lang, label_key))}:</b> {esc(field)}")
 
     tail: list[str] = []
     contacts: list[str] = []
@@ -307,17 +324,17 @@ def format_vacancy_message_html(
     if normalized.get("hr_email"):
         contacts.append(f"{_esc(t(lang, 'vacancy.label.email'))}: {esc('hr_email')}")
     if contacts:
-        tail.append(f"\n<b>📞 {_esc(t(lang, 'vacancy.label.contacts'))}:</b>\n" + "\n".join(contacts))
+        tail.append(f"\n{ic('phone')} <b>{_esc(t(lang, 'vacancy.label.contacts'))}:</b>\n" + "\n".join(contacts))
 
     tail.append("\n────────────────────")
     tail.append(
-        f"<b>🤖 {_esc(t(lang, 'vacancy.label.source'))}:</b> @{_esc(BOT_USERNAME)}"
+        f"{ic('bot')} <b>{_esc(t(lang, 'vacancy.label.source'))}:</b> @{_esc(BOT_USERNAME)}"
     )
 
     if normalized.get("description"):
         # The description is the only unbounded part: it gets whatever the
         # rest of the message leaves of Telegram's limit.
-        header = f"\n<b>📝 {_esc(t(lang, 'vacancy.label.description'))}:</b>\n"
+        header = f"\n{ic('description')} <b>{_esc(t(lang, 'vacancy.label.description'))}:</b>\n"
         budget = TELEGRAM_TEXT_LIMIT - visible_length("\n".join([*lines, header, *tail]))
         desc = _clip_utf16(normalized["description"], budget)
         if desc:

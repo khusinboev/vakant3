@@ -14,9 +14,11 @@ from aiogram.types import (
     Message,
 )
 
+from src.buttons.buttuns import key_inline
 from src.data.content_repo import get_article, get_articles, get_tip, get_tips
 from src.filters.text_key import TextKey
 from src.i18n import DEFAULT_LANG, t
+from src.ui.emoji import CALLBACK_MAX_BYTES, clip, e, inline_button
 
 router = Router(name="content")
 
@@ -30,18 +32,26 @@ _VOID_TAGS = {"br"}
 # ── Helpers ─────────────────────────────────────────────────
 
 
+def _fits_callback(data: str) -> bool:
+    """An admin-made id too long for callback_data is left out of the menu
+    instead of making Telegram reject the whole keyboard."""
+    return len(data.encode("utf-8")) <= CALLBACK_MAX_BYTES
+
+
 async def _laws_keyboard(lang: str) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text=f"⚖️ {a['title']}", callback_data=f"law:{a['id']}")]
+        [inline_button("laws", clip(a["title"], 60), callback_data=f"law:{a['id']}")]
         for a in await get_articles(lang)
+        if _fits_callback(f"law:{a['id']}")
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 async def _hr_keyboard(lang: str) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text=f"💡 {tip['title']}", callback_data=f"hr:{tip['id']}")]
+        [inline_button("tips", clip(tip["title"], 60), callback_data=f"hr:{tip['id']}")]
         for tip in await get_tips(lang)
+        if _fits_callback(f"hr:{tip['id']}")
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -88,7 +98,7 @@ def _truncate(text: str, source_url: str, lang: str) -> str:
     url = safe_source_url(source_url)
     if url:
         read_more = html.escape(t(lang, "content.laws.read_more"), quote=False)
-        result += f"\n🔗 <a href=\"{html.escape(url, quote=True)}\">{read_more}</a>"
+        result += f"\n{e('link')} <a href=\"{html.escape(url, quote=True)}\">{read_more}</a>"
     return result
 
 
@@ -117,9 +127,9 @@ async def law_detail(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
     source_url = safe_source_url(article["source_url"])
     if source_url:
         rows.append(
-            [InlineKeyboardButton(text=t(lang, "content.laws.read_more"), url=source_url)]
+            [key_inline(lang, "content.laws.read_more", url=source_url)]
         )
-    rows.append([InlineKeyboardButton(text=t(lang, "common.back"), callback_data="laws_back")])
+    rows.append([key_inline(lang, "common.back", callback_data="laws_back")])
     back_kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await callback.message.edit_text(text, reply_markup=back_kb, parse_mode="HTML")
     await callback.answer()
@@ -157,7 +167,7 @@ async def hr_detail(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
 
     back_kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "common.back"), callback_data="hr_back")]
+            [key_inline(lang, "common.back", callback_data="hr_back")]
         ]
     )
     await callback.message.edit_text(

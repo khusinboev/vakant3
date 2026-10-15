@@ -25,7 +25,7 @@ BUTTON_ICONS: dict[str, str] = {
     "start.btn.saves": "saves",
     "start.btn.subscribed": "success",
     "start.btn.open_app": "app",
-    "start.btn.open_in_bot": "bot",
+    "start.btn.open_in_bot": "job",
     "referral.btn.share": "share",
     "content.laws.read_more": "link",
     "btn.admin.stats": "stats",
@@ -281,4 +281,28 @@ def user_menu_btn(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
         is_persistent=True,
+    )
+
+
+# ── Vacancy / app keyboards ──────────────────────────────────────────────
+# The Mini App has no per-vacancy entry yet (App.tsx only knows ?go=profile|saves
+# and start_param profile|saves|home), so "open in app" opens its home screen.
+
+def open_app_kb(lang: str, webapp_url: str) -> InlineKeyboardMarkup:
+    """One primary inline web_app button (private chats only: carries initData)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[key_inline(lang, "start.btn.open_app", web_app=webapp_url, style="primary")]]
+    )
+
+
+def channel_vacancy_kb(lang: str, deeplink: str) -> InlineKeyboardMarkup:
+    """URL button under a channel post: plain emoji (no custom emoji in channels)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[key_inline(lang, "start.btn.open_in_bot", url=deeplink, plain=True)]]
+    )
+
+
+def referral_share_kb(lang: str, share_url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[key_inline(lang, "referral.btn.share", url=share_url, style="primary")]]
     )
