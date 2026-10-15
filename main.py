@@ -13,7 +13,7 @@ from src.functions.broadcast_worker import broadcast_worker_loop
 from src.functions.daily_rollup import daily_rollup_loop
 from src.functions.notification_scheduler import notification_loop
 from src.functions.weekly_stats_scheduler import weekly_stats_loop
-from src.handlers import admin, content, start
+from src.handlers import admin, content, membership, start
 from src.middleware.middlewares import StatsMiddleware
 
 # Logging
@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
 stats_middleware = StatsMiddleware(BASE_DIR)
 dp.message.middleware(stats_middleware)
 dp.callback_query.middleware(stats_middleware)
+
+
+def include_routers(dispatcher) -> None:
+    """Attach every handler router (membership first: it handles update types the others do not)."""
+    dispatcher.include_router(membership.router)
+    dispatcher.include_router(start.router)
+    dispatcher.include_router(admin.router)
+    dispatcher.include_router(content.router)
 
 
 def _log_task_result(name: str):
@@ -61,9 +69,7 @@ async def main():
     logger.info("Database initialized")
 
     # Routerlarni ulash
-    dp.include_router(start.router)
-    dp.include_router(admin.router)
-    dp.include_router(content.router)
+    include_routers(dp)
 
     logger.info("Bot started, polling...")
 
