@@ -2,6 +2,10 @@
 # src/handlers/content.py
 # Qonunchilik va HR maslahatlar bo'limlari (til bo'yicha).
 # ============================================================
+import html
+import re
+from urllib.parse import urlparse
+
 from aiogram import F, Router
 from aiogram.types import (
     CallbackQuery,
@@ -18,6 +22,9 @@ router = Router(name="content")
 
 # Botda ko'rsatish uchun maksimal belgilar soni
 _MAX_CHARS = 3000
+
+_TAG_RE = re.compile(r"<(/?)([a-zA-Z]+)\b[^>]*>")
+_VOID_TAGS = {"br"}
 
 
 # ── Helpers ─────────────────────────────────────────────────
@@ -39,16 +46,50 @@ async def _hr_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def safe_source_url(url: str | None) -> str | None:
+    """``url`` when it is an http(s) link with a host, else None.
+
+    ``source_url`` is admin input with no scheme check on the API side; a
+    ``javascript:`` or malformed value must not reach an href or a URL button
+    (Telegram rejects the whole message for a bad button URL).
+    """
+    value = str(url or "").strip()
+    parsed = urlparse(value)
+    if parsed.scheme.lower() in ("http", "https") and parsed.netloc:
+        return value
+    return None
+
+
+def _close_open_tags(fragment: str) -> str:
+    """Drop a tag cut in half and close the tags a cut left open."""
+    last_open = fragment.rfind("<")
+    if last_open > fragment.rfind(">"):
+        fragment = fragment[:last_open]
+    stack: list[str] = []
+    for match in _TAG_RE.finditer(fragment):
+        closing, name = match.group(1), match.group(2).lower()
+        if name in _VOID_TAGS:
+            continue
+        if not closing:
+            stack.append(name)
+        elif name in stack:
+            while stack and stack.pop() != name:
+                pass
+    return fragment + "".join(f"</{name}>" for name in reversed(stack))
+
+
 def _truncate(text: str, source_url: str, lang: str) -> str:
     """Matn juda uzun bo'lsa qisqartirib, manba havolasini qo'shadi."""
     if len(text) <= _MAX_CHARS:
         return text
-    cut = text[:_MAX_CHARS].rsplit("\n", 1)[0]
-    read_more = t(lang, "content.laws.read_more")
-    return (
-        f"{cut}\n\n{t(lang, 'content.truncated')}\n"
-        f"🔗 <a href=\"{source_url}\">{read_more}</a>"
-    )
+    cut = _close_open_tags(text[:_MAX_CHARS].rsplit("\n", 1)[0])
+    # content.truncated is trusted dictionary HTML (<i>...</i>).
+    result = f"{cut}\n\n{t(lang, 'content.truncated')}"
+    url = safe_source_url(source_url)
+    if url:
+        read_more = html.escape(t(lang, "content.laws.read_more"), quote=False)
+        result += f"\n🔗 <a href=\"{html.escape(url, quote=True)}\">{read_more}</a>"
+    return result
 
 
 # ── Handlers: Qonunchilik ───────────────────────────────────
@@ -72,16 +113,14 @@ async def law_detail(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
         return
 
     text = _truncate(article["full_text"], article["source_url"], lang)
-    back_kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=t(lang, "content.laws.read_more"), url=article["source_url"]
-                )
-            ],
-            [InlineKeyboardButton(text=t(lang, "common.back"), callback_data="laws_back")],
-        ]
-    )
+    rows: list[list[InlineKeyboardButton]] = []
+    source_url = safe_source_url(article["source_url"])
+    if source_url:
+        rows.append(
+            [InlineKeyboardButton(text=t(lang, "content.laws.read_more"), url=source_url)]
+        )
+    rows.append([InlineKeyboardButton(text=t(lang, "common.back"), callback_data="laws_back")])
+    back_kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await callback.message.edit_text(text, reply_markup=back_kb, parse_mode="HTML")
     await callback.answer()
 
