@@ -1,15 +1,17 @@
-import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import LoginPrompt from "../components/LoginPrompt";
 import SearchFilters, { type SearchFilterValue } from "../components/Jobs/SearchFilters";
 import VacancyCard from "../components/Jobs/VacancyCard";
 import VacancyDetail from "../components/Jobs/VacancyDetail";
 import BottomSheet from "../components/ui/BottomSheet";
+import { clearBackInterceptor, setBackInterceptor } from "../hooks/useBackInterceptor";
 import { useJobDetail, useJobs } from "../hooks/useJobs";
 import { useSaves } from "../hooks/useSaves";
 import { useT } from "../i18n/useT";
 import { FREE_SAVE_LIMIT } from "../lib/constants";
+import { isVacancyUid, VACANCY_QUERY_KEY } from "../lib/deepLink";
 import { useAuthStore } from "../store/auth";
 
 function SkeletonCard() {
@@ -36,7 +38,43 @@ export default function Home() {
     sort_key: "",
     sort_type: "",
   });
-  const [activeUid, setActiveUid] = useState("");
+  // The open vacancy lives in the URL (`/app?vacancy=<uid>`, see lib/deepLink):
+  // opening pushes a history entry, so Telegram's BackButton, the system back
+  // gesture and the sheet's own close all undo exactly that one step.
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const requestedUid = searchParams.get(VACANCY_QUERY_KEY) || "";
+  const activeUid = isVacancyUid(requestedUid) ? requestedUid : "";
+  const sheetWasPushed = Boolean((location.state as { vacancySheet?: boolean } | null)?.vacancySheet);
+
+  const openVacancy = useCallback(
+    (uid: string) => {
+      if (!isVacancyUid(uid)) return;
+      navigate(
+        { pathname: location.pathname, search: `?${VACANCY_QUERY_KEY}=${encodeURIComponent(uid)}` },
+        { state: { vacancySheet: true } },
+      );
+    },
+    [navigate, location.pathname],
+  );
+  const closeVacancy = useCallback(() => {
+    // A pushed sheet pops back to the list; one restored from a reloaded URL
+    // has nothing to pop to, so the query is dropped in place instead.
+    if (sheetWasPushed) navigate(-1);
+    else navigate({ pathname: location.pathname, search: "" }, { replace: true });
+  }, [navigate, location.pathname, sheetWasPushed]);
+
+  // /app hides Telegram's BackButton; while a sheet is open it is shown
+  // (useTelegramBackButton) and this interceptor makes it close the sheet.
+  useEffect(() => {
+    if (!activeUid) return;
+    setBackInterceptor(() => {
+      closeVacancy();
+      return true;
+    });
+    return () => clearBackInterceptor();
+  }, [activeUid, closeVacancy]);
+
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -130,7 +168,7 @@ export default function Home() {
               <VacancyCard
                 key={item.uid}
                 item={item}
-                onOpen={setActiveUid}
+                onOpen={openVacancy}
                 onToggleSave={toggleSave}
               />
             ))}
@@ -160,7 +198,7 @@ export default function Home() {
 
       <VacancyDetail
         open={Boolean(activeUid)}
-        onClose={() => setActiveUid("")}
+        onClose={closeVacancy}
         data={detail.data ?? null}
         // A retry after an error keeps `isLoading` false in react-query v5, so a
         // fetch without data counts as loading too (spinner instead of the error).

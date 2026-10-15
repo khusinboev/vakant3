@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { adminBackAction } from "../pages/Admin/hooks/useAdminBack";
 import { hasOpenSheet } from "../pages/Admin/hooks/useHistorySheet";
+import { VACANCY_QUERY_KEY } from "../lib/deepLink";
 import { runBackInterceptor } from "./useBackInterceptor";
 
 /**
@@ -28,7 +29,11 @@ export default function useTelegramBackButton() {
     if (!btn) return;
 
     const isAdmin = location.pathname === "/admin" || location.pathname.startsWith("/admin/");
-    const isTopLevel = !isAdmin && TOP_LEVEL_PATHS.includes(location.pathname);
+    // An open vacancy sheet on Home (`/app?vacancy=<uid>`) is one level deep:
+    // the button is shown and Home's interceptor closes the sheet.
+    const hasVacancySheet =
+      location.pathname === "/app" && new URLSearchParams(location.search).has(VACANCY_QUERY_KEY);
+    const isTopLevel = !isAdmin && !hasVacancySheet && TOP_LEVEL_PATHS.includes(location.pathname);
 
     const handleBack = () => {
       const active = document.activeElement as HTMLElement | null;

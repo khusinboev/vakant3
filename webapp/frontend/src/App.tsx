@@ -1,6 +1,6 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Route, Routes, Navigate, useLocation } from "react-router-dom";
+import { Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import client from "./api/client";
 import EntryLockScreen from "./components/EntryLockScreen";
@@ -12,6 +12,7 @@ import useTelegramAuth, { isTelegramWebApp } from "./hooks/useTelegramAuth";
 import useTelegramBackButton from "./hooks/useTelegramBackButton";
 import useTheme from "./hooks/useTheme";
 import { useT } from "./i18n/useT";
+import { consumeStartParam, resolveEntryTarget, VACANCY_QUERY_KEY } from "./lib/deepLink";
 import type { GateState } from "./lib/entryGate";
 import { gateBlockReason } from "./lib/entryGate";
 import { useAuthStore } from "./store/auth";
@@ -37,29 +38,43 @@ function PageFallback() {
   );
 }
 
-function resolveEntryTarget(search: string): "home" | "profile" | "saves" {
-  const go = (new URLSearchParams(search).get("go") || "").toLowerCase();
-  if (go === "profile") return "profile";
-  if (go === "saves") return "saves";
-
-  const startParam = (window.Telegram?.WebApp?.initDataUnsafe?.start_param || "").toLowerCase();
-  if (startParam === "profile") return "profile";
-  if (startParam === "saves") return "saves";
-  if (startParam === "home" || startParam === "app" || startParam === "jobs") return "home";
-
-  return "home";
+/**
+ * A vacancy deep link (`?go=` / `start_param` = `vacancy_osonish_<id>`) lands
+ * on the job list with that vacancy's sheet open as its own history entry:
+ * `/app` (replace) then `/app?vacancy=<uid>` (push), so Back closes the sheet
+ * and leaves the list underneath.
+ */
+function VacancyEntry({ uid }: { uid: string }) {
+  const navigate = useNavigate();
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current) return;
+    done.current = true;
+    navigate("/app", { replace: true });
+    navigate(`/app?${VACANCY_QUERY_KEY}=${encodeURIComponent(uid)}`, { state: { vacancySheet: true } });
+  }, [navigate, uid]);
+  return null;
 }
 
 function AppHomeEntry() {
   const location = useLocation();
   const target = resolveEntryTarget(location.search);
 
-  if (target === "profile") {
+  // start_param stays in initData for the whole session: act on it once only.
+  useEffect(() => {
+    consumeStartParam();
+  }, []);
+
+  if (target.kind === "profile") {
     return <Navigate to="/profile" replace />;
   }
 
-  if (target === "saves") {
+  if (target.kind === "saves") {
     return <Navigate to="/saves" replace />;
+  }
+
+  if (target.kind === "vacancy") {
+    return <VacancyEntry uid={target.uid} />;
   }
 
   return <Layout><Home /></Layout>;
