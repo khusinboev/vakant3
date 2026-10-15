@@ -123,3 +123,29 @@ async def test_command_failure_on_a_live_client_backs_off(monkeypatch):
     assert await cache.cache_get("k") == "from-memory"
     assert cache._redis_client is None
     assert cache._redis_retry_at > time.monotonic()
+
+
+@pytest.mark.parametrize("op", ["get", "set"])
+async def test_a_failed_client_is_closed_when_dropped(monkeypatch, op):
+    monkeypatch.setattr(cache, "REDIS_URL", "redis://example.invalid:6379/0")
+
+    class BrokenRedis:
+        closed = 0
+
+        async def get(self, key):
+            raise ConnectionError("connection reset")
+
+        async def setex(self, key, ttl, value):
+            raise ConnectionError("connection reset")
+
+        async def aclose(self):
+            BrokenRedis.closed += 1
+
+    monkeypatch.setattr(cache, "_redis_client", BrokenRedis())
+    if op == "get":
+        await cache.cache_get("k")
+    else:
+        await cache.cache_set("k", 1)
+        assert cache._mem_get("k") == 1  # fell back to memory
+    assert cache._redis_client is None
+    assert BrokenRedis.closed == 1  # no leaked connection pool / sockets

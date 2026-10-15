@@ -66,10 +66,11 @@ def _mem_evict(now: float) -> None:
         _mem_cache.popitem(last=False)
 
 
-def _redis_failed(error: Exception, where: str) -> None:
-    """Forget the client and back off; log the outage once, not per request."""
+async def _redis_failed(error: Exception, where: str, client: Any = None) -> None:
+    """Close and forget the client, back off; log the outage once, not per request."""
     global _redis_client, _redis_retry_at, _redis_down_logged
-    _redis_client = None
+    if _redis_client is client:
+        _redis_client = None
     _redis_retry_at = time.monotonic() + REDIS_RETRY_SECONDS
     if not _redis_down_logged:
         _redis_down_logged = True
@@ -79,6 +80,11 @@ def _redis_failed(error: Exception, where: str) -> None:
         )
     else:
         logger.debug("redis_still_unavailable where=%s error=%s", where, error)
+    if client is not None:
+        try:
+            await client.aclose()  # its connection pool and sockets
+        except Exception as close_exc:  # pragma: no cover - best effort
+            logger.debug("redis_close_failed error=%s", close_exc)
 
 
 async def get_redis() -> Optional[Any]:
@@ -102,12 +108,7 @@ async def get_redis() -> Optional[Any]:
         )
         await client.ping()
     except Exception as e:
-        _redis_failed(e, "connect")
-        if client is not None:
-            try:
-                await client.aclose()
-            except Exception:  # pragma: no cover - best effort
-                pass
+        await _redis_failed(e, "connect", client)
         return None
 
     _redis_client = client
@@ -123,7 +124,7 @@ async def cache_get(key: str) -> Any | None:
         try:
             raw = await redis_client.get(key)
         except Exception as e:
-            _redis_failed(e, "get")
+            await _redis_failed(e, "get", redis_client)
         else:
             if raw is None:
                 return None
@@ -143,7 +144,7 @@ async def cache_set(key: str, value: Any, ttl: int = CACHE_TTL) -> None:
             await redis_client.setex(key, ttl, json.dumps(value, ensure_ascii=False))
             return
         except Exception as e:
-            _redis_failed(e, "set")
+            await _redis_failed(e, "set", redis_client)
 
     _mem_set(key, value, ttl)
 
