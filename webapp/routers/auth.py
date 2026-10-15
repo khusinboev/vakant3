@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from src.functions.webapp_link import is_revoked, verify_bot_link
 
 from webapp.core import errors
 from webapp.core.auth import current_user
@@ -10,7 +12,7 @@ from webapp.core.i18n import normalize_lang
 from webapp.core.limiter import limiter
 from webapp.core.session import create_session
 from webapp.core.telegram_auth import verify_webapp_init_data
-from webapp.core.users import ensure_user
+from webapp.core.users import USER_COLUMNS, ensure_user
 from webapp.models.schemas import AuthResponse, UserProfile
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -67,6 +69,57 @@ async def tg_webapp_login(request: Request, payload: TgWebAppRequest, db=Depends
     await db.commit()
 
     return AuthResponse(session_token=session_token, user=_to_profile(row))
+
+
+class BotLinkRequest(BaseModel):
+    # Generous cap: a real token is 39 characters; anything else is refused
+    # below with BOT_LINK_INVALID rather than a 422.
+    token: str = Field(max_length=256)
+    confirm: bool = False
+
+
+@router.post("/bot-link", response_model=AuthResponse)
+@limiter.limit("20/minute")
+async def bot_link_login(request: Request, payload: BotLinkRequest, db=Depends(get_db)) -> AuthResponse:
+    """Exchange a signed bot keyboard link (``?bt=``) for a Bearer session.
+
+    A reply-keyboard ``web_app`` button opens the Mini App with empty initData;
+    the bot puts a personal token into its URL (``src/functions/webapp_link.py``).
+
+    A link alone is not intent: anyone can put our URL with HIS token into his
+    own bot's keyboard or a chat message, and a silent login would sign the
+    victim into the attacker's account (login CSRF). So without
+    ``confirm: true`` a valid link only answers 409 ``BOT_LINK_CONFIRM{name}``
+    and creates nothing; the Mini App asks «<name> sifatida kirasizmi?» and
+    repeats the call after «Kirish».
+
+    Identity rules match the initData login: the user must exist (the bot
+    created the row at /start), a ban is not refused here — the entry gate
+    answers ``USER_BANNED`` on every gated route. A link issued at or before
+    the user's revocation watermark (a ban or an admin "revoke sessions") is
+    dead. Every failure is one code, 401 ``BOT_LINK_INVALID``. Normal logins
+    are not audited. The token is a credential and is never logged.
+    """
+    settings = get_settings()
+    link = verify_bot_link(payload.token, secret=settings.WEBAPP_SECRET)
+    if link is None:
+        raise errors.api_error(401, errors.BOT_LINK_INVALID)
+
+    cursor = await db.execute(
+        f"SELECT {USER_COLUMNS}, bot_links_before FROM users WHERE user_id = ?",
+        (link.user_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None or is_revoked(link, row["bot_links_before"]):
+        raise errors.api_error(401, errors.BOT_LINK_INVALID)
+    user = dict(row)
+
+    if not payload.confirm:
+        raise errors.api_error(409, errors.BOT_LINK_CONFIRM, name=str(user.get("first_name") or ""))
+
+    session_token, _exp = await create_session(db, link.user_id)
+    await db.commit()
+    return AuthResponse(session_token=session_token, user=_to_profile(user))
 
 
 # ── Entry gate ──────────────────────────────────────────────────────────────

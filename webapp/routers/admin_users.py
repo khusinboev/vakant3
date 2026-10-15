@@ -276,9 +276,14 @@ async def _revoke_sessions(db, user_id: int) -> dict[str, int]:
 
     Runs inside the caller's transaction and does not commit. A session row is
     the identity behind a Bearer token (``webapp.core.session``), so once it is
-    gone every token minted for it answers 401 ``SESSION_EXPIRED``.
+    gone every token minted for it answers 401 ``SESSION_EXPIRED``. It also
+    moves the user's bot-link watermark (``users.bot_links_before``, m021) to
+    now, so every signed ``?bt=`` keyboard link issued so far stops working.
     """
     revoked = {"sessions": 0, "handoff_tokens": 0}
+    await db.execute(
+        "UPDATE users SET bot_links_before = ? WHERE user_id = ?", (int(time.time()), user_id)
+    )
     tables = await _existing_tables(db, ("webapp_sessions", "bot_handoff_tokens"))
     if "webapp_sessions" in tables:
         cursor = await db.execute("DELETE FROM webapp_sessions WHERE user_id = ?", (user_id,))

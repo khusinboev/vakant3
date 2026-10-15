@@ -94,7 +94,8 @@ client.interceptors.response.use(
     const { status, code } = parseApiError(error);
     // A dead session must not linger in localStorage: the next request would
     // keep sending it and every retry would fail the same way.
-    if (status === 401 && code !== "INVALID_INIT_DATA") {
+    // A refused bot link (BOT_LINK_INVALID) says nothing about the session we hold.
+    if (status === 401 && code !== "INVALID_INIT_DATA" && code !== "BOT_LINK_INVALID") {
       const config = axios.isAxiosError(error) ? error.config : undefined;
       const replayable = Boolean(config && !config._authRetried && config.url !== LOGIN_PATH);
       const sentAuth = String(config?.headers?.Authorization ?? "");
