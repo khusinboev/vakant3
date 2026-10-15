@@ -183,7 +183,8 @@ export default function Laws() {
           )
         }
       >
-        {openId && detail.isError && !article ? (
+        {/* While a retry is in flight the spinner below shows instead. */}
+        {openId && detail.isError && !article && !detail.isFetching ? (
           <div className="flex min-h-32 flex-col items-center justify-center gap-3 text-center">
             <p role="alert" className="text-sm text-muted">{t("laws.error")}</p>
             <button

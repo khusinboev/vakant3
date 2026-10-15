@@ -18,18 +18,30 @@ const client = axios.create({
 
 const LOGIN_PATH = "/auth/tg-webapp";
 
+/** After a transient login failure (429, 5xx, network), wait this long before trying again. */
+const RELOGIN_COOLDOWN_MS = 30_000;
+
 /**
- * One in-flight re-login shared by every request that hit the 401. A failed
- * attempt is remembered: the Mini App's initData never changes within a page
- * session, so once it is rejected (e.g. older than the API's 300 s window)
- * trying again would only fail the same way.
+ * One in-flight re-login shared by every request that hit the 401.
+ * - The login answering 401 means the initData itself is rejected (e.g. older
+ *   than the API's 300 s window). It never changes within a page session, so
+ *   re-login stays off for good.
+ * - Any other failure (rate limit, 5xx, network) is transient: re-login is
+ *   allowed again after a short cooldown, so it can never loop.
  */
 let relogin: Promise<boolean> | null = null;
 let reloginRejected = false;
+let reloginBlockedUntil = 0;
+
+function bearer(): string {
+  const token = localStorage.getItem("session_token");
+  return token ? `Bearer ${token}` : "";
+}
 
 function reloginWithInitData(): Promise<boolean> {
   const initData = window.Telegram?.WebApp?.initData;
   if (!initData || reloginRejected) return Promise.resolve(false);
+  if (!relogin && Date.now() < reloginBlockedUntil) return Promise.resolve(false);
   if (!relogin) {
     relogin = client
       .post<{ session_token: string; user: UserProfile }>(
@@ -41,8 +53,9 @@ function reloginWithInitData(): Promise<boolean> {
         useAuthStore.getState().setSession(data.session_token, data.user);
         return true;
       })
-      .catch(() => {
-        reloginRejected = true;
+      .catch((loginError: unknown) => {
+        if (parseApiError(loginError).status === 401) reloginRejected = true;
+        else reloginBlockedUntil = Date.now() + RELOGIN_COOLDOWN_MS;
         return false;
       })
       .finally(() => {
@@ -82,11 +95,24 @@ client.interceptors.response.use(
     // A dead session must not linger in localStorage: the next request would
     // keep sending it and every retry would fail the same way.
     if (status === 401 && code !== "INVALID_INIT_DATA") {
-      if (useAuthStore.getState().isAuthenticated) useAuthStore.getState().clearSession();
+      const config = axios.isAxiosError(error) ? error.config : undefined;
+      const replayable = Boolean(config && !config._authRetried && config.url !== LOGIN_PATH);
+      const sentAuth = String(config?.headers?.Authorization ?? "");
+      const currentAuth = bearer();
+
+      if (sentAuth === currentAuth) {
+        // The token that failed is the one we hold: a dead session must not
+        // linger in localStorage, or every later request fails the same way.
+        if (useAuthStore.getState().isAuthenticated) useAuthStore.getState().clearSession();
+      } else if (replayable && config && currentAuth) {
+        // Sent with an older token that a finished re-login already replaced:
+        // keep the new session and just replay with it.
+        return client.request({ ...config, _authRetried: true });
+      }
+
       // Inside Telegram the initData can mint a fresh session: do that once
       // and replay the request once, instead of staying logged out.
-      const config = axios.isAxiosError(error) ? error.config : undefined;
-      if (config && !config._authRetried && config.url !== LOGIN_PATH && (await reloginWithInitData())) {
+      if (replayable && config && (await reloginWithInitData())) {
         return client.request({ ...config, _authRetried: true });
       }
     }
