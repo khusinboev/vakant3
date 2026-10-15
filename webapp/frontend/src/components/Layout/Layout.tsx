@@ -17,7 +17,7 @@ export default function Layout({ children }: PropsWithChildren) {
           pt-[calc(0.75rem+var(--tg-content-safe-area-top))] pb-3
           pl-[calc(1rem+var(--tg-content-safe-area-left))]
           pr-[calc(1rem+var(--tg-content-safe-area-right))]">
-          <Link to="/app" className="font-display text-xl font-extrabold text-primary">
+          <Link to="/app" replace className="font-display text-xl font-extrabold text-primary">
             {t("app.name")}
           </Link>
         </div>

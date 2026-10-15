@@ -63,6 +63,7 @@ export default function Rail({ role, pinned, onPinnedChange }: RailProps) {
       {pages.map((page) => (
         <NavLink
           key={page.id}
+          replace
           to={page.path ? `/admin/${page.path}` : "/admin"}
           end={!page.path}
           title={t(page.labelKey)}

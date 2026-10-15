@@ -3,8 +3,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 export type QueryStateOptions = {
   /**
-   * `false` (default) pushes, so "back" undoes the filter change.
-   * Use `true` for values that change on every keystroke (search boxes).
+   * `true` (default) replaces the history entry: filters, tabs and sections
+   * never grow the stack, so Back goes UP to the parent page instead of
+   * undoing every change. `false` pushes (only for a value that is a real
+   * screen of its own).
    */
   replace?: boolean;
 };
@@ -26,7 +28,7 @@ export function useQueryState<T extends string = string>(
 ): [T, (value: T) => void] {
   const location = useLocation();
   const navigate = useNavigate();
-  const replace = options.replace ?? false;
+  const replace = options.replace ?? true;
 
   const value = (new URLSearchParams(location.search).get(key) ?? defaultValue) as T;
 

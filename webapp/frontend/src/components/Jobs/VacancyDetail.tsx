@@ -151,7 +151,7 @@ export default function VacancyDetail({
     if (isLocked) {
       // Locked vacancy: the contact is behind Pro — send the user to the wallet.
       onClose();
-      navigate("/wallet");
+      navigate("/wallet", { state: { navParent: "/app" } });
       return;
     }
     // Unlocked: open the bot, which posts the full vacancy with contacts.

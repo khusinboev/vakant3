@@ -62,7 +62,7 @@ export function Tabs<T extends string = string>({
 }
 
 /**
- * A tab selection that lives in the URL, so back undoes it.
+ * A tab selection that lives in the URL (replace: Back leaves the page, not the tab).
  *
  *   const [tab, setTab] = useUrlTabs("tab", "health");
  */

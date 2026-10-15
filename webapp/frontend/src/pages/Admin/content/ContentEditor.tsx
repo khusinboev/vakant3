@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { adminKeys } from "../../../api/admin";
+import { goToParent } from "../../../hooks/useAppBack";
 import { clearBackInterceptor, setBackInterceptor } from "../../../hooks/useBackInterceptor";
 import { useToast } from "../../../hooks/useToast";
 import { useT } from "../../../i18n/useT";
@@ -163,10 +164,8 @@ function EditorForm({ kind, initial }: { kind: ContentKind; initial: ContentReco
   const leave = useCallback(() => {
     dirtyRef.current = false;
     clearBackInterceptor();
-    const idx = (window.history.state as { idx?: number } | null)?.idx;
-    if (typeof idx === "number" && idx > 0) navigate(-1);
-    else navigate(contentPath(kind), { replace: true });
-  }, [kind, navigate]);
+    goToParent(navigate, location);
+  }, [location, navigate]);
 
   // The confirm dialog is its own history entry on top of the editor. Leaving
   // straight from a confirmed dialog would make `navigate(-1)` pop the dialog

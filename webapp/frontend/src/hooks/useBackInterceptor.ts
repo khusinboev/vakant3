@@ -1,6 +1,6 @@
 /**
  * Global back-button interceptor slot.
- * A page can register a callback that runs BEFORE the default navigate(-1).
+ * A page can register a callback that runs BEFORE the default "go to parent" (useAppBack).
  * If the callback returns true, the default navigation is suppressed.
  */
 let _interceptor: (() => boolean) | null = null;

@@ -45,6 +45,7 @@ export default function BottomNav({ fixed = true }: { fixed?: boolean }) {
           <li key={item.to}>
             <NavLink
               to={item.to}
+              replace
               className={({ isActive }) =>
                 `tap-target flex flex-col items-center justify-center gap-1 py-2 text-xs ${isActive ? "text-primary" : "text-muted"}`
               }

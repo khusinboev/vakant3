@@ -51,7 +51,7 @@ export default function WizardHeader({
           paddingBottom: "0.625rem",
         }}
       >
-        <Link to="/app" className="font-display text-xl font-extrabold text-primary">
+        <Link to="/app" replace className="font-display text-xl font-extrabold text-primary">
           {t("app.name")}
         </Link>
       </div>

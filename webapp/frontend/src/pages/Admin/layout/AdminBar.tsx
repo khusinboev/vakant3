@@ -60,6 +60,7 @@ export default function AdminBar({ role, broadcastBadge }: AdminBarProps) {
           <li key={item.id}>
             <NavLink
               to={item.to}
+              replace
               end={item.end}
               className={({ isActive }) =>
                 `flex h-[44px] flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${
