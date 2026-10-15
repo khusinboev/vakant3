@@ -226,8 +226,8 @@ async def require_admin(request: Request, db=Depends(get_db)) -> dict[str, Any]:
 
     A banned user is refused (403 ``USER_BANNED``) whatever their role: a ban
     deletes the sessions that existed, but a later ``/auth/launch`` can mint a
-    new one and the entry gate lets admins through, so the ban is checked here
-    on every admin request. Non-admins still get ``ADMIN_REQUIRED`` first.
+    new one, so the ban is checked here on every admin request (the entry
+    gate likewise gives a banned admin no role and no bypass). Non-admins still get ``ADMIN_REQUIRED`` first.
 
     Returns ``{"user_id": int, "role": str, "user": {...}}``.
     """

@@ -145,8 +145,11 @@ async def evaluate_entry(db, user_id: int, *, force: bool = False) -> dict[str, 
     role = await admin_role(db, user_id)
     bot_started, banned = await _user_flags(db, user_id)
 
-    if role is not None:
+    if role is not None and not banned:
         # Admins skip the checks but still see their real state in the payload.
+        # A banned admin is not one here (``require_admin`` refuses them too):
+        # they get the normal user verdict, so no role is reported and the
+        # Mini App neither shows the "Admin panel" entry nor skips the lock.
         return {
             "bot_started": bot_started,
             "subscribed": True,

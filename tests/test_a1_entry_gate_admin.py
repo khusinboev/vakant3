@@ -148,3 +148,26 @@ async def test_other_admins_lookup_errors_fail_closed(db, env_admins, exc):
 async def test_missing_table_error_still_bootstraps(db, env_admins):
     exc = sqlite3.OperationalError("no such table: admins")
     assert await entry_gate.admin_role(_AdminsLookupFails(db, exc), ENV_ADMIN) == "owner"
+
+
+async def test_banned_admin_gets_no_role_and_no_bypass(db, env_admins):
+    """A ban outranks the role, as in ``require_admin``: /auth/gate must not
+    report a role (the Mini App would offer the panel) nor skip the lock."""
+    await _add_admin(db, OWNER, "owner")
+    await _add_admin(db, ENV_ADMIN, "admin")
+    await db.execute("UPDATE users SET banned = 1, started_at = ? WHERE user_id = ?", (NOW, ENV_ADMIN))
+    await db.commit()
+
+    state = await evaluate_entry(db, ENV_ADMIN)
+    assert state["role"] is None and state["is_admin"] is False
+    assert state["banned"] is True
+    with pytest.raises(Exception) as exc:
+        raise_for_state(state)
+    assert exc.value.detail["code"] == "USER_BANNED"
+
+    # Unbanned, the same admin gets the role and the bypass back.
+    await db.execute("UPDATE users SET banned = 0 WHERE user_id = ?", (ENV_ADMIN,))
+    await db.commit()
+    state = await evaluate_entry(db, ENV_ADMIN)
+    assert state["role"] == "admin" and state["is_admin"] is True and state["banned"] is False
+    raise_for_state(state)
