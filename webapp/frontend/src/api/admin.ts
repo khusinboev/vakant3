@@ -125,6 +125,20 @@ export async function confirmAction(action: string, params: Record<string, unkno
 }
 
 /**
+ * Mints a single-use token for `GET /admin/users/export/download.csv`
+ * (`POST /api/admin/users/export/link`, role admin+). `params` travel as the
+ * query string, exactly as the download link will repeat them; the token
+ * lives 300 s (Telegram's `downloadFile` popup waits for the admin) and is
+ * unique per call. It is not a confirmation token.
+ */
+export async function mintUsersExportLink(
+  params: Record<string, string | number | boolean>
+): Promise<string> {
+  const { data } = await client.post<ConfirmResponse>("/admin/users/export/link", null, { params });
+  return data.token;
+}
+
+/**
  * Mints a confirmation token for `action`/`params`, then calls `fn` with the
  * `X-Confirm-Token` header to inject into the real (confirmed) request.
  */

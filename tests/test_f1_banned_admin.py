@@ -76,9 +76,13 @@ async def test_banned_check_runs_after_the_admin_check(harness):
 
 
 async def test_a_banned_admins_download_link_is_dead(harness):
-    from webapp.core import confirm
-
-    token = confirm.issue_confirm_token(ADMIN, "users.export_download", {"sort": "date"})
+    minted = await harness.http.post(
+        "/api/admin/users/export/link",
+        params={"sort": "date"},
+        headers=await harness.session(ADMIN),
+    )
+    assert minted.status_code == 200, minted.text
+    token = minted.json()["token"]
     await harness.execute("UPDATE users SET banned = 1 WHERE user_id = ?", (ADMIN,))
     response = await harness.http.get(
         "/api/admin/users/export/download.csv",

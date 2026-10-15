@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-import { confirmAction } from "../../../api/admin";
+import { mintUsersExportLink } from "../../../api/admin";
 import type { AdminUsersQuery } from "../../../api/adminTypes";
 import useToast from "../../../hooks/useToast";
 import { useLocale } from "../../../i18n/useLocale";
@@ -49,8 +49,8 @@ function fileName(): string {
  *
  * Inside Telegram (Bot API 8.0+) the file goes through
  * `Telegram.WebApp.downloadFile`, which needs a plain HTTPS URL: the panel
- * mints a `users.export_download` confirmation token over the filters and
- * hands Telegram the single-use `/export/download.csv` link. Everywhere else
+ * mints a 300 s link token over the filters (`POST /admin/users/export/link`)
+ * and hands Telegram the single-use `/export/download.csv` link. Everywhere else
  * the authenticated client fetches the CSV as a Blob and an `<a download>`
  * saves it. The server allows 2 exports a minute; a 429 gets its own message.
  */
@@ -70,7 +70,7 @@ export function useUsersCsvExport(query: AdminUsersQuery): { run: () => void; is
       const download = telegramDownloader();
       const actorId = useAuthStore.getState().user?.user_id;
       if (download && actorId) {
-        const token = await confirmAction("users.export_download", params);
+        const token = await mintUsersExportLink(params);
         download({ url: usersCsvDownloadUrl(params, actorId, token), file_name: name }, (accepted) => {
           if (accepted) haptic("success");
         });

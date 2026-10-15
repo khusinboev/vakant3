@@ -220,12 +220,12 @@ async def test_export_is_rate_limited(harness):
 # single-use download link (Telegram.WebApp.downloadFile)
 # ---------------------------------------------------------------------------
 async def _mint_link(h, actor: int, params: dict) -> str:
+    """``POST /admin/users/export/link`` with the filters as query parameters."""
     response = await h.http.post(
-        "/api/admin/confirm",
-        json={"action": "users.export_download", "params": params},
-        headers=await h.session(actor),
+        "/api/admin/users/export/link", params=params, headers=await h.session(actor)
     )
     assert response.status_code == 200, response.text
+    assert response.json()["expires_in"] == admin_users.EXPORT_LINK_TTL_SECONDS
     return response.json()["token"]
 
 
@@ -260,7 +260,17 @@ async def test_download_link_is_bound_to_actor_filters_and_role(harness):
     other_actor = await harness.http.get(url, params={"actor": OWNER, "dl": token, "sort": "date"})
     assert other_actor.status_code == 403
 
-    moderator_token = await _mint_link(harness, MODERATOR, {"sort": "date"})
+    # A moderator cannot mint a link ...
+    refused_mint = await harness.http.post(
+        "/api/admin/users/export/link",
+        params={"sort": "date"},
+        headers=await harness.session(MODERATOR),
+    )
+    assert refused_mint.status_code == 403
+    assert refused_mint.json()["detail"]["code"] == "ADMIN_REQUIRED"
+    # ... and a link minted while they still ranked admin dies with the demotion,
+    # because the role is re-read at download.
+    moderator_token = admin_users.issue_export_link_token(MODERATOR, {"sort": "date"})
     moderator = await harness.http.get(
         url, params={"actor": MODERATOR, "dl": moderator_token, "sort": "date"}
     )
@@ -278,10 +288,15 @@ async def test_download_link_is_bound_to_actor_filters_and_role(harness):
 async def test_download_link_needs_a_real_token(harness):
     url = "/api/admin/users/export/download.csv"
     forged = confirm_header(ADMIN, "users.balance", {"sort": "date"})["X-Confirm-Token"]
+    # A confirm token for the export action itself is not a link token either.
+    confirm_kind = confirm_header(ADMIN, "users.export_download", {"sort": "date"})[
+        "X-Confirm-Token"
+    ]
     for params in (
         {"actor": ADMIN, "sort": "date"},  # no token at all
         {"actor": ADMIN, "dl": "1.deadbeef", "sort": "date"},
         {"actor": ADMIN, "dl": forged, "sort": "date"},  # a token for another action
+        {"actor": ADMIN, "dl": confirm_kind, "sort": "date"},
     ):
         response = await harness.http.get(url, params=params)
         assert response.status_code in (403, 422), params
