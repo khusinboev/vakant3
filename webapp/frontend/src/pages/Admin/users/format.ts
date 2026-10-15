@@ -58,8 +58,8 @@ export function userActionPath(userId: number, action: string): string {
   return `/admin/users/${userId}/action/${action}`;
 }
 
-/** The five per-user actions, each one a `/action/:action` sub-route. */
-export const USER_ACTIONS = ["pro", "balance", "ban", "message", "reset"] as const;
+/** The per-user actions, each one a `/action/:action` sub-route. */
+export const USER_ACTIONS = ["pro", "balance", "ban", "message", "reset", "sessions"] as const;
 
 export type UserAction = (typeof USER_ACTIONS)[number];
 

@@ -106,6 +106,31 @@ const adminUsers: Record<keyof AdminUsersDict, string> = {
   "adminUsers.reset.confirmTitle": "Очистить аккаунт",
   "adminUsers.reset.confirmDesc": "{id}: баланс обнулится, Pro будет отменён.",
   "adminUsers.reset.success": "Аккаунт очищен.",
+  "adminUsers.ban.sessionsNote": "Блокировка также завершает все открытые сеансы пользователя.",
+
+  // ── Sessions ─────────────────────────────────────────────────────────────
+  "adminUsers.action.sessions": "Завершить сеансы",
+  "adminUsers.sessions.desc":
+    "{id} выйдет из всех сеансов Mini App. Это не блокировка: при новом запуске приложения он получит новый сеанс.",
+  "adminUsers.sessions.confirmTitle": "Завершить сеансы",
+  "adminUsers.sessions.confirmDesc": "Все сеансы пользователя {id} будут завершены.",
+  "adminUsers.sessions.success": "Сеансы завершены.",
+
+  // ── Rank protection ──────────────────────────────────────────────────────
+  "adminUsers.detail.protected":
+    "Этот пользователь — {role}. Его уровень равен вашему или выше, поэтому действия недоступны.",
+
+  // ── CSV export ───────────────────────────────────────────────────────────
+  "adminUsers.export.action": "Скачать CSV",
+  "adminUsers.export.success": "Файл готов: {count} строк.",
+  "adminUsers.export.truncated": "Выгружены только первые {count} строк. Сузьте фильтры.",
+  "adminUsers.export.rateLimited": "Экспорт — не чаще 2 раз в минуту. Попробуйте чуть позже.",
+
+  // ── Errors only these endpoints return ───────────────────────────────────
+  "adminUsers.error.CANNOT_TARGET_ADMIN":
+    "Этот пользователь — {role}. Нельзя действовать в отношении админа равного или более высокого уровня.",
+  "adminUsers.error.IDEMPOTENCY_CONFLICT":
+    "Этот запрос уже был отправлен с другими значениями. Закройте окно и введите заново.",
 };
 
 export default adminUsers;

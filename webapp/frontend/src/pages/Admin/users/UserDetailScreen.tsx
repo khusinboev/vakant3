@@ -1,14 +1,13 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, BadgeCheck, Eraser, MessageSquare, Wallet } from "lucide-react";
+import { Ban, BadgeCheck, Eraser, LogOut, MessageSquare, Wallet } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { adminKeys, getAdminUser } from "../../../api/admin";
-import type { AdminUserDetail } from "../../../api/adminTypes";
 import { useLocale } from "../../../i18n/useLocale";
 import { useT } from "../../../i18n/useT";
 import ErrorCard from "../components/ErrorCard";
-import { useAdminRole } from "../hooks/useAdminRole";
+import { ROLE_LABEL_KEY, useAdminRole } from "../hooks/useAdminRole";
 import {
   Accordion,
   KeyValue,
@@ -19,6 +18,7 @@ import {
   useAdminHeader,
   type AccordionItem,
 } from "../ui";
+import type { UserDetailWithRole } from "./api";
 import UserActionSheet from "./UserActionSheet";
 import UserResumeSection from "./UserResumeSection";
 import UserSaves from "./UserSaves";
@@ -33,7 +33,7 @@ import {
 
 /**
  * `/admin/users/:id` — a full screen on a phone, the same component beside the
- * list on a desktop. The five actions are sub-routes
+ * list on a desktop. The actions are sub-routes
  * (`/admin/users/:id/action/:action`), so each one is a history entry that the
  * Telegram BackButton closes (spec §2).
  */
@@ -47,9 +47,9 @@ export default function UserDetailScreen() {
   const userId = Number(params.id);
   const action = params.action;
 
-  const detail = useQuery<AdminUserDetail>({
+  const detail = useQuery<UserDetailWithRole>({
     queryKey: adminKeys.userDetail(userId),
-    queryFn: () => getAdminUser(userId),
+    queryFn: () => getAdminUser(userId) as Promise<UserDetailWithRole>,
     retry: false,
     staleTime: 15_000,
     enabled: Number.isSafeInteger(userId) && userId > 0,
@@ -58,6 +58,11 @@ export default function UserDetailScreen() {
   const user = detail.data?.user;
   const title = user ? displayName(user) : `#${params.id ?? ""}`;
   const open = (key: string) => navigate(userActionPath(userId, key));
+  const targetRole = detail.data?.target_role ?? null;
+  // An admin ranked at or above the viewer cannot be acted on (403
+  // CANNOT_TARGET_ADMIN), so every action is hidden rather than offered.
+  const actionable = detail.data?.actionable !== false;
+  const can = (min: "moderator" | "admin") => actionable && atLeast(min);
 
   useAdminHeader({
     title,
@@ -66,33 +71,40 @@ export default function UserDetailScreen() {
         labelKey: "adminUsers.action.pro",
         icon: BadgeCheck,
         onClick: () => open("pro"),
-        hidden: !atLeast("admin"),
+        hidden: !can("admin"),
       },
       {
         labelKey: "adminUsers.action.balance",
         icon: Wallet,
         onClick: () => open("balance"),
-        hidden: !atLeast("admin"),
+        hidden: !can("admin"),
       },
       {
         labelKey: user?.banned ? "adminUsers.action.unban" : "adminUsers.action.ban",
         icon: Ban,
         danger: !user?.banned,
         onClick: () => open("ban"),
-        hidden: !atLeast("moderator"),
+        hidden: !can("moderator"),
       },
       {
         labelKey: "adminUsers.action.message",
         icon: MessageSquare,
         onClick: () => open("message"),
-        hidden: !atLeast("moderator"),
+        hidden: !can("moderator"),
+      },
+      {
+        labelKey: "adminUsers.action.sessions",
+        icon: LogOut,
+        danger: true,
+        onClick: () => open("sessions"),
+        hidden: !can("admin"),
       },
       {
         labelKey: "adminUsers.action.reset",
         icon: Eraser,
         danger: true,
         onClick: () => open("reset"),
-        hidden: !atLeast("admin"),
+        hidden: !can("admin"),
       },
     ],
   });
@@ -252,7 +264,18 @@ export default function UserDetailScreen() {
         )}
         {user.banned && <StatusChip status="banned" labelKey="adminUsers.badge.banned" />}
         {user.blocked && <StatusChip status="blocked" labelKey="adminUsers.badge.blocked" />}
+        {targetRole && (
+          <StatusChip status={targetRole} tone="info" labelKey={ROLE_LABEL_KEY[targetRole]} />
+        )}
       </div>
+
+      {!actionable && (
+        <p className="rounded-xl bg-surfaceAlt px-3 py-2 text-[11px] text-muted">
+          {t("adminUsers.detail.protected", {
+            role: targetRole ? t(ROLE_LABEL_KEY[targetRole]) : "",
+          })}
+        </p>
+      )}
 
       {user.banned && user.banned_reason && (
         <p className="rounded-xl bg-danger/10 px-3 py-2 text-[11px] text-danger">
@@ -280,7 +303,14 @@ export default function UserDetailScreen() {
 
       <Accordion queryKey="section" items={sections} />
 
-      {isUserAction(action) && <UserActionSheet user={user} action={action} />}
+      {isUserAction(action) && (
+        <UserActionSheet
+          user={user}
+          action={action}
+          targetRole={targetRole}
+          actionable={actionable}
+        />
+      )}
     </div>
   );
 }

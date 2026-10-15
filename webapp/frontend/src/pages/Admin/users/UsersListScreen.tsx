@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Users } from "lucide-react";
+import { Download, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { adminKeys, listAdminUsers } from "../../../api/admin";
@@ -9,6 +9,7 @@ import { regionName, useRegions } from "../../../hooks/useStaticList";
 import { useLocale } from "../../../i18n/useLocale";
 import { useT } from "../../../i18n/useT";
 import ErrorCard from "../components/ErrorCard";
+import { useAdminRole } from "../hooks/useAdminRole";
 import LoadMore from "../components/LoadMore";
 import useCursorQuery from "../hooks/useCursorQuery";
 import {
@@ -28,6 +29,7 @@ import {
   type FilterDef,
 } from "../ui";
 import { dayEnd, dayStart, displayName, parseUserId, userDetailPath } from "./format";
+import useUsersCsvExport from "./useUsersCsvExport";
 
 const PAGE_SIZE = 30;
 const OPEN_BY_ID = "users.openById";
@@ -127,10 +129,21 @@ export default function UsersListScreen() {
     { staleTime: 15_000 },
   );
 
+  const { atLeast } = useAdminRole();
+  const csvExport = useUsersCsvExport(query);
+
   useAdminHeader({
     titleKey: "admin.nav.users",
     menu: [
       { labelKey: "adminUsers.openById", onClick: () => openById.openSheet() },
+      {
+        labelKey: "adminUsers.export.action",
+        icon: Download,
+        onClick: csvExport.run,
+        disabled: csvExport.isPending,
+        // The server requires role admin+ (and the list is the export's filter set).
+        hidden: !atLeast("admin"),
+      },
       {
         labelKey: "admin.filter.clear",
         onClick: () => filters.clear(),

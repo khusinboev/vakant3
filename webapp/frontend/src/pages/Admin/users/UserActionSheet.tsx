@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 
@@ -10,8 +10,10 @@ import { useLocale } from "../../../i18n/useLocale";
 import { useT } from "../../../i18n/useT";
 import { closeConfirm, requestConfirm, type ConfirmRequest } from "../hooks/useConfirm";
 import useConfirmedMutation from "../hooks/useConfirmedMutation";
+import { ROLE_LABEL_KEY, type AdminRole } from "../hooks/useAdminRole";
 import { Button, SheetFrame, haptic, hasOpenSheet, useAdminBack } from "../ui";
-import { postResetUser, postUserBalance } from "./api";
+import { newIdempotencyKey, postResetUser, postRevokeSessions, postUserBalance } from "./api";
+import { localizeUserError, useUserErrorToast } from "./errors";
 import type { UserAction } from "./format";
 
 const MESSAGE_MAX = 4096;
@@ -22,6 +24,7 @@ const TITLE_KEY: Record<UserAction, TranslationKey> = {
   ban: "adminUsers.action.ban",
   message: "adminUsers.action.message",
   reset: "adminUsers.action.reset",
+  sessions: "adminUsers.action.sessions",
 };
 
 const INPUT =
@@ -61,23 +64,38 @@ function useDeferredClose(): () => void {
 export type UserActionSheetProps = {
   user: AdminUserListItem;
   action: UserAction;
+  /** The user's admin role, when they hold one (from the detail endpoint). */
+  targetRole?: AdminRole | null;
+  /** `false` when the target outranks (or equals) the viewer: the server refuses every action. */
+  actionable?: boolean;
 };
+
+/** A balance submission's identity: the same values retried keep their idempotency key. */
+type BalanceAttempt = { fingerprint: string; key: string };
 
 /**
  * One sheet per action, opened by `/admin/users/:id/action/:action` — so back,
  * Esc and the Telegram BackButton close it and land on the user again.
  *
- * `users.balance` and `wallet.reset_user` are token-confirmed on the server
- * (CONTRACT_P0), so they go through `useConfirmedMutation`; Pro and ban ask
- * first with the same dialog because neither is reversible by accident.
+ * `users.balance`, `users.reset` and `users.sessions_revoke` are
+ * token-confirmed on the server, so they go through `useConfirmedMutation`
+ * (whose dialog is a history entry too); Pro and ban ask first with the same
+ * dialog because neither is reversible by accident.
  */
-export default function UserActionSheet({ user, action }: UserActionSheetProps) {
+export default function UserActionSheet({
+  user,
+  action,
+  targetRole = null,
+  actionable = true,
+}: UserActionSheetProps) {
   const t = useT();
   const toast = useToast();
+  const showError = useUserErrorToast();
   const { formatMoney } = useLocale();
   const queryClient = useQueryClient();
   const { back } = useAdminBack();
   const close = useDeferredClose();
+  const balanceAttempt = useRef<BalanceAttempt | null>(null);
 
   const [proUnlimited, setProUnlimited] = useState(false);
   const [proDays, setProDays] = useState("30");
@@ -105,26 +123,54 @@ export default function UserActionSheet({ user, action }: UserActionSheetProps) 
     mutationFn: (text: string) => messageUser(user.user_id, { text }),
   });
 
-  const balance = useConfirmedMutation<{ amount: number; note?: string }, unknown>({
+  const balance = useConfirmedMutation<
+    { amount: number; note?: string; idempotencyKey: string },
+    unknown
+  >({
     action: "users.balance",
     paramKeys: ["user_id", "amount"],
     titleKey: "adminUsers.balance.confirmTitle",
     descriptionKey: "adminUsers.balance.confirmDesc",
     successKey: "adminUsers.balance.success",
     invalidate: [["admin", "users"]],
-    mutationFn: (body, token) => postUserBalance(user.user_id, body, token),
-    onSuccess: close,
+    mutationFn: (body, token) =>
+      postUserBalance(user.user_id, body, token, body.idempotencyKey).catch((error: unknown) =>
+        localizeUserError(error, t),
+      ),
+    onSuccess: () => {
+      // Done: the next submission is a new operation with a new key.
+      balanceAttempt.current = null;
+      close();
+    },
   });
 
   const reset = useConfirmedMutation<{ note?: string }, unknown>({
-    action: "wallet.reset_user",
+    action: "users.reset",
     paramKeys: ["user_id"],
     danger: true,
     titleKey: "adminUsers.reset.confirmTitle",
     descriptionKey: "adminUsers.reset.confirmDesc",
     successKey: "adminUsers.reset.success",
     invalidate: [["admin", "users"]],
-    mutationFn: (body, token) => postResetUser(user.user_id, body.note, token),
+    mutationFn: (body, token) =>
+      postResetUser(user.user_id, body.note, token).catch((error: unknown) =>
+        localizeUserError(error, t),
+      ),
+    onSuccess: close,
+  });
+
+  const sessions = useConfirmedMutation<Record<string, unknown>, unknown>({
+    action: "users.sessions_revoke",
+    paramKeys: ["user_id"],
+    danger: true,
+    titleKey: "adminUsers.sessions.confirmTitle",
+    descriptionKey: "adminUsers.sessions.confirmDesc",
+    successKey: "adminUsers.sessions.success",
+    invalidate: [["admin", "users"]],
+    mutationFn: (_body, token) =>
+      postRevokeSessions(user.user_id, token).catch((error: unknown) =>
+        localizeUserError(error, t),
+      ),
     onSuccess: close,
   });
 
@@ -144,7 +190,7 @@ export default function UserActionSheet({ user, action }: UserActionSheetProps) 
       close();
     } catch (error) {
       haptic("error");
-      toast.apiError(error);
+      showError(error);
     } finally {
       closeConfirm();
     }
@@ -196,9 +242,16 @@ export default function UserActionSheet({ user, action }: UserActionSheetProps) 
       toast.error(t("adminUsers.balance.invalid"));
       return;
     }
+    const note = balanceNote.trim() || undefined;
+    // A retry of the same submission (same amount and note after a failure)
+    // keeps its key, so a request that did land is replayed, not repeated.
+    const fingerprint = JSON.stringify([parsed, note ?? null]);
+    if (balanceAttempt.current?.fingerprint !== fingerprint) {
+      balanceAttempt.current = { fingerprint, key: newIdempotencyKey() };
+    }
     void balance.run(
       { user_id: user.user_id, amount: parsed },
-      { amount: parsed, note: balanceNote.trim() || undefined },
+      { amount: parsed, note, idempotencyKey: balanceAttempt.current.key },
       { id: user.user_id, amount: formatMoney(parsed) },
     );
   }
@@ -216,7 +269,7 @@ export default function UserActionSheet({ user, action }: UserActionSheetProps) 
       close();
     } catch (error) {
       haptic("error");
-      toast.apiError(error);
+      showError(error);
     }
   }
 
@@ -285,16 +338,21 @@ export default function UserActionSheet({ user, action }: UserActionSheetProps) 
           })}
         </p>
         {!banned && (
-          <Field label={t("adminUsers.ban.reason")}>
-            <input
-              type="text"
-              className={INPUT}
-              value={banReason}
-              onChange={(event) => setBanReason(event.target.value)}
-            />
-          </Field>
+          <>
+            <Field label={t("adminUsers.ban.reason")}>
+              <input
+                type="text"
+                className={INPUT}
+                value={banReason}
+                onChange={(event) => setBanReason(event.target.value)}
+              />
+            </Field>
+            <p className="text-[11px] text-muted">{t("adminUsers.ban.sessionsNote")}</p>
+          </>
         )}
       </div>
+    ) : action === "sessions" ? (
+      <p className="text-[13px] text-muted">{t("adminUsers.sessions.desc", { id: user.user_id })}</p>
     ) : action === "message" ? (
       <div className="space-y-1">
         <Field label={t("adminUsers.message.text")}>
@@ -364,6 +422,15 @@ export default function UserActionSheet({ user, action }: UserActionSheetProps) 
         disabled={!messageText.trim()}
         onClick={() => void submitMessage()}
       />
+    ) : action === "sessions" ? (
+      <Button
+        size="md"
+        full
+        variant="danger"
+        labelKey="adminUsers.action.sessions"
+        loading={sessions.isPending}
+        onClick={() => void sessions.run({ user_id: user.user_id }, {}, { id: user.user_id })}
+      />
     ) : (
       <Button
         size="md"
@@ -377,15 +444,26 @@ export default function UserActionSheet({ user, action }: UserActionSheetProps) 
       />
     );
 
+  // Reached by URL for an admin who outranks the viewer: say why, offer nothing
+  // (the server would answer CANNOT_TARGET_ADMIN anyway).
+  const roleKey = targetRole ? ROLE_LABEL_KEY[targetRole] : null;
+  const locked = !actionable;
+
   return (
     <SheetFrame
       open
       onClose={back}
       titleKey={action === "ban" && banned ? "adminUsers.action.unban" : TITLE_KEY[action]}
       subtitle={`#${user.user_id}`}
-      footer={footer}
+      footer={locked ? undefined : footer}
     >
-      {body}
+      {locked ? (
+        <p className="text-[13px] text-muted">
+          {t("adminUsers.detail.protected", { role: roleKey ? t(roleKey) : (targetRole ?? "") })}
+        </p>
+      ) : (
+        body
+      )}
     </SheetFrame>
   );
 }
