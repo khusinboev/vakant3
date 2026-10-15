@@ -334,14 +334,22 @@ async def test_text_key_filter_matches_every_language():
 
 
 @pytest.mark.asyncio
-async def test_is_admin_filter():
+async def test_is_admin_filter(tmp_path):
+    """ADMIN_IDS bootstraps an owner while the admins table is missing.
+
+    The full role rule (table rows, revocation, parity with the API) is covered
+    in tests/test_b1_admin_roles.py.
+    """
+    import functools
     from types import SimpleNamespace
 
     import config
-    from src.filters.admin import IsAdmin
+    from src.db.connection import connect
+    from src.filters import admin as admin_filter
 
-    flt = IsAdmin()
-    with patch.object(config, "ADMIN_IDS", [4242]):
-        assert await flt(SimpleNamespace(from_user=SimpleNamespace(id=4242))) is True
+    fresh_db = functools.partial(connect, str(tmp_path / "no_admins_table.sqlite3"))
+    flt = admin_filter.IsAdmin()
+    with patch.object(config, "ADMIN_IDS", [4242]), patch.object(admin_filter, "connect", fresh_db):
+        assert await flt(SimpleNamespace(from_user=SimpleNamespace(id=4242))) == {"admin_role": "owner"}
         assert await flt(SimpleNamespace(from_user=SimpleNamespace(id=4243))) is False
         assert await flt(SimpleNamespace(from_user=None)) is False
