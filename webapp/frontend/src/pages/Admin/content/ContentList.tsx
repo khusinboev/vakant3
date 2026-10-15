@@ -101,7 +101,7 @@ export default function ContentList({ kind }: { kind: ContentKind }) {
         ariaLabelKey="adminContent.tabs.aria"
         tabs={CONTENT_KINDS.map((id) => ({ id, labelKey: CONTENT_CONFIG[id].tabLabelKey }))}
         value={kind}
-        onChange={(next) => navigate(contentPath(next))}
+        onChange={(next) => navigate(contentPath(next), { replace: true })}
       />
 
       <SearchBar value={search} onChange={setSearch} placeholderKey="adminContent.list.searchPlaceholder" />

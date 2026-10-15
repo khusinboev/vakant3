@@ -229,7 +229,7 @@ export default function Home() {
               className="tap-target w-full rounded-2xl bg-primary py-3 text-sm font-semibold text-primaryFg"
               onClick={() => {
                 clearSaveLimitReached();
-                navigate("/wallet");
+                navigate("/wallet", { state: { navParent: "/app" } });
               }}
             >
               💎 {t("home.goPro")}

@@ -304,7 +304,7 @@ export default function WalletPage() {
         <button
           type="button"
           className="tap-target w-full rounded-2xl border border-border px-4 py-3 text-left text-sm font-semibold text-text"
-          onClick={() => navigate("/referral")}
+          onClick={() => navigate("/referral", { state: { navParent: "/wallet" } })}
         >
           📊 {t("wallet.refStats")} →
         </button>

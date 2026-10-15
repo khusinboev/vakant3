@@ -6,34 +6,28 @@ import {
   type NavigateFunction,
 } from "react-router-dom";
 
+import { goToParent } from "../../../hooks/useAppBack";
+import { HOME_PATH } from "../../../lib/nav/parents";
 import { sheetsFromState } from "./useHistorySheet";
 
-/** Where "back" lands when there is nothing left to pop inside the panel. */
-export const ADMIN_EXIT_PATH = "/app";
+/** Where "back" lands from the panel's root. */
+export const ADMIN_EXIT_PATH = HOME_PATH;
 
 /**
  * One level back, wherever the press came from (Telegram BackButton, browser
- * back, `Esc`, the header's ‹).
+ * back, `Esc`, the header's ‹), following the app-wide model of `useAppBack`:
  *
- *  1. an overlay is open  -> pop it (it is a history entry);
- *  2. some in-app history -> `navigate(-1)`;
- *  3. nothing before us   -> leave the panel for `/app`.
+ *  1. an overlay is open -> pop it (it is a history entry);
+ *  2. otherwise go UP: a sub-page to its parent page (`parentOf`), the panel's
+ *     root to `/app` — never through every filter / tab change that happened
+ *     inside a page (those replace their history entry).
  */
 export function adminBackAction(navigate: NavigateFunction, location: Location): void {
   if (sheetsFromState(location.state).length > 0) {
     navigate(-1);
     return;
   }
-
-  // React Router keeps its position in `window.history.state.idx`; 0 means the
-  // panel is the first entry of this session, so `-1` would leave the app.
-  const idx = (window.history.state as { idx?: number } | null)?.idx;
-  if (typeof idx === "number" && idx > 0) {
-    navigate(-1);
-    return;
-  }
-
-  navigate(ADMIN_EXIT_PATH, { replace: true });
+  goToParent(navigate, location);
 }
 
 export type AdminBack = { back: () => void };

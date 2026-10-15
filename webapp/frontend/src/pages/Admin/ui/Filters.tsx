@@ -71,7 +71,7 @@ export function useAdminFilters(defs: FilterDef[], sheetName = "filters"): Admin
   }, [keys, search]);
 
   const write = useCallback(
-    (mutate: (params: URLSearchParams) => void, replace = false) => {
+    (mutate: (params: URLSearchParams) => void, replace = true) => {
       const params = new URLSearchParams(search);
       mutate(params);
       const query = params.toString();
