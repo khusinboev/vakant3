@@ -72,19 +72,19 @@ async def test_admins_are_still_rechecked_on_every_update(harness, monkeypatch):
     for _ in range(3):
         await harness.send(OWNER, t("uz", "btn.admin.stats"))
     assert counter.lookups.count(OWNER) == 3
-    assert len(harness.texts()) == 3
+    assert len(harness.session.of(b1.SendRichMessage)) == 3
 
 
 async def test_a_revoked_admin_is_refused_immediately_despite_the_cache(harness, monkeypatch):
     counter = _Counter(harness.db_path, monkeypatch)
     await harness.send(ADMIN, t("uz", "btn.admin.stats"))
-    assert len(harness.texts()) == 1
+    assert len(harness.session.of(b1.SendRichMessage)) == 1
     async with aiosqlite.connect(harness.db_path) as conn:
         await conn.execute("UPDATE admins SET disabled = 1 WHERE user_id = ?", (ADMIN,))
         await conn.commit()
     assert ADMIN in admin_filter._candidates.ids  # still a cached candidate
     await harness.send(ADMIN, t("uz", "btn.admin.stats"))
-    assert len(harness.texts()) == 1  # refused on the very next message
+    assert len(harness.session.of(b1.SendRichMessage)) == 1  # refused on the very next message
     assert counter.lookups.count(ADMIN) == 2
 
 
@@ -104,7 +104,7 @@ async def test_a_new_admin_is_picked_up_after_the_ttl(harness, monkeypatch):
     assert harness.texts() == []  # documented delay: not a candidate yet
     clock[0] += 2
     await harness.send(CUSTOMER, t("uz", "btn.admin.stats"))
-    assert harness.texts()[0].startswith(t("uz", "admin.stats.header"))
+    b1.assert_stats_card(harness)
 
 
 async def test_callbacks_from_non_candidates_are_denied_without_a_query(harness, monkeypatch):
@@ -129,7 +129,7 @@ async def test_a_failed_refresh_falls_back_to_the_full_lookup(harness, monkeypat
     monkeypatch.setattr(admin_filter, "connect", broken_then_real)
     admin_filter.reset_admin_candidates()
     await harness.send(OWNER, t("uz", "btn.admin.stats"))
-    assert harness.texts()[0].startswith(t("uz", "admin.stats.header"))
+    b1.assert_stats_card(harness)
     assert admin_filter._candidates.ids is None  # the failure was not cached
 
 

@@ -22,7 +22,6 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import html
 import json
 import logging
@@ -33,11 +32,17 @@ from urllib.parse import urlsplit, urlunsplit
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramNotFound
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputRichMessage,
+    Message,
+)
 
 from config import WEBAPP_URL, bot
 from src.buttons.buttuns import (
@@ -56,12 +61,13 @@ from src.buttons.buttuns import (
     reklama_btn,
     segment_label,
 )
-from src.core.timeutil import month_end, month_step_back, now_tz
 from src.db.connection import connect
 from src.filters.admin import IsAdmin, current_admin_role
 from src.filters.text_key import TextKey, text_matches
 from src.functions.admin_audit import log_bot_action
 from src.functions.admin_roles import broadcast_admin_ids, has_role
+from src.functions.admin_stats import collect_stats, render_plain_html, render_rich_html
+from src.functions.main_menu import send_main_menu
 from src.functions.broadcast_control import set_broadcast_state
 from src.functions.broadcast_worker import (
     broadcast_progress,
@@ -153,6 +159,7 @@ def _is_back(message: Message) -> bool:
 # ── Menu ────────────────────────────────────────────────────────────────
 
 @router.message(Command("admin", "panel"))
+@router.message(TextKey("menu.admin"))
 async def admin_panel(
     message: Message, state: FSMContext, lang: str = DEFAULT_LANG, admin_role: str | None = None
 ):
@@ -160,6 +167,17 @@ async def admin_panel(
     await message.answer(t(lang, "admin.hello"), reply_markup=main_btn(lang, admin_role))
     await message.answer(
         t(lang, "admin.webapp_hint"), reply_markup=admin_webapp_kb(lang, admin_webapp_url())
+    )
+
+
+@router.message(TextKey("btn.admin.exit"))
+async def exit_to_main_menu(
+    message: Message, state: FSMContext, lang: str = DEFAULT_LANG, admin_role: str | None = None
+):
+    """Leave the admin panel: the user's main keyboard replaces the admin one."""
+    await state.clear()
+    await send_main_menu(
+        message, message.from_user.id, lang, t(lang, "admin.main_menu"), admin_role=admin_role
     )
 
 
@@ -175,58 +193,19 @@ async def back_handler(
 
 @router.message(TextKey("btn.admin.stats"))
 async def statistics_handler(message: Message, lang: str = DEFAULT_LANG):
-    now = now_tz()
-
     async with connect() as conn:
-        cursor = await conn.execute("SELECT COUNT(*) FROM users")
-        total_users = (await cursor.fetchone())[0]
+        stats = await collect_stats(conn)
 
-        cursor = await conn.execute("SELECT COUNT(*) FROM users WHERE blocked = 1")
-        blocked_users = (await cursor.fetchone())[0]
-
-        three_months_ago_ts = int((now - datetime.timedelta(days=90)).timestamp())
-        cursor = await conn.execute(
-            "SELECT COUNT(*) FROM users WHERE date >= ?", (three_months_ago_ts,)
+    try:
+        await bot.send_rich_message(
+            chat_id=message.chat.id,
+            rich_message=InputRichMessage(html=render_rich_html(lang, stats)),
         )
-        last_3_months_users = (await cursor.fetchone())[0]
-
-        months_stats: list[tuple[str, int]] = []
-        for i in range(3):
-            first_day = month_step_back(now, i)
-            last_day = month_end(first_day)
-            month_name = t(lang, f"month.{first_day.month}")
-
-            cursor = await conn.execute(
-                "SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?",
-                (int(first_day.timestamp()), int(last_day.timestamp())),
-            )
-            months_stats.append((month_name, (await cursor.fetchone())[0]))
-
-        last_7_days: list[tuple[str, int]] = []
-        for i in range(7):
-            date = now - datetime.timedelta(days=i)
-            date_str = date.strftime("%d-%m-%Y")
-
-            start_ts = int(date.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
-            end_ts = int(date.replace(hour=23, minute=59, second=59, microsecond=0).timestamp())
-
-            cursor = await conn.execute(
-                "SELECT COUNT(*) FROM users WHERE date BETWEEN ? AND ?", (start_ts, end_ts)
-            )
-            last_7_days.append((date_str, (await cursor.fetchone())[0]))
-
-    lines = [
-        t(lang, "admin.stats.header"),
-        "",
-        t(lang, "admin.stats.total", count=total_users),
-        t(lang, "admin.stats.blocked", count=blocked_users),
-        t(lang, "admin.stats.last3m", count=last_3_months_users),
-    ]
-    lines += [t(lang, "admin.stats.row", label=name, count=count) for name, count in months_stats]
-    lines += ["", t(lang, "admin.stats.last7d", count=sum(c for _, c in last_7_days))]
-    lines += [t(lang, "admin.stats.row", label=day, count=count) for day, count in last_7_days]
-
-    await message.answer("\n".join(lines))
+    except (TelegramBadRequest, TelegramNotFound) as exc:
+        # The rich card was rejected (old client API, bad markup): the classic
+        # HTML card carries the same numbers.
+        logger.warning("rich stats card rejected, sending plain HTML: %s", exc)
+        await message.answer(render_plain_html(lang, stats))
 
 
 # ── Kanallar ────────────────────────────────────────────────────────────

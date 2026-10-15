@@ -25,7 +25,7 @@ from aiogram.client.session.base import BaseSession
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.methods import AnswerCallbackQuery, CopyMessage, EditMessageText, SendMessage
+from aiogram.methods import AnswerCallbackQuery, CopyMessage, EditMessageText, SendMessage, SendRichMessage
 from aiogram.types import (
     CallbackQuery,
     Chat,
@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS users (
     lang TEXT,
     region TEXT,
     user_pro INTEGER NOT NULL DEFAULT 0,
-    blocked INTEGER NOT NULL DEFAULT 0
+    blocked INTEGER NOT NULL DEFAULT 0,
+    ref_by INTEGER
 )
 """
 NOW = int(time.time())
@@ -175,6 +176,14 @@ class Harness:
         return (await state.get_data())["nonce"]
 
 
+def assert_stats_card(harness, lang="uz"):
+    """The statistics card went out as ONE rich message (not plain text)."""
+    cards = harness.session.of(SendRichMessage)
+    assert len(cards) == 1 and harness.texts() == []
+    assert cards[0].rich_message.html.startswith("<h1>")
+    assert t(lang, "stats2.sec.users") in cards[0].rich_message.html
+
+
 def _markups(session):
     for request in session.requests:
         markup = getattr(request, "reply_markup", None)
@@ -276,7 +285,7 @@ async def test_admin_actions_are_denied_below_admin(harness, user_id, key):
 @pytest.mark.parametrize("user_id", [VIEWER, MODERATOR, ADMIN, OWNER])
 async def test_stats_are_viewer_plus(harness, user_id):
     await harness.send(user_id, t("uz", "btn.admin.stats"))
-    assert harness.texts()[0].startswith(t("uz", "admin.stats.header"))
+    assert_stats_card(harness)
 
 
 async def test_strangers_and_groups_get_nothing(harness):

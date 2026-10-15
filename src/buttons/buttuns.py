@@ -10,6 +10,7 @@ from aiogram.types import (
 )
 
 from src.functions.admin_roles import has_role
+from src.functions.webapp_link import webapp_url
 from src.i18n import DEFAULT_LANG, t
 from src.ui.emoji import clip, inline_button, labelled, reply_button
 
@@ -20,6 +21,8 @@ BUTTON_ICONS: dict[str, str] = {
     "common.back": "back",
     "menu.laws": "laws",
     "menu.hr": "tips",
+    "menu.admin": "admin",
+    "btn.admin.exit": "home",
     "start.btn.jobs": "search",
     "start.btn.profile": "profile",
     "start.btn.saves": "saves",
@@ -57,9 +60,11 @@ def button_text(lang: str, key: str, *, plain: bool = False, **kw) -> str:
     return labelled(BUTTON_ICONS.get(key), t(lang, key, **kw), plain=plain)["text"]
 
 
-def key_button(lang: str, key: str, *, style: str | None = None) -> KeyboardButton:
-    """Reply-keyboard button for an i18n label key."""
-    return reply_button(BUTTON_ICONS.get(key), t(lang, key), style=style)
+def key_button(
+    lang: str, key: str, *, style: str | None = None, web_app: str | None = None
+) -> KeyboardButton:
+    """Reply-keyboard button for an i18n label key (``web_app``: opens a Mini App)."""
+    return reply_button(BUTTON_ICONS.get(key), t(lang, key), style=style, web_app=web_app)
 
 
 def key_inline(
@@ -143,6 +148,7 @@ def main_btn(lang: str = DEFAULT_LANG, role: str | None = "owner") -> ReplyKeybo
     ]
     if has_role(role, "admin"):
         rows.append([key_button(lang, "btn.admin.ads")])
+    rows.append([key_button(lang, "btn.admin.exit")])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
@@ -270,18 +276,28 @@ def bc_list_kb(rows: list[tuple[int, str]]) -> InlineKeyboardMarkup | None:
 
 # ── User keyboard ────────────────────────────────────────────────────────
 
-def user_menu_btn(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
-    """Foydalanuvchi doimiy klaviaturasi."""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                key_button(lang, "menu.laws"),
-                key_button(lang, "menu.hr"),
-            ]
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-    )
+def main_menu_kb(
+    lang: str = DEFAULT_LANG, user_id: int | None = None, admin_role: str | None = None
+) -> ReplyKeyboardMarkup:
+    """The ONE persistent user keyboard.
+
+    Jobs / Profile / Saved are reply-keyboard ``web_app`` buttons: they open the
+    Mini App WITHOUT initData, so each URL carries the user's signed ``bt``
+    login link (``src/functions/webapp_link.py``; valid 7 days). Laws and HR are
+    plain text buttons routed by ``TextKey``. Admins (any role, viewer+) get a
+    last row with the single Admin button; everybody else never sees it.
+    """
+    def app(key: str, go: str | None = None, *, style: str | None = None) -> KeyboardButton:
+        return key_button(lang, key, style=style, web_app=webapp_url(user_id or 0, "/app", go=go))
+
+    rows = [
+        [app("start.btn.jobs", style="primary")],
+        [app("start.btn.profile", "profile"), app("start.btn.saves", "saves")],
+        [key_button(lang, "menu.laws"), key_button(lang, "menu.hr")],
+    ]
+    if has_role(admin_role, "viewer"):
+        rows.append([key_button(lang, "menu.admin")])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
 
 
 # ── Vacancy / app keyboards ──────────────────────────────────────────────

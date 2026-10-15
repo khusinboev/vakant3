@@ -16,10 +16,11 @@ from aiogram.types import (
     Message,
 )
 
-from config import WEBAPP_URL, bot
-from src.buttons.buttuns import key_inline, open_app_kb, referral_share_kb, user_menu_btn
+from config import bot
+from src.buttons.buttuns import key_inline, open_app_kb, referral_share_kb
 from src.db.connection import connect
 from src.filters.admin import IsAdmin
+from src.functions.main_menu import send_main_menu
 from src.functions.functions import channel_row_target, functions, load_channel_rows
 from src.functions.referral_gate import get_referral_gate_state, referral_gate_message
 from src.functions.scraping import fetch_osonish_detail
@@ -34,19 +35,6 @@ router = Router()
 
 def _esc(value) -> str:
     return html.escape(str(value or ""), quote=False)
-
-
-def build_main_webapp_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
-    """Inline web_app buttons (they carry initData, so the Mini App logs in silently)."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [key_inline(lang, "start.btn.jobs", web_app=WEBAPP_URL, style="primary")],
-            [
-                key_inline(lang, "start.btn.profile", web_app=f"{WEBAPP_URL}?go=profile"),
-                key_inline(lang, "start.btn.saves", web_app=f"{WEBAPP_URL}?go=saves"),
-            ],
-        ]
-    )
 
 
 def referral_share_url(ref_link: str, lang: str = DEFAULT_LANG) -> str:
@@ -86,19 +74,14 @@ async def mark_bot_started(user_id: int) -> None:
         logger.warning("started_at yozilmadi user_id=%s: %s", user_id, exc)
 
 
-async def _send_main_menu(message: Message, lang: str, first_name: str | None) -> None:
-    """Greeting + menu.
+async def _send_main_menu(message: Message, user_id: int, lang: str, first_name: str | None) -> None:
+    """ONE message: the greeting carries the persistent main reply keyboard.
 
-    A message carries ONE reply_markup, and the reply keyboard (laws / HR) and
-    the inline web_app buttons cannot share it. Inline web_app buttons must stay
-    inline: a reply-keyboard web_app button opens the Mini App without initData.
-    So the greeting itself sets the reply keyboard, and a short second message
-    carries the app buttons, ending the chat on the main call to action.
+    The Mini App buttons are reply-keyboard ``web_app`` buttons whose URLs hold
+    the user's signed ``bt`` login link (reply-keyboard launches have no
+    initData), so no second inline "app" message is needed any more.
     """
-    await message.answer(
-        t(lang, "start.greeting", name=_esc(first_name)), reply_markup=user_menu_btn(lang)
-    )
-    await message.answer(t(lang, "start.app_prompt"), reply_markup=build_main_webapp_keyboard(lang))
+    await send_main_menu(message, user_id, lang, t(lang, "start.greeting", name=_esc(first_name)))
 
 
 @router.message(CommandStart())
@@ -156,14 +139,14 @@ async def welcome(
     is_subscribed = await functions.check_on_start(user_id, bot)
 
     if is_subscribed:
-        await _send_main_menu(message, lang, message.from_user.first_name)
+        await _send_main_menu(message, user_id, lang, message.from_user.first_name)
         return
 
     join_keyboard = await build_channel_keyboard(lang)
     if join_keyboard:
         await message.answer(t(lang, "start.subscribe_prompt"), reply_markup=join_keyboard)
     else:
-        await _send_main_menu(message, lang, message.from_user.first_name)
+        await _send_main_menu(message, user_id, lang, message.from_user.first_name)
 
 
 # ── Til tanlash ─────────────────────────────────────────────────────────
@@ -190,7 +173,7 @@ async def set_language(call: CallbackQuery):
         await call.message.answer(t(new_lang, "lang.saved"))
 
     # Re-send the whole menu so the reply keyboard and buttons switch language too.
-    await _send_main_menu(call.message, new_lang, call.from_user.first_name)
+    await _send_main_menu(call.message, call.from_user.id, new_lang, call.from_user.first_name)
 
 
 # ── Kanal obunasi ───────────────────────────────────────────────────────
@@ -252,13 +235,13 @@ async def check_subscription(call: CallbackQuery, lang: str = DEFAULT_LANG):
     except Exception:
         pass
 
-    # Same two-message layout as /start: the reply keyboard was never sent to a
-    # user who had to subscribe first.
-    await call.message.answer(
+    # The reply keyboard was never sent to a user who had to subscribe first.
+    await send_main_menu(
+        call.message,
+        call.from_user.id,
+        lang,
         t(lang, "start.check.welcome", name=_esc(call.from_user.first_name)),
-        reply_markup=user_menu_btn(lang),
     )
-    await call.message.answer(t(lang, "start.app_prompt"), reply_markup=build_main_webapp_keyboard(lang))
 
 
 # ── Admin diagnostikasi ─────────────────────────────────────────────────

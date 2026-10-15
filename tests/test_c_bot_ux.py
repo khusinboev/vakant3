@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -25,7 +26,10 @@ from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
 from src.buttons.buttuns import button_text
 from src.db.connection import connect as real_connect
 from src.db.migrate import run_migrations
-from src.functions import bot_setup
+from src.filters import admin as admin_filter
+from src.functions import bot_setup, main_menu
+from src.functions.webapp_link import verify_bot_link
+from src.handlers import admin as admin_handlers
 from src.functions import notification_scheduler as notif
 from src.functions.auto_post_scheduler import pick_and_post
 from src.handlers import content as content_handlers
@@ -36,6 +40,7 @@ from tests import test_autopost_admin as ap
 from tests import test_b1_bot_admin as b1
 
 USER = 900000000201
+STAFF = 900000000202  # a viewer in the admins table
 WEBAPP = "https://abitur24.uz/app"
 DETAIL = {"title": "Dasturchi <senior>", "company": {"name": "Acme"}, "min_salary": 5000000}
 
@@ -54,17 +59,27 @@ async def ux(tmp_path):
         await conn.execute(b1.USERS_DDL)
         await conn.execute("ALTER TABLE users ADD COLUMN started_at INTEGER")
         await conn.execute("INSERT INTO users (user_id, lang, date) VALUES (?, 'uz', ?)", (USER, int(time.time())))
+        await conn.execute("INSERT INTO users (user_id, lang, date) VALUES (?, 'uz', ?)", (STAFF, int(time.time())))
         await conn.commit()
         await run_migrations(conn)
+        await conn.execute(
+            "INSERT INTO admins (user_id, role, added_by, added_at, disabled) VALUES (?, 'viewer', NULL, 0, 0)",
+            (STAFF,),
+        )
+        await conn.commit()
 
     session = b1.RecordingSession()
     bot = Bot(b1.TOKEN, session=session, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(admin_handlers.router)
     dp.include_router(start_handlers.router)
     dp.include_router(content_handlers.router)
     bound = functools.partial(real_connect, str(db_path))
     gate = {"unlocked": True, "ref_link": f"https://t.me/bandlikuzbot?start=ref_{USER}", "current": 0, "required": 0}
+    admin_filter.reset_admin_candidates()
     with patch.object(start_handlers, "connect", bound), patch.object(start_handlers, "bot", bot), \
+            patch.object(main_menu, "connect", bound), patch.object(admin_filter, "connect", bound), \
+            patch.object(admin_handlers, "connect", bound), patch.object(admin_handlers, "bot", bot), \
             patch.object(start_handlers.functions, "check_on_start", AsyncMock(return_value=True)), \
             patch.object(start_handlers, "get_referral_gate_state", AsyncMock(side_effect=lambda _uid: dict(gate))), \
             patch.object(start_handlers, "fetch_osonish_detail", AsyncMock(return_value=DETAIL)), \
@@ -74,6 +89,8 @@ async def ux(tmp_path):
         yield h
     start_handlers.router._parent_router = None
     content_handlers.router._parent_router = None
+    admin_handlers.router._parent_router = None
+    admin_filter.reset_admin_candidates()
 
 
 def _inline(markup):
@@ -83,22 +100,86 @@ def _inline(markup):
 
 # ─── /start ─────────────────────────────────────────────────────────────────
 
-async def test_start_greets_with_reply_keyboard_then_app_buttons(ux):
+def _rows(markup):
+    assert isinstance(markup, ReplyKeyboardMarkup)
+    return markup.keyboard
+
+
+async def test_start_is_one_message_with_the_persistent_signed_keyboard(ux):
     await ux.send(USER, "/start")
     sent = ux.session.of(SendMessage)
-    assert len(sent) == 2
-    greeting, cta = sent
+    assert len(sent) == 1  # greeting + keyboard in ONE message, no inline app prompt
+    greeting = sent[0]
     assert "<b>Admin</b>" in greeting.text and "{e:" not in greeting.text
-    assert isinstance(greeting.reply_markup, ReplyKeyboardMarkup)
-    assert [b.text for b in greeting.reply_markup.keyboard[0]] == [
-        button_text("uz", "menu.laws"), button_text("uz", "menu.hr"),
+    kb = greeting.reply_markup
+    rows = _rows(kb)
+    assert kb.is_persistent and kb.resize_keyboard
+    (jobs,), (profile, saves), (laws, hr) = rows  # no admin row for an ordinary user
+    assert [b.text for b in (jobs, profile, saves, laws, hr)] == [
+        button_text("uz", k) for k in ("start.btn.jobs", "start.btn.profile", "start.btn.saves", "menu.laws", "menu.hr")
     ]
-    assert cta.text == t("uz", "start.app_prompt")
-    buttons = _inline(cta.reply_markup)
-    assert [b.web_app.url for b in buttons] == [WEBAPP, f"{WEBAPP}?go=profile", f"{WEBAPP}?go=saves"]
-    assert buttons[0].style == "primary"
-    rows = await ux.rows("SELECT started_at FROM users WHERE user_id = ?", (USER,))
-    assert rows[0][0]
+    assert jobs.style == "primary" and laws.web_app is None and hr.web_app is None
+    secret = os.environ["WEBAPP_SECRET"]
+    for button, go in ((jobs, None), (profile, "profile"), (saves, "saves")):
+        parsed = urlparse(button.web_app.url)
+        query = parse_qs(parsed.query)
+        assert (parsed.scheme, parsed.netloc, parsed.path) == ("https", "abitur24.uz", "/app")
+        assert query.get("go", [None])[0] == go
+        link = verify_bot_link(query["bt"][0], secret=secret)
+        assert link is not None and link.user_id == USER  # signed for THIS user
+    rows_db = await ux.rows("SELECT started_at, kb_sent_at FROM users WHERE user_id = ?", (USER,))
+    assert rows_db[0][0] and rows_db[0][1]
+
+
+async def test_staff_get_a_last_admin_row_that_ordinary_users_never_see(ux):
+    await ux.send(STAFF, "/start")
+    rows = _rows(ux.session.of(SendMessage)[-1].reply_markup)
+    assert len(rows) == 4 and [b.text for b in rows[-1]] == [button_text("uz", "menu.admin")]
+    assert rows[-1][0].web_app is None
+    await ux.send(USER, "/start")
+    assert len(_rows(ux.session.of(SendMessage)[-1].reply_markup)) == 3
+
+
+async def test_admin_button_opens_the_panel_and_exit_restores_the_main_keyboard(ux):
+    await ux.send(STAFF, button_text("uz", "menu.admin"))
+    hello, hint = ux.session.of(SendMessage)[-2:]
+    assert hello.text == t("uz", "admin.hello")
+    labels = [b.text for row in _rows(hello.reply_markup) for b in row]
+    assert labels[-1] == button_text("uz", "btn.admin.exit")
+    assert hint.reply_markup.inline_keyboard[0][0].web_app.url == "https://abitur24.uz/admin"
+    await ux.send(STAFF, button_text("uz", "btn.admin.exit"))
+    back = ux.session.of(SendMessage)[-1]
+    assert back.text == t("uz", "admin.main_menu")
+    assert [b.text for b in _rows(back.reply_markup)[-1]] == [button_text("uz", "menu.admin")]
+    assert _rows(back.reply_markup)[0][0].web_app is not None
+
+
+async def test_a_non_admin_typing_the_admin_label_gets_nothing_from_the_panel(ux):
+    for text in (t("uz", "menu.admin"), button_text("uz", "menu.admin"), "/admin"):
+        await ux.send(USER, text)
+    assert ux.session.of(SendMessage) == []  # no panel, no leak of the admin menu
+
+
+async def test_stale_keyboards_are_refreshed_on_the_next_laws_tap(ux):
+    async def sent_before_content():
+        await ux.send(USER, t("uz", "menu.laws"))
+        texts = [m.text for m in ux.session.of(SendMessage)]
+        ux.session.requests.clear()
+        return texts
+
+    # never sent with signed links (NULL): refreshed, then the content follows
+    assert await sent_before_content() == [t("uz", "menu.refreshed"), t("uz", "content.laws.header")]
+    assert await sent_before_content() == [t("uz", "content.laws.header")]  # fresh now
+    week_ago = int(time.time()) - main_menu.REFRESH_AFTER_SECONDS - 5
+    async with aiosqlite.connect(ux.db_path) as conn:
+        await conn.execute("UPDATE users SET kb_sent_at = ? WHERE user_id = ?", (week_ago, USER))
+        await conn.commit()
+    assert await sent_before_content() == [t("uz", "menu.refreshed"), t("uz", "content.laws.header")]
+    recent = int(time.time()) - main_menu.REFRESH_AFTER_SECONDS + 3600
+    async with aiosqlite.connect(ux.db_path) as conn:
+        await conn.execute("UPDATE users SET kb_sent_at = ? WHERE user_id = ?", (recent, USER))
+        await conn.commit()
+    assert await sent_before_content() == [t("uz", "content.laws.header")]
 
 
 async def test_start_escapes_the_first_name(ux):
@@ -109,11 +190,10 @@ async def test_start_escapes_the_first_name(ux):
 
 async def test_start_with_premium_uses_custom_emoji_and_bare_labels(ux, premium):
     await ux.send(USER, "/start")
-    greeting, cta = ux.session.of(SendMessage)
+    (greeting,) = ux.session.of(SendMessage)
     assert f'<tg-emoji emoji-id="{ICONS["wave"].id}">' in greeting.text
-    laws = greeting.reply_markup.keyboard[0][0]
+    (jobs,), (_, _), (laws, _) = _rows(greeting.reply_markup)
     assert (laws.text, laws.icon_custom_emoji_id) == (t("uz", "menu.laws"), ICONS["laws"].id)
-    jobs = _inline(cta.reply_markup)[0]
     assert (jobs.text, jobs.icon_custom_emoji_id) == (t("uz", "start.btn.jobs"), ICONS["search"].id)
     # A tap on that custom-icon button sends the bare label: it still routes.
     await ux.send(USER, t("uz", "menu.laws"))
@@ -151,12 +231,11 @@ async def test_language_change_resends_the_menu_in_the_new_language(ux, lang):
     await ux.tap(USER, f"lang:{lang}")
     edit = ux.session.of(EditMessageText)[-1]
     assert edit.text == t(lang, "lang.saved")
-    greeting, cta = ux.session.of(SendMessage)[-2:]
+    (greeting,) = ux.session.of(SendMessage)
     assert greeting.text == t(lang, "start.greeting", name="Admin")
-    assert [b.text for b in greeting.reply_markup.keyboard[0]] == [
-        button_text(lang, "menu.laws"), button_text(lang, "menu.hr"),
-    ]
-    assert _inline(cta.reply_markup)[0].text == button_text(lang, "start.btn.jobs")
+    rows = _rows(greeting.reply_markup)
+    assert [b.text for b in rows[2]] == [button_text(lang, "menu.laws"), button_text(lang, "menu.hr")]
+    assert rows[0][0].text == button_text(lang, "start.btn.jobs")
     rows = await ux.rows("SELECT lang FROM users WHERE user_id = ?", (USER,))
     assert rows[0][0] == lang
 

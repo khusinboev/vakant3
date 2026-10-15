@@ -238,10 +238,15 @@ def inline_button(
     return InlineKeyboardButton(**kwargs)
 
 
-def reply_button(icon: str | None, text: str, *, style: str | None = None) -> KeyboardButton:
+def reply_button(
+    icon: str | None, text: str, *, style: str | None = None, web_app: str | None = None
+) -> KeyboardButton:
+    """Reply-keyboard button; ``web_app`` makes it open a Mini App (no initData)."""
     if style is not None and style not in STYLES:
         raise ValueError(f"unknown button style {style!r}")
     kwargs: dict[str, Any] = labelled(icon, text)
+    if web_app is not None:
+        kwargs["web_app"] = WebAppInfo(url=web_app)
     if style:
         kwargs["style"] = style
     return KeyboardButton(**kwargs)

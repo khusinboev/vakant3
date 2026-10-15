@@ -17,6 +17,7 @@ from aiogram.types import (
 from src.buttons.buttuns import key_inline
 from src.data.content_repo import get_article, get_articles, get_tip, get_tips
 from src.filters.text_key import TextKey
+from src.functions.main_menu import refresh_if_stale
 from src.i18n import DEFAULT_LANG, t
 from src.ui.emoji import CALLBACK_MAX_BYTES, clip, e, inline_button
 
@@ -107,6 +108,7 @@ def _truncate(text: str, source_url: str, lang: str) -> str:
 
 @router.message(TextKey("menu.laws"))
 async def laws_menu(message: Message, lang: str = DEFAULT_LANG) -> None:
+    await refresh_if_stale(message, message.from_user.id, lang)
     await message.answer(
         t(lang, "content.laws.header"),
         reply_markup=await _laws_keyboard(lang),
@@ -150,6 +152,7 @@ async def laws_back(callback: CallbackQuery, lang: str = DEFAULT_LANG) -> None:
 
 @router.message(TextKey("menu.hr"))
 async def hr_menu(message: Message, lang: str = DEFAULT_LANG) -> None:
+    await refresh_if_stale(message, message.from_user.id, lang)
     await message.answer(
         t(lang, "content.hr.header"),
         reply_markup=await _hr_keyboard(lang),

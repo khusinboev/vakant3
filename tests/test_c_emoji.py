@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.buttons import buttuns
-from src.buttons.buttuns import BUTTON_ICONS, button_text, key_button, key_inline, user_menu_btn
+from src.buttons.buttuns import BUTTON_ICONS, button_text, key_button, key_inline, main_menu_kb
 from src.filters.text_key import TextKey, text_matches
 from src.i18n import LANGS, key_for_text, t
 from src.i18n.en import STRINGS as EN
@@ -137,8 +137,8 @@ def test_key_inline_and_reply_buttons(premium):
 
 def test_button_text_matches_the_button(premium, monkeypatch):
     for lang in LANGS:
-        kb = user_menu_btn(lang)
-        assert [b.text for b in kb.keyboard[0]] == [button_text(lang, "menu.laws"), button_text(lang, "menu.hr")]
+        kb = main_menu_kb(lang, 900000000201)
+        assert [b.text for b in kb.keyboard[2]] == [button_text(lang, "menu.laws"), button_text(lang, "menu.hr")]
     monkeypatch.setenv("BOT_PREMIUM_EMOJI", "0")
     assert button_text("uz", "menu.laws") == "📚 Qonunchilik"
 
