@@ -19,6 +19,7 @@ out of reach.
 """
 
 import logging
+import sqlite3
 from typing import Any
 
 from fastapi import Depends, Request
@@ -65,6 +66,11 @@ def reset_users_columns_cache() -> None:
     _users_columns = None
 
 
+def _is_missing_admins_table(exc: Exception) -> bool:
+    """True only for SQLite's "no such table: admins" (checked without an extra query)."""
+    return isinstance(exc, sqlite3.OperationalError) and "no such table" in str(exc).lower()
+
+
 async def admin_role(db, user_id: int) -> str | None:
     """The actor's admin role, or None.
 
@@ -82,9 +88,15 @@ async def admin_role(db, user_id: int) -> str | None:
             "SELECT role, disabled FROM admins WHERE user_id = ?", (user_id,)
         )
         row = await cursor.fetchone()
-    except Exception:
-        # Table not created yet: migrations have not run, fall back to the env list.
-        return "owner" if user_id in get_settings().admin_ids_set else None
+    except Exception as exc:
+        if _is_missing_admins_table(exc):
+            # Migrations have not run yet: fall back to the env list, as
+            # auth.resolve_admin_role does when the table does not exist.
+            return "owner" if user_id in get_settings().admin_ids_set else None
+        # Any other failure ("database is locked", I/O): fail closed. The
+        # user just gets the normal checks for this request.
+        _log.warning("entry gate: admins lookup failed (%s) — no admin bypass", exc)
+        return None
     if row is not None:
         if int(row["disabled"] or 0):
             return None  # an explicit revocation beats the env list

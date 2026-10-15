@@ -6,6 +6,7 @@ lose the gate bypass even though the server .env still lists them, matching
 ``webapp.core.auth.resolve_admin_role``.
 """
 
+import sqlite3
 import time
 
 import aiosqlite
@@ -117,3 +118,33 @@ async def test_missing_admins_table_falls_back_to_env(db, env_admins):
     await db.commit()
     assert await entry_gate.admin_role(db, ENV_ADMIN) == "owner"
     assert await entry_gate.admin_role(db, 900000000299) is None
+
+
+class _AdminsLookupFails:
+    """Connection proxy whose ``admins`` SELECT raises ``exc``; everything else is real."""
+
+    def __init__(self, conn, exc: Exception):
+        self._conn = conn
+        self._exc = exc
+
+    async def execute(self, sql, params=()):
+        if "FROM admins" in sql:
+            raise self._exc
+        return await self._conn.execute(sql, params)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [sqlite3.OperationalError("database is locked"), sqlite3.DatabaseError("disk I/O error")],
+)
+async def test_other_admins_lookup_errors_fail_closed(db, env_admins, exc):
+    # Bootstrap state (no owner): only a missing table may grant the env bypass.
+    assert await entry_gate.admin_role(_AdminsLookupFails(db, exc), ENV_ADMIN) is None
+
+
+async def test_missing_table_error_still_bootstraps(db, env_admins):
+    exc = sqlite3.OperationalError("no such table: admins")
+    assert await entry_gate.admin_role(_AdminsLookupFails(db, exc), ENV_ADMIN) == "owner"
