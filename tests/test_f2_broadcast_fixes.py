@@ -254,3 +254,126 @@ async def test_undecodable_body_is_retried(db_path, clock):
     assert bot.calls.count(flaky) == 2
     row = (await _targets(connect, broadcast_id))[flaky]
     assert (row["status"], row["error_kind"], row["attempts"]) == ("sent", None, 2)
+
+
+# ─── 2. Results survive a cancellation and a locked database ───────────────
+
+def _hang_on(user_id, reached: asyncio.Event):
+    async def on_send(uid):
+        if uid == user_id:
+            reached.set()
+            await asyncio.Event().wait()  # in flight until cancelled
+
+    return on_send
+
+
+async def _cancel_mid_batch(db_path, *, cancel_twice=False):
+    await _make_db(db_path, 4)
+    connect = _connect_factory(db_path)
+    broadcast_id, _ = await _new_job(connect)
+    reached = asyncio.Event()
+    bot = FakeBot(on_send=_hang_on(BASE + 3, reached))
+
+    task = asyncio.create_task(_run(bot, connect, broadcast_id))
+    await asyncio.wait_for(reached.wait(), 5)
+    task.cancel()
+    if cancel_twice:
+        # A second cancel lands while the results are being written.
+        for _ in range(3):
+            await asyncio.sleep(0)
+        task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    return connect, broadcast_id, bot
+
+
+@pytest.mark.parametrize("cancel_twice", [False, True])
+async def test_cancel_mid_batch_persists_the_sends_already_made(db_path, clock, cancel_twice):
+    connect, broadcast_id, bot = await _cancel_mid_batch(db_path, cancel_twice=cancel_twice)
+
+    assert bot.calls == [BASE + 1, BASE + 2, BASE + 3]
+    rows = await _targets(connect, broadcast_id)
+    # Delivered before the cancel: recorded, so no restart sends them again.
+    assert [rows[BASE + i]["status"] for i in (1, 2)] == ["sent", "sent"]
+    # The send in flight and the unsent rest go back to the queue, not ``sending``.
+    for uid in (BASE + 3, BASE + 4):
+        assert (rows[uid]["status"], rows[uid]["attempts"], rows[uid]["claimed_at"]) == (
+            "pending", 0, None,
+        )
+    job = await _job(connect, broadcast_id)
+    assert (job["status"], job["sent"], job["failed"]) == ("running", 2, 0)
+
+
+async def test_after_a_cancel_the_next_run_sends_only_the_rest(db_path, clock):
+    connect, broadcast_id, bot = await _cancel_mid_batch(db_path)
+    bot.on_send = None
+
+    await _run(bot, connect, broadcast_id)
+    assert bot.calls == [BASE + 1, BASE + 2, BASE + 3, BASE + 3, BASE + 4]
+    job = await _job(connect, broadcast_id)
+    assert (job["status"], job["sent"]) == ("done", 4)
+
+
+async def test_a_locked_database_is_retried_and_the_batch_persisted(db_path, clock, monkeypatch):
+    await _make_db(db_path, 3)
+    # A short busy timeout, so the lock surfaces as "database is locked" at once.
+    connect = _connect_factory(db_path, timeout=0.05)
+    broadcast_id, _ = await _new_job(connect)
+    monkeypatch.setattr(bw, "WRITE_RETRY_DELAYS", (0.2, 0.2, 0.2, 0.2))
+    holder: dict = {}
+
+    async def lock_db(uid):
+        if holder:
+            return
+        # Another writer holds the lock while the batch is sent and for 0.3 s after.
+        holder["conn"] = conn = await aiosqlite.connect(db_path)
+        await conn.execute("BEGIN IMMEDIATE")
+
+        async def release():
+            await asyncio.sleep(0.3)
+            await conn.rollback()
+            await conn.close()
+
+        holder["task"] = asyncio.create_task(release())
+
+    bot = FakeBot(on_send=lock_db)
+    try:
+        await _run(bot, connect, broadcast_id)
+    finally:
+        # Always release the other writer, or its thread outlives the test.
+        if "task" in holder:
+            await holder["task"]
+
+    assert sorted(bot.calls) == [BASE + 1, BASE + 2, BASE + 3]
+    rows = await _targets(connect, broadcast_id)
+    assert {row["status"] for row in rows.values()} == {"sent"}
+    job = await _job(connect, broadcast_id)
+    assert (job["status"], job["sent"]) == ("done", 3)
+
+
+async def test_write_retry_gives_up_on_errors_that_are_not_a_lock(monkeypatch):
+    calls = []
+
+    async def broken_write(*args, **kwargs):
+        calls.append(args)
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(bw, "_write_results", broken_write)
+    monkeypatch.setattr(bw, "WRITE_RETRY_DELAYS", (0, 0, 0))
+    with pytest.raises(sqlite3.OperationalError, match="disk I/O"):
+        await bw._write_results_retrying(None, 1, [], None, {}, ())
+    assert len(calls) == 1
+
+
+async def test_write_retry_stops_after_the_last_delay(monkeypatch):
+    calls = []
+
+    async def locked_write(*args, **kwargs):
+        calls.append(args)
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(bw, "_write_results", locked_write)
+    monkeypatch.setattr(bw, "WRITE_RETRY_DELAYS", (0, 0, 0))
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        await bw._write_results_retrying(None, 1, [], None, {}, ())
+    assert len(calls) == 4  # the first try plus one per delay

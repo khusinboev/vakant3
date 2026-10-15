@@ -840,6 +840,69 @@ async def _write_results(
     return aborted
 
 
+#: Waits before re-trying a result write that hit ``database is locked`` /
+#: ``busy`` (each attempt already waited the connection's busy timeout). After
+#: the last one the error propagates and the rows stay ``sending`` until
+#: ``reset_stale_claims``.
+WRITE_RETRY_DELAYS = (0.5, 1.0, 2.0)
+
+
+def _is_lock_error(exc: BaseException) -> bool:
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    text = str(exc).lower()
+    return "locked" in text or "busy" in text
+
+
+async def _write_results_retrying(conn, broadcast_id: int, *args: Any) -> bool:
+    """``_write_results`` that survives a transient lock.
+
+    Losing a batch's results is worse than a short wait: the rows would stay
+    ``sending``, be reset after ``STALE_CLAIM_SECONDS`` and sent again. The
+    write is one transaction that is rolled back on failure, so a retry
+    applies it exactly once.
+    """
+    delays = tuple(WRITE_RETRY_DELAYS)
+    for attempt in range(len(delays) + 1):
+        try:
+            return await _write_results(conn, broadcast_id, *args)
+        except sqlite3.OperationalError as exc:
+            if attempt >= len(delays) or not _is_lock_error(exc):
+                raise
+            logger.warning(
+                "broadcast %s: result write failed (%s), retry %s/%s",
+                broadcast_id, exc, attempt + 1, len(delays),
+            )
+            await asyncio.sleep(delays[attempt])
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+async def _complete_despite_cancel(coro) -> Any:
+    """Run ``coro`` to the end even if this task is cancelled meanwhile.
+
+    ``asyncio.shield`` alone is not enough: the awaiting task would leave at
+    once and close the connection under the still-running write. Here every
+    cancellation is held until the write finished and then re-raised.
+    """
+    task = asyncio.ensure_future(coro)
+    interrupted = False
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            break
+        except asyncio.CancelledError:
+            if task.done():
+                raise
+            interrupted = True
+    if interrupted:
+        raise asyncio.CancelledError
+    return result
+
+
+async def _persist_batch(conn, broadcast_id: int, *args: Any) -> bool:
+    return await _complete_despite_cancel(_write_results_retrying(conn, broadcast_id, *args))
+
+
 async def _finish(conn, broadcast_id: int, status: str, error: str | None = None) -> None:
     await conn.execute(
         "UPDATE broadcasts SET status = ?, error = COALESCE(?, error), finished_at = ? WHERE id = ?",
@@ -926,22 +989,37 @@ async def run_broadcast(
             results: list[dict[str, Any]] = []
             released: list[int] = []
             new_file_id: str | None = None
-            for index, user_id in enumerate(user_ids):
-                if pause.remaining() > 0:
-                    # Telegram asked every send to stop: give the rest of the
-                    # batch back instead of holding the claim through the pause.
-                    released = user_ids[index:]
-                    break
-                await bucket.acquire()
-                result = await _deliver(bot, job, user_id)
-                if not job.get("media_file_id") and result.get("file_id"):
-                    new_file_id = result["file_id"]
-                    job["media_file_id"] = new_file_id
-                if result["kind"] == "flood":
-                    pause.pause_for(result.get("retry_after") or 0)
-                results.append(result)
+            try:
+                for index, user_id in enumerate(user_ids):
+                    if pause.remaining() > 0:
+                        # Telegram asked every send to stop: give the rest of the
+                        # batch back instead of holding the claim through the pause.
+                        released = user_ids[index:]
+                        break
+                    await bucket.acquire()
+                    result = await _deliver(bot, job, user_id)
+                    if not job.get("media_file_id") and result.get("file_id"):
+                        new_file_id = result["file_id"]
+                        job["media_file_id"] = new_file_id
+                    if result["kind"] == "flood":
+                        pause.pause_for(result.get("retry_after") or 0)
+                    results.append(result)
+            except asyncio.CancelledError:
+                # Shutdown (main.py cancels the worker on every deploy): record
+                # what was already delivered, so a restart does not send it
+                # again, and hand the rest back. The send that was in flight
+                # has an unknown outcome and goes back too (at-least-once).
+                recorded = {r["user_id"] for r in results}
+                released = [uid for uid in user_ids if uid not in recorded]
+                try:
+                    await _persist_batch(conn, broadcast_id, results, new_file_id, claimed, released)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("broadcast %s: results lost on shutdown", broadcast_id)
+                raise
 
-            await _write_results(conn, broadcast_id, results, new_file_id, claimed, released)
+            await _persist_batch(conn, broadcast_id, results, new_file_id, claimed, released)
     return None
 
 
