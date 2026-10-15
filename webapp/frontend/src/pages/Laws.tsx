@@ -7,6 +7,7 @@ import BottomSheet from "../components/ui/BottomSheet";
 import useToast from "../hooks/useToast";
 import { clearBackInterceptor, setBackInterceptor } from "../hooks/useBackInterceptor";
 import { useLang, useT } from "../i18n/useT";
+import { CONTENT_HTML, renderSafeHtml } from "../lib/safeHtml";
 
 interface ArticleSummary {
   id: string;
@@ -27,42 +28,6 @@ interface LawsListResponse {
 }
 
 const ALL = "__all__";
-
-/** The only URL schemes a link may use — mirrors `ALLOWED_HREF_SCHEMES` in
- * `webapp/routers/admin_content.py`. Anything else (`javascript:`, `data:`, a
- * relative path) is stored XSS the moment it reaches `dangerouslySetInnerHTML`. */
-const ALLOWED_HREF_SCHEMES = ["http://", "https://", "tg://", "mailto:"];
-
-/** Characters a browser skips while parsing a scheme (`java\tscript:`, NULs). */
-// eslint-disable-next-line no-control-regex
-const HREF_IGNORED = /[\u0000- \u007f]/g;
-
-function isSafeHref(raw: string): boolean {
-  // The server already refuses these on write; the API is still a remote input,
-  // so the check is repeated here rather than assumed.
-  const decoded = raw.replace(/&#(\d+);/g, (_, code: string) =>
-    String.fromCharCode(Number(code)),
-  );
-  const collapsed = decoded.replace(HREF_IGNORED, "").toLowerCase();
-  return ALLOWED_HREF_SCHEMES.some((scheme) => collapsed.startsWith(scheme));
-}
-
-function escapeAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-}
-
-/** Bot-formatting tags (<b>, <i>, <a>) are the only markup we allow through. */
-function renderParagraph(text: string): string {
-  return text
-    .replace(/<b>(.*?)<\/b>/g, "<strong>$1</strong>")
-    .replace(/<i>(.*?)<\/i>/g, "<em>$1</em>")
-    .replace(/<a href="(.*?)">(.*?)<\/a>/g, (_match, href: string, label: string) =>
-      isSafeHref(href)
-        ? `<a href="${escapeAttribute(href)}" target="_blank" rel="noopener noreferrer" class="text-primary underline">${label}</a>`
-        : // A link we will not follow still keeps its text, so the paragraph reads.
-          label,
-    );
-}
 
 export default function Laws() {
   const t = useT();
@@ -228,11 +193,10 @@ export default function Laws() {
               {article.category}
             </span>
             {article.full_text.split(/\n\n+/).map((para, i) => (
-              <p
-                key={i}
-                className="whitespace-pre-line text-sm leading-relaxed text-text"
-                dangerouslySetInnerHTML={{ __html: renderParagraph(para) }}
-              />
+              // Rendered through the content allowlist (lib/safeHtml.ts), never as raw HTML.
+              <p key={i} className="whitespace-pre-line text-sm leading-relaxed text-text">
+                {renderSafeHtml(para, CONTENT_HTML)}
+              </p>
             ))}
           </div>
         )}
