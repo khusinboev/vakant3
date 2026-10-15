@@ -27,7 +27,10 @@ Design notes worth keeping:
 * **Cancellable, pausable.** ``status`` is re-read at every batch boundary
   (transitions live in ``broadcast_control.set_broadcast_state``).
 * **Classified failures.** Every Telegram error becomes an ``error_kind``
-  (``classify_error``). Permanent kinds fail the recipient at once;
+  (``classify_error``). ``sent_unparsed`` (aiogram could not deserialize an
+  ``ok`` answer, so the message *was* delivered) is not a failure: the row is
+  ``sent`` with the kind kept as a warning, never retried and never counted
+  towards the early abort. Permanent kinds fail the recipient at once;
   ``flood``/``network`` go back to ``pending`` with ``attempts + 1`` and a
   ``next_attempt_at`` backoff (10 s doubling, at most ``MAX_ATTEMPTS`` sends).
   The claim and the picker only see rows that are due, and a job never
@@ -70,6 +73,7 @@ from aiogram.exceptions import (
     TelegramServerError,
 )
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -401,6 +405,7 @@ ERROR_KINDS = (
     "flood",           # 429 RetryAfter
     "network",         # timeouts, aiohttp errors, undecodable answers, Telegram 5xx
     "other",           # anything else (unknown API codes, missing media file, ...)
+    "sent_unparsed",   # delivered, but aiogram could not deserialize Telegram's ok answer
 )
 #: Retried with backoff; every other kind fails the recipient at once.
 TRANSIENT_KINDS = frozenset({"flood", "network"})
@@ -411,6 +416,11 @@ UNREACHABLE_KINDS = frozenset({"blocked", "deactivated"})
 #: for every recipient (a deleted media file, a revoked token) is just as
 #: hopeless as a rejected entity, and must not run through 50 000 rows either.
 CONTENT_KINDS = frozenset({"bad_request", "other"})
+#: Not failures: Telegram accepted the message but its answer did not fit
+#: aiogram's model. The row is ``sent`` (counted in ``broadcasts.sent``) and
+#: keeps the kind and text as a warning; it is never retried, because a retry
+#: would deliver the same message again.
+DELIVERED_KINDS = frozenset({"sent_unparsed"})
 
 #: Send attempts per recipient, the first one included; the 6th transient
 #: failure marks the row ``failed``.
@@ -440,9 +450,29 @@ def _error_text(exc: BaseException) -> str:
     return str(text).strip()[:ERROR_TEXT_LIMIT]
 
 
+def _delivered_but_unparsed(exc: BaseException) -> bool:
+    """aiogram 3.14 ``check_response`` raises ``ClientDecodeError`` in two cases:
+
+    * "Failed to decode object" — the body is not JSON (an HTML 502 from a
+      proxy). Nothing says Telegram handled the call: retryable ``network``.
+    * "Failed to deserialize object" — the body is JSON but does not fit the
+      ``Response[...]`` model (``original`` is a pydantic ``ValidationError``).
+      Telegram answered, and unless that answer says ``ok: false`` the message
+      was delivered: retrying would send it again.
+    """
+    if not isinstance(exc, ClientDecodeError):
+        return False
+    if not isinstance(getattr(exc, "original", None), ValidationError):
+        return False
+    data = getattr(exc, "data", None)
+    return not (isinstance(data, dict) and data.get("ok") is False)
+
+
 def classify_error(exc: BaseException) -> tuple[str, str, float | None]:
     """``(kind, short text, retry_after)`` for one failed send. Pure."""
     text = _error_text(exc)
+    if _delivered_but_unparsed(exc):
+        return "sent_unparsed", text, None
     if isinstance(exc, TelegramRetryAfter):
         retry_after = max(0.0, min(float(exc.retry_after or 0), MAX_RETRY_AFTER_SECONDS))
         return "flood", text, retry_after
@@ -492,8 +522,12 @@ def plan_outcome(result: dict[str, Any], attempts_before: int, now: int) -> dict
     """
     attempts = int(attempts_before) + 1
     if result["status"] == "sent":
+        # ``sent_unparsed`` keeps its kind and text as a warning on a sent row.
+        warning = result.get("kind") if result.get("kind") in DELIVERED_KINDS else None
         return {
-            "status": "sent", "error": None, "error_kind": None,
+            "status": "sent",
+            "error": result.get("error") if warning else None,
+            "error_kind": warning,
             "attempts": attempts, "next_attempt_at": None, "sent_at": now,
         }
     kind = result["kind"]
@@ -559,6 +593,17 @@ async def _deliver(bot, job: dict[str, Any], user_id: int) -> dict[str, Any]:
         raise
     except Exception as exc:  # noqa: BLE001 - one bad chat must not stop the run
         kind, text, retry_after = classify_error(exc)
+        if kind in DELIVERED_KINDS:
+            logger.warning(
+                "broadcast %s: user %s delivered, answer unparsed: %s", job["id"], user_id, text
+            )
+            return {
+                "user_id": user_id,
+                "status": "sent",
+                "kind": kind,
+                "error": text,
+                "file_id": None,
+            }
         if kind == "flood":
             logger.warning("broadcast %s: flood wait %ss", job["id"], retry_after)
         elif kind not in UNREACHABLE_KINDS:
