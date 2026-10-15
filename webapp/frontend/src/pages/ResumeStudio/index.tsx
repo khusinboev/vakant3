@@ -197,6 +197,10 @@ export default function ResumeStudioPage() {
             {t("resume.serverDraft.text")}{" "}
             <button type="button" className="font-semibold underline" onClick={sync.loadFromServer}>
               {t("resume.serverDraft.load")}
+            </button>{" "}
+            {/* Autosave waits for this choice, so keeping the local copy must be explicit too. */}
+            <button type="button" className="font-semibold text-muted underline" onClick={sync.keepLocal}>
+              {t("resume.conflict.keepMine")}
             </button>
           </p>
         </div>
