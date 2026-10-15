@@ -34,14 +34,34 @@ def _patch_connect(db):
 
 # ─── _week_label ─────────────────────────────────────────────────────────────
 
-def test_week_label_returns_string():
-    label = _week_label()
+def _freeze(moment: datetime):
+    return patch(f"{MODULE}.now_tz", return_value=moment)
+
+
+@pytest.mark.parametrize(
+    "moment",
+    [datetime(2026, 10, 14, 12, 0, tzinfo=TZ_UZB), datetime(2026, 12, 30, 0, 5, tzinfo=TZ_UZB)],
+)
+def test_week_label_returns_string(moment):
+    with _freeze(moment):
+        label = _week_label()
     assert isinstance(label, str)
     assert "–" in label
 
 
-def test_week_label_contains_year():
-    assert str(datetime.now(TZ_UZB).year) in _week_label()
+@pytest.mark.parametrize(
+    "moment, expected",
+    [
+        (datetime(2026, 10, 14, 12, 0, tzinfo=TZ_UZB), "12–18 oktabr 2026"),
+        # The week of 2026-12-28 ends on 2027-01-03: the label carries the
+        # Sunday's year, which the old `datetime.now().year` check got wrong.
+        (datetime(2026, 12, 30, 23, 59, tzinfo=TZ_UZB), "28 dekabr – 3 yanvar 2027"),
+        (datetime(2027, 1, 1, 0, 5, tzinfo=TZ_UZB), "28 dekabr – 3 yanvar 2027"),
+    ],
+)
+def test_week_label_contains_year(moment, expected):
+    with _freeze(moment):
+        assert _week_label("uz") == expected
 
 
 def test_week_label_localized():

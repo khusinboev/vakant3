@@ -3,13 +3,15 @@ Auto-post scheduler testlari.
 """
 import json
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import aiosqlite
 import pytest
 
-from src.core.timeutil import TZ, day_key
+from src.core.timeutil import TZ, day_key, today_start_ts
 from src.functions.auto_post_scheduler import (
     STALE_SLOT_SECONDS,
     _pick_unposted_vacancy,
@@ -19,11 +21,30 @@ from src.functions.auto_post_scheduler import (
 )
 
 TZ_UZB = TZ
+MODULE = "src.functions.auto_post_scheduler"
+
+#: The scheduler's clock in every test below. Slots are "today" and "an hour
+#: ago": with the real clock at 00:00-02:10 Tashkent those land on yesterday
+#: and the tests failed (and, before the fixtures closed connections, hung).
+NOW = datetime(2026, 10, 14, 12, 0, tzinfo=TZ)
+NOW_TS = int(NOW.timestamp())
 
 
 def _at(hour: int, minute: int = 0) -> datetime:
-    """Bugungi kunning berilgan soati (Toshkent)."""
-    return datetime.now(TZ_UZB).replace(hour=hour, minute=minute, second=0, microsecond=0)
+    """The pinned test day at the given Tashkent time."""
+    return NOW.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
+@contextmanager
+def _clock(moment: datetime):
+    """Pin every clock auto_post_scheduler reads to ``moment``."""
+    ts = moment.timestamp()
+    with patch(f"{MODULE}._now_uzb", return_value=moment), patch(
+        f"{MODULE}.time", SimpleNamespace(time=lambda: ts)
+    ), patch(f"{MODULE}._today_start_ts", return_value=today_start_ts(moment)), patch(
+        f"{MODULE}.day_key", lambda m=None: day_key(m or moment)
+    ):
+        yield
 
 
 # ─── schedule_today_posts ────────────────────────────────────────────────────
@@ -122,6 +143,18 @@ async def _make_db():
     return conn
 
 
+@pytest.fixture
+async def conn():
+    """A fresh in-memory DB, closed even when the test fails (an open
+    aiosqlite connection keeps a non-daemon thread alive and pytest hangs)."""
+    db = await _make_db()
+    try:
+        with _clock(NOW):
+            yield db
+    finally:
+        await db.close()
+
+
 def _settings(**overrides) -> dict:
     base = {
         "auto_post_enabled": 1,
@@ -154,9 +187,8 @@ async def _log_rows(conn) -> list[dict]:
 # ─── _pick_unposted_vacancy ──────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_pick_returns_vacancy():
-    conn = await _make_db()
-    expires = int(time.time()) + 3600
+async def test_pick_returns_vacancy(conn):
+    expires = NOW_TS + 3600
     data = json.dumps({"title": "Python dev", "salary_max": 5000000})
     await conn.execute("INSERT INTO vacancy_cache VALUES ('uid1', ?, ?)", (data, expires))
     await conn.commit()
@@ -166,41 +198,35 @@ async def test_pick_returns_vacancy():
     uid, detail = result
     assert uid == "uid1"
     assert detail["title"] == "Python dev"
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_pick_skips_already_posted():
-    conn = await _make_db()
-    expires = int(time.time()) + 3600
+async def test_pick_skips_already_posted(conn):
+    expires = NOW_TS + 3600
     data = json.dumps({"title": "Dev", "salary_max": 5000000})
     await conn.execute("INSERT INTO vacancy_cache VALUES ('uid1', ?, ?)", (data, expires))
     await conn.execute(
-        "INSERT INTO posted_vacancies VALUES ('uid1', '@test_channel', ?)", (int(time.time()),)
+        "INSERT INTO posted_vacancies VALUES ('uid1', '@test_channel', ?)", (NOW_TS,)
     )
     await conn.commit()
 
     assert await _pick_unposted_vacancy(conn, "@test_channel", 0) is None
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_pick_skips_expired():
-    conn = await _make_db()
-    past = int(time.time()) - 100
+async def test_pick_skips_expired(conn):
+    past = NOW_TS - 100
     await conn.execute(
         "INSERT INTO vacancy_cache VALUES ('uid1', ?, ?)", (json.dumps({"title": "Old"}), past)
     )
     await conn.commit()
 
     assert await _pick_unposted_vacancy(conn, "@test_channel", 0) is None
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_pick_salary_filter():
-    conn = await _make_db()
-    expires = int(time.time()) + 3600
+async def test_pick_salary_filter(conn):
+    expires = NOW_TS + 3600
     await conn.execute(
         "INSERT INTO vacancy_cache VALUES ('low', ?, ?)",
         (json.dumps({"title": "Low", "salary_max": 1_000_000}), expires),
@@ -214,14 +240,12 @@ async def test_pick_salary_filter():
     result = await _pick_unposted_vacancy(conn, "@test_channel", 10_000_000)
     assert result is not None
     assert result[0] == "high"
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_pick_skips_vacancy_without_salary_when_floor_set():
+async def test_pick_skips_vacancy_without_salary_when_floor_set(conn):
     """Maoshi ko'rsatilmagan vakansiya maosh polidan o'tmasligi kerak."""
-    conn = await _make_db()
-    expires = int(time.time()) + 3600
+    expires = NOW_TS + 3600
     await conn.execute(
         "INSERT INTO vacancy_cache VALUES ('nosalary', ?, ?)",
         (json.dumps({"title": "Maoshsiz"}), expires),
@@ -231,30 +255,26 @@ async def test_pick_skips_vacancy_without_salary_when_floor_set():
     assert await _pick_unposted_vacancy(conn, "@test_channel", 5_000_000) is None
     # Pol 0 bo'lsa — o'tadi.
     assert await _pick_unposted_vacancy(conn, "@test_channel", 0) is not None
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_pick_different_channel_not_blocked():
-    conn = await _make_db()
-    expires = int(time.time()) + 3600
+async def test_pick_different_channel_not_blocked(conn):
+    expires = NOW_TS + 3600
     await conn.execute(
         "INSERT INTO vacancy_cache VALUES ('uid1', ?, ?)", (json.dumps({"title": "Dev"}), expires)
     )
     await conn.execute(
-        "INSERT INTO posted_vacancies VALUES ('uid1', '@other_channel', ?)", (int(time.time()),)
+        "INSERT INTO posted_vacancies VALUES ('uid1', '@other_channel', ?)", (NOW_TS,)
     )
     await conn.commit()
 
     assert await _pick_unposted_vacancy(conn, "@test_channel", 0) is not None
-    await conn.close()
 
 
 # ─── _run_auto_post integration ───────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_run_creates_schedule_once_per_day():
-    conn = await _make_db()
+async def test_run_creates_schedule_once_per_day(conn):
     with patch("src.functions.auto_post_scheduler._now_uzb", return_value=_at(8)):
         await _run_auto_post(conn, _settings())
 
@@ -264,7 +284,7 @@ async def test_run_creates_schedule_once_per_day():
     cur = await conn.execute(
         "SELECT auto_post_scheduled_day FROM webapp_admin_settings WHERE singleton = 1"
     )
-    assert (await cur.fetchone())[0] == day_key()
+    assert (await cur.fetchone())[0] == day_key(NOW)
 
     # Ikkinchi tik: kun o'zgarmagani uchun jadval QAYTA YARATILMAYDI
     # (slot bajarilishi mumkin, lekin vaqtlar ro'yxati o'sha-o'sha qoladi).
@@ -274,27 +294,23 @@ async def test_run_creates_schedule_once_per_day():
             conn,
             _settings(
                 auto_post_scheduled_times_json=json.dumps(schedule),
-                auto_post_scheduled_day=day_key(),
+                auto_post_scheduled_day=day_key(NOW),
             ),
         )
 
     again = await _stored_schedule(conn)
     assert [item["ts"] for item in again] == [item["ts"] for item in schedule]
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_run_skips_when_disabled():
-    conn = await _make_db()
+async def test_run_skips_when_disabled(conn):
     await _run_auto_post(conn, _settings(auto_post_enabled=0))
     assert await _stored_schedule(conn) == []
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_run_posts_due_vacancy():
-    conn = await _make_db()
-    now_ts = int(time.time())
+async def test_run_posts_due_vacancy(conn):
+    now_ts = NOW_TS
     schedule = [{"ts": now_ts - 60, "done": False, "uid": None}]
 
     await conn.execute(
@@ -305,7 +321,7 @@ async def test_run_posts_due_vacancy():
 
     settings = _settings(
         auto_post_scheduled_times_json=json.dumps(schedule),
-        auto_post_scheduled_day=day_key(),
+        auto_post_scheduled_day=day_key(NOW),
     )
 
     mock_bot = AsyncMock()
@@ -323,14 +339,12 @@ async def test_run_posts_due_vacancy():
     stored = await _stored_schedule(conn)
     assert stored[0]["done"] is True
     assert stored[0]["uid"] == "vac1"
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_run_skips_stale_slots_without_sending():
+async def test_run_skips_stale_slots_without_sending(conn):
     """Uzilishdan keyin 2 soatdan eski slotlar yuborilmasdan yopiladi."""
-    conn = await _make_db()
-    now_ts = int(time.time())
+    now_ts = NOW_TS
     stale = now_ts - STALE_SLOT_SECONDS - 600
     schedule = [{"ts": stale, "done": False, "uid": None}]
 
@@ -347,7 +361,7 @@ async def test_run_skips_stale_slots_without_sending():
             conn,
             _settings(
                 auto_post_scheduled_times_json=json.dumps(schedule),
-                auto_post_scheduled_day=day_key(),
+                auto_post_scheduled_day=day_key(NOW),
             ),
         )
 
@@ -359,14 +373,12 @@ async def test_run_skips_stale_slots_without_sending():
     assert len(rows) == 1
     assert rows[0]["status"] == "skipped"
     assert rows[0]["error"] == "stale_slot"
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_run_marks_slot_done_when_send_fails():
+async def test_run_marks_slot_done_when_send_fails(conn):
     """Yuborish xato bersa ham slot yopiladi — 30 soniyada bir qayta urinilmaydi."""
-    conn = await _make_db()
-    now_ts = int(time.time())
+    now_ts = NOW_TS
     schedule = [{"ts": now_ts - 60, "done": False, "uid": None}]
 
     await conn.execute(
@@ -383,7 +395,7 @@ async def test_run_marks_slot_done_when_send_fails():
             conn,
             _settings(
                 auto_post_scheduled_times_json=json.dumps(schedule),
-                auto_post_scheduled_day=day_key(),
+                auto_post_scheduled_day=day_key(NOW),
             ),
         )
 
@@ -395,14 +407,12 @@ async def test_run_marks_slot_done_when_send_fails():
     assert len(rows) == 1
     assert rows[0]["status"] == "failed"
     assert "telegram down" in rows[0]["error"]
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_run_refreshes_posted_at_on_repost():
+async def test_run_refreshes_posted_at_on_repost(conn):
     """INSERT OR REPLACE — qayta post posted_at ni yangilaydi."""
-    conn = await _make_db()
-    now_ts = int(time.time())
+    now_ts = NOW_TS
     old_ts = now_ts - 40 * 86400  # dedup oynasidan tashqarida
 
     await conn.execute(
@@ -419,20 +429,18 @@ async def test_run_refreshes_posted_at_on_repost():
             conn,
             _settings(
                 auto_post_scheduled_times_json=json.dumps(schedule),
-                auto_post_scheduled_day=day_key(),
+                auto_post_scheduled_day=day_key(NOW),
             ),
         )
 
     cur = await conn.execute("SELECT posted_at FROM posted_vacancies WHERE vacancy_uid = 'vac1'")
     assert int((await cur.fetchone())[0]) > old_ts
-    await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_run_uses_channel_lang():
+async def test_run_uses_channel_lang(conn):
     """channel_lang = ru bo'lsa post ruscha yorliqlar bilan ketadi."""
-    conn = await _make_db()
-    now_ts = int(time.time())
+    now_ts = NOW_TS
     await conn.execute(
         "INSERT INTO vacancy_cache VALUES ('vac1', ?, ?)",
         (json.dumps({"title": "Dev", "min_salary": 1_000_000, "max_salary": 2_000_000}),
@@ -449,14 +457,13 @@ async def test_run_uses_channel_lang():
                 auto_post_scheduled_times_json=json.dumps(
                     [{"ts": now_ts - 60, "done": False, "uid": None}]
                 ),
-                auto_post_scheduled_day=day_key(),
+                auto_post_scheduled_day=day_key(NOW),
                 channel_lang="ru",
             ),
         )
 
     text = mock_bot.send_message.call_args.kwargs["text"]
     assert "Зарплата" in text
-    await conn.close()
 
 
 def test_stale_window_is_two_hours():
