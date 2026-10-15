@@ -15,7 +15,9 @@ from src.core.timeutil import TZ
 from src.db.migrate import run_migrations
 from src.functions import broadcast_worker as bw
 from src.functions import notification_scheduler as ns
-from src.middleware.middlewares import StatsMiddleware, is_user_banned
+import config
+from src.middleware import middlewares as mw_module
+from src.middleware.middlewares import StatsMiddleware
 
 MW_MODULE = "src.middleware.middlewares"
 BANNED, ALLOWED = 900000000001, 900000000002
@@ -76,12 +78,67 @@ async def test_a_new_user_is_not_banned(middleware):
 
 
 async def test_the_check_fails_open_without_the_column(tmp_path):
+    """A DB older than m009 has no ``banned``/``admins``: everyone passes."""
     db_path = str(tmp_path / "old.sqlite3")
+    mw = StatsMiddleware(db_path)
+    with patch(f"{MW_MODULE}._seed_from_osonish_api", new_callable=AsyncMock):
+        await mw.init_db()
     async with aiosqlite.connect(db_path) as conn:
-        await conn.execute("CREATE TABLE users (user_id INTEGER PRIMARY KEY, lang TEXT)")
-        await conn.execute("INSERT INTO users VALUES (?, 'uz')", (BANNED,))
+        await conn.execute("INSERT INTO users (user_id, date, lang) VALUES (?, 0, 'ru')", (BANNED,))
         await conn.commit()
-    assert await is_user_banned(db_path, BANNED) is False
+    handler = AsyncMock(return_value="handled")
+    data: dict = {}
+    assert await mw(handler, _event(BANNED), data) == "handled"
+    assert data["lang"] == "ru"
+
+
+async def test_one_connection_per_update(middleware, monkeypatch):
+    """The ban is read in resolve_user's own SELECT, not on a second connection."""
+    opened = []
+    real_connect = mw_module.connect
+
+    def counting_connect(*args, **kwargs):
+        opened.append(1)
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(mw_module, "connect", counting_connect)
+    for user_id in (BANNED, ALLOWED):
+        opened.clear()
+        await middleware(AsyncMock(), _event(user_id), {})
+        assert len(opened) == 1
+
+
+async def _admins(middleware, rows):
+    async with aiosqlite.connect(middleware.db_path) as conn:
+        await conn.executemany(
+            "INSERT INTO admins (user_id, role, added_at, disabled) VALUES (?, ?, 0, ?)", rows
+        )
+        await conn.commit()
+
+
+async def test_an_enabled_admin_row_bypasses_the_ban(middleware):
+    await _admins(middleware, [(BANNED, "moderator", 0)])
+    handler = AsyncMock(return_value="handled")
+    assert await middleware(handler, _event(BANNED), {}) == "handled"
+
+
+async def test_a_disabled_admin_row_does_not_bypass(middleware, monkeypatch):
+    monkeypatch.setattr(config, "ADMIN_IDS", [BANNED])
+    await _admins(middleware, [(BANNED, "owner", 1)])
+    handler = AsyncMock()
+    assert await middleware(handler, _event(BANNED), {}) is None
+    handler.assert_not_awaited()
+
+
+async def test_admin_ids_bypass_only_while_no_owner_exists(middleware, monkeypatch):
+    monkeypatch.setattr(config, "ADMIN_IDS", [BANNED])
+    handler = AsyncMock(return_value="handled")
+    assert await middleware(handler, _event(BANNED), {}) == "handled"  # bootstrap
+
+    await _admins(middleware, [(900000000009, "owner", 0)])
+    handler.reset_mock()
+    assert await middleware(handler, _event(BANNED), {}) is None
+    handler.assert_not_awaited()
 
 
 # ─── broadcast targets ───────────────────────────────────────────────────────
