@@ -217,7 +217,11 @@ async def _ensure_performance_indexes(conn: aiosqlite.Connection) -> None:
     tables = {row[0] for row in await cursor.fetchall()}
 
     if "users" in tables:
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_ref_by ON users(ref_by)")
+        # Partial, matching m014/m016: a full index under this name would make
+        # m014's IF NOT EXISTS a no-op (and m016 would have to drop it again).
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_ref_by ON users(ref_by) WHERE ref_by IS NOT NULL"
+        )
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_user_pro ON users(user_pro)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_blocked ON users(blocked)")
 
