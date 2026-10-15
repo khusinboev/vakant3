@@ -14,16 +14,17 @@ import binascii
 import html
 import json
 import logging
-import time
 from html.parser import HTMLParser
 from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from src.functions.broadcast_control import set_broadcast_state
 from src.functions.broadcast_worker import (
+    broadcast_breakdown,
     create_broadcast,
     is_valid_segment,
     materialize_targets,
@@ -48,6 +49,15 @@ _log = logging.getLogger(__name__)
 # Error codes (webapp/core/errors.py is owned by the auth module).
 BROADCAST_INVALID = "BROADCAST_INVALID"
 BROADCAST_NOT_CANCELLABLE = "BROADCAST_NOT_CANCELLABLE"
+BROADCAST_NOT_PAUSABLE = "BROADCAST_NOT_PAUSABLE"
+BROADCAST_NOT_RESUMABLE = "BROADCAST_NOT_RESUMABLE"
+
+#: ``set_broadcast_state`` action -> (audit action, 409 code when the status refuses it).
+STATE_ACTIONS = {
+    "pause": ("broadcast.pause", BROADCAST_NOT_PAUSABLE),
+    "resume": ("broadcast.resume", BROADCAST_NOT_RESUMABLE),
+    "cancel": ("broadcast.cancel", BROADCAST_NOT_CANCELLABLE),
+}
 
 MAX_TEXT_LENGTH = 4096
 MAX_CAPTION_LENGTH = 1024
@@ -552,6 +562,41 @@ async def queue(
     return {"id": broadcast_id, "status": "queued", "total": total}
 
 
+def _state_conflict(code: str, current_status: str) -> HTTPException:
+    """409 ``{code, status}``. Built by hand: ``errors.api_error``'s first
+    positional parameter is itself named ``status``, so ``status=`` cannot be
+    passed through its ``**params`` (that TypeError used to turn the cancel
+    conflict into a 500)."""
+    return HTTPException(status_code=409, detail={"code": code, "status": current_status})
+
+
+async def _change_state(db, admin, broadcast_id: int, action: str) -> dict[str, Any]:
+    """One shared transition (``broadcast_control``) + its audit row, one commit.
+
+    The worker re-reads the status at every batch boundary, so the change
+    takes effect after the batch in flight. 404 for an unknown id; 409 with
+    the current status when the transition is not allowed from it (also when
+    another admin or the bot moved the job between our read and the UPDATE).
+    """
+    audit_action, conflict_code = STATE_ACTIONS[action]
+    await _fetch(db, broadcast_id)
+    changed = await set_broadcast_state(db, broadcast_id, action)
+    if changed is None:
+        current = await _fetch(db, broadcast_id)
+        raise _state_conflict(conflict_code, current["status"])
+    old_status, new_status = changed
+    await log_admin_action(
+        db,
+        actor_id=admin["user_id"],
+        action=audit_action,
+        target_type="broadcast",
+        target_id=str(broadcast_id),
+        payload={"from": old_status, "to": new_status},
+    )
+    await db.commit()
+    return {"id": broadcast_id, "status": new_status}
+
+
 @router.post("/broadcasts/{broadcast_id}/cancel")
 @limiter.limit("10/minute")
 async def cancel(
@@ -560,24 +605,32 @@ async def cancel(
     admin=Depends(require_broadcast_admin),
     db=Depends(get_db),
 ):
-    """Stop a queued or running broadcast at the next batch boundary."""
-    job = await _fetch(db, broadcast_id)
-    if job["status"] not in {"draft", "queued", "running", "paused"}:
-        raise errors.api_error(409, BROADCAST_NOT_CANCELLABLE, status=job["status"])
-    await db.execute(
-        "UPDATE broadcasts SET status = 'cancelled', finished_at = ? WHERE id = ?",
-        (int(time.time()), broadcast_id),
-    )
-    await log_admin_action(
-        db,
-        actor_id=admin["user_id"],
-        action="broadcast.cancel",
-        target_type="broadcast",
-        target_id=str(broadcast_id),
-        payload={"from": job["status"]},
-    )
-    await db.commit()
-    return {"id": broadcast_id, "status": "cancelled"}
+    """Stop a draft, queued, running or paused broadcast at the next batch boundary."""
+    return await _change_state(db, admin, broadcast_id, "cancel")
+
+
+@router.post("/broadcasts/{broadcast_id}/pause")
+@limiter.limit("10/minute")
+async def pause(
+    request: Request,
+    broadcast_id: int,
+    admin=Depends(require_broadcast_admin),
+    db=Depends(get_db),
+):
+    """Hold a queued or running broadcast after the batch in flight."""
+    return await _change_state(db, admin, broadcast_id, "pause")
+
+
+@router.post("/broadcasts/{broadcast_id}/resume")
+@limiter.limit("10/minute")
+async def resume(
+    request: Request,
+    broadcast_id: int,
+    admin=Depends(require_broadcast_admin),
+    db=Depends(get_db),
+):
+    """Put a paused broadcast back in the queue; it continues where it stopped."""
+    return await _change_state(db, admin, broadcast_id, "resume")
 
 
 @router.get("/broadcasts")
@@ -615,10 +668,10 @@ async def detail(
     admin=Depends(require_broadcast_admin),
     db=Depends(get_db),
 ):
-    """Counters plus the last 20 per-user errors."""
+    """Counters, per-kind failure counts, retry state and the last 20 per-user errors."""
     job = _row_to_dict(await _fetch(db, broadcast_id))
     cursor = await db.execute(
-        "SELECT user_id, status, error, sent_at FROM broadcast_targets "
+        "SELECT user_id, status, error, error_kind, attempts, sent_at FROM broadcast_targets "
         "WHERE broadcast_id = ? AND status IN ('failed', 'blocked') "
         "ORDER BY sent_at DESC, user_id DESC LIMIT 20",
         (broadcast_id,),
@@ -629,5 +682,6 @@ async def detail(
         (broadcast_id,),
     )
     job["targets"] = {row[0]: int(row[1]) for row in await cursor.fetchall()}
+    job.update(await broadcast_breakdown(db, broadcast_id))
     job["text_preview"] = html.unescape(str(job.get("text") or ""))[:200]
     return job
