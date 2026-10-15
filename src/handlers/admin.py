@@ -450,11 +450,18 @@ async def wizard_start(message: Message, state: FSMContext, lang: str = DEFAULT_
 
 @router.message(TextKey("btn.admin.bc_list"), IsAdmin("admin"))
 async def broadcast_list(message: Message, lang: str = DEFAULT_LANG):
+    """The last broadcasts worth opening.
+
+    Skipped: drafts past ``DRAFT_TTL_SECONDS`` (they can no longer be sent) and
+    broadcasts cancelled while still drafts (never queued, so ``total`` is 0).
+    """
     async with connect() as conn:
         cursor = await conn.execute(
             "SELECT id, status, total, sent, failed, blocked FROM broadcasts "
+            "WHERE NOT (status = 'draft' AND COALESCE(created_at, 0) < ?) "
+            "AND NOT (status = 'cancelled' AND COALESCE(total, 0) = 0) "
             "ORDER BY id DESC LIMIT ?",
-            (LIST_LIMIT,),
+            (int(time.time()) - DRAFT_TTL_SECONDS, LIST_LIMIT),
         )
         rows = await cursor.fetchall()
     if not rows:
@@ -844,38 +851,58 @@ async def _create_draft_and_preview(
         return
 
     await state.clear()
-    await _edit(chat_id, call.message.message_id, t(lang, "bc.prompt_audience") + " " + _segment_text(lang, segment))
+    # From here on the draft exists but the admin has no card for it yet: if
+    # any step fails, the draft is cancelled so it cannot linger as 'draft'.
     button = data.get("button")
-    markup = _url_keyboard(json.dumps([button] if button else []))
     try:
+        await _edit(chat_id, call.message.message_id, t(lang, "bc.prompt_audience") + " " + _segment_text(lang, segment))
         await bot.copy_message(
             chat_id=chat_id,
             from_chat_id=int(data["src_chat"]),
             message_id=int(data["src_msg"]),
-            reply_markup=markup,
+            reply_markup=_url_keyboard(json.dumps([button] if button else [])),
         )
-    except Exception as exc:  # deleted source, bad button URL, ...
+        card = t(
+            lang,
+            "bc.preview_card",
+            segment=_segment_text(lang, segment),
+            count=count,
+            button=html.escape(button["text"]) if button else t(lang, "bc.no_button"),
+        )
+        await bot.send_message(chat_id, card, reply_markup=bc_preview_kb(lang, broadcast_id, count))
+    except Exception as exc:  # deleted source, bad button URL, network, ...
         logger.warning("broadcast %s preview failed: %s", broadcast_id, exc)
+        await _discard_draft(broadcast_id, actor_id, reason="preview_failed")
+        try:
+            await bot.send_message(chat_id, t(lang, "bc.preview_failed"))
+            await call.answer()
+        except Exception as notify_exc:
+            logger.warning("broadcast %s preview failure notice failed: %s", broadcast_id, notify_exc)
+        return
+    await call.answer()
+
+
+async def _discard_draft(broadcast_id: int, actor_id: int, *, reason: str) -> None:
+    """Cancel a bot-created draft whose preview never reached the admin. Never raises.
+
+    Only a row still in 'draft' changes (a card that did arrive despite an
+    error may already have queued it), and the cancel is audited.
+    """
+    try:
         async with connect() as conn:
-            if await set_broadcast_state(conn, broadcast_id, "cancel"):
+            cursor = await conn.execute(
+                "UPDATE broadcasts SET status = 'cancelled', finished_at = ? "
+                "WHERE id = ? AND status = 'draft'",
+                (int(time.time()), broadcast_id),
+            )
+            if cursor.rowcount == 1:
                 await log_bot_action(
                     conn, actor_id=actor_id, action="broadcast.cancel", target_type="broadcast",
-                    target_id=broadcast_id, payload={"from": "draft", "reason": "preview_failed"},
+                    target_id=broadcast_id, payload={"from": "draft", "reason": reason},
                 )
             await conn.commit()
-        await bot.send_message(chat_id, t(lang, "bc.preview_failed"))
-        await call.answer()
-        return
-
-    card = t(
-        lang,
-        "bc.preview_card",
-        segment=_segment_text(lang, segment),
-        count=count,
-        button=html.escape(button["text"]) if button else t(lang, "bc.no_button"),
-    )
-    await bot.send_message(chat_id, card, reply_markup=bc_preview_kb(lang, broadcast_id, count))
-    await call.answer()
+    except Exception as exc:
+        logger.warning("broadcast %s draft cleanup failed: %s", broadcast_id, exc)
 
 
 def _draft_usable(row, actor_id: int) -> bool:

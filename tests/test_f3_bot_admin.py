@@ -14,8 +14,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import json
 
 import aiosqlite
+from aiogram.exceptions import TelegramNetworkError
 
 from src.db.connection import connect as real_connect
 from src.filters import admin as admin_filter
@@ -283,3 +285,98 @@ def test_album_message_is_translated():
     texts = {lang: t(lang, "bc.album_unsupported") for lang in ("uz", "ru", "en")}
     assert all(text != "bc.album_unsupported" for text in texts.values())
     assert len(set(texts.values())) == 3
+
+
+# ─── 4. a draft without a preview card does not linger ──────────────────────
+
+def _fail_sends(harness, monkeypatch, *, card=True, notice=False):
+    """Make the preview card (and optionally the failure notice) raise."""
+    original = harness.session.make_request
+
+    async def make_request(bot, method, timeout=None):
+        if isinstance(method, b1.SendMessage):
+            data = b1._callback_data(method.reply_markup) if isinstance(method.reply_markup, b1.InlineKeyboardMarkup) else []
+            is_card = any(d.endswith(":send") for d in data)
+            is_notice = method.text == t("uz", "bc.preview_failed")
+            if (card and is_card) or (notice and is_notice):
+                harness.session.requests.append(method)
+                raise TelegramNetworkError(method=method, message="timeout")
+        return await original(bot, method, timeout)
+
+    monkeypatch.setattr(harness.session, "make_request", make_request)
+
+
+async def _to_preview(harness):
+    await b1._wizard_to_audience(harness)
+    nonce = await harness.nonce()
+    await harness.tap(OWNER, f"adm:w:{nonce}:seg:lang:uz")
+    return (await harness.rows("SELECT id, status FROM broadcasts"))[0]
+
+
+async def test_a_failed_preview_card_cancels_the_draft(harness, monkeypatch):
+    _fail_sends(harness, monkeypatch)
+    broadcast_id, status = await _to_preview(harness)
+    assert status == "cancelled"
+    cancelled = await harness.audit("broadcast.cancel")
+    assert len(cancelled) == 1 and cancelled[0][2] == str(broadcast_id)
+    assert json.loads(cancelled[0][3]) == {"from": "draft", "reason": "preview_failed", "source": "bot"}
+    assert harness.texts()[-1] == t("uz", "bc.preview_failed")
+    assert harness.last_answer().text is None  # the spinner is stopped
+    # The card never arrived, and the draft can no longer be sent anyway.
+    await harness.tap(OWNER, f"adm:b:{broadcast_id}:send")
+    assert harness.last_answer().text == t("uz", "bc.expired")
+    assert await harness.rows("SELECT * FROM broadcast_targets") == []
+
+
+async def test_a_failed_notice_still_leaves_no_draft(harness, monkeypatch):
+    _fail_sends(harness, monkeypatch, notice=True)
+    _, status = await _to_preview(harness)  # does not raise out of the handler
+    assert status == "cancelled"
+    assert len(await harness.audit("broadcast.cancel")) == 1
+
+
+async def test_cleanup_never_cancels_a_draft_that_was_queued_meanwhile(harness):
+    broadcast_id = await b1._queued(harness)
+    await b1.admin_handlers._discard_draft(broadcast_id, OWNER, reason="preview_failed")
+    assert await b1._status(harness, broadcast_id) == "queued"
+    assert await harness.audit("broadcast.cancel") == []
+
+
+async def test_the_list_skips_stale_and_never_queued_drafts(harness):
+    now = b1.NOW
+    stale = now - b1.admin_handlers.DRAFT_TTL_SECONDS - 5
+    rows = [  # id: status, created_at, total
+        ("done", now, 10),          # 1
+        ("cancelled", now, 10),     # 2 stopped mid-run: kept
+        ("draft", stale, 0),        # 3 past the TTL: skipped
+        ("cancelled", now, 0),      # 4 dropped / failed preview: skipped
+        ("draft", now, 0),          # 5 fresh: kept
+    ]
+    async with aiosqlite.connect(harness.db_path) as conn:
+        for status, created_at, total in rows:
+            await conn.execute(
+                "INSERT INTO broadcasts (actor_id, status, kind, created_at, total) VALUES (?, ?, 'forward', ?, ?)",
+                (OWNER, status, created_at, total),
+            )
+        await conn.commit()
+    await harness.send(OWNER, t("uz", "btn.admin.bc_list"))
+    data = b1._callback_data(harness.session.of(b1.SendMessage)[-1].reply_markup)
+    assert data == [f"adm:b:{i}:open" for i in (5, 2, 1)]
+
+
+async def test_stale_drafts_do_not_push_real_broadcasts_off_the_list(harness):
+    stale = b1.NOW - b1.admin_handlers.DRAFT_TTL_SECONDS - 5
+    async with aiosqlite.connect(harness.db_path) as conn:
+        await conn.execute(
+            "INSERT INTO broadcasts (actor_id, status, kind, created_at, total, sent) VALUES (?, 'done', 'forward', ?, 3, 3)",
+            (OWNER, b1.NOW),
+        )
+        for _ in range(b1.admin_handlers.LIST_LIMIT + 2):
+            await conn.execute(
+                "INSERT INTO broadcasts (actor_id, status, kind, created_at) VALUES (?, 'draft', 'forward', ?)",
+                (OWNER, stale),
+            )
+        await conn.commit()
+    await harness.send(OWNER, t("uz", "btn.admin.bc_list"))
+    data = b1._callback_data(harness.session.of(b1.SendMessage)[-1].reply_markup)
+    assert data == ["adm:b:1:open"]
