@@ -268,9 +268,12 @@ export default function Profile() {
             <Users size={16} className="text-success" />
             <h3 className="text-sm font-semibold text-text">{t("profile.inviteTitle")}</h3>
           </div>
-          <span className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-xs font-bold text-success">
-            {t("referral.rewardAmount", { amount: formatNumber(wallet.data?.referral_reward ?? 2000) })}
-          </span>
+          {/* Server value only; 0 means rewards are off, so no badge. */}
+          {(wallet.data?.referral_reward ?? 0) > 0 && (
+            <span className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-xs font-bold text-success">
+              {t("referral.rewardAmount", { amount: formatNumber(wallet.data?.referral_reward ?? 0) })}
+            </span>
+          )}
         </div>
         <p className="mt-2 text-xs text-muted">{t("profile.inviteBody")}</p>
         <div className="mt-3 flex gap-2">

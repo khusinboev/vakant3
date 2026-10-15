@@ -149,6 +149,9 @@ const common = {
   "wallet.activate": "Pro tarifni aktivlashtirish",
   "wallet.activating": "Faollashtirilmoqda...",
   "wallet.activated": "Pro tarif faollashtirildi",
+  "wallet.confirmTitle": "Pro tarifni faollashtirasizmi?",
+  "wallet.confirmBody": "Balansingizdan {price} yechiladi. Qoladigan balans: {after}.",
+  "wallet.confirmAction": "Ha, faollashtirish",
   "wallet.needMore": "Pro uchun yana {amount} so'm kerak.",
   "wallet.referralWayTitle": "Eng oson usul: referral orqali",
   "wallet.referralWayBody":

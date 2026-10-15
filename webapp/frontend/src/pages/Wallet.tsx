@@ -1,8 +1,11 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Crown, Link as LinkIcon, Wallet } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import client from "../api/client";
+import BottomSheet from "../components/ui/BottomSheet";
+import { clearBackInterceptor, setBackInterceptor } from "../hooks/useBackInterceptor";
 import useToast from "../hooks/useToast";
 import { useT } from "../i18n/useT";
 import { useLocale } from "../i18n/useLocale";
@@ -24,6 +27,17 @@ export default function WalletPage() {
   const { formatMoney, formatNumber } = useLocale();
   const toast = useToast();
   const authUser = useAuthStore((s) => s.user);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  // Telegram's BackButton closes the confirmation first (same slot as Laws).
+  useEffect(() => {
+    if (!confirmOpen) return;
+    setBackInterceptor(() => {
+      setConfirmOpen(false);
+      return true;
+    });
+    return () => clearBackInterceptor();
+  }, [confirmOpen]);
 
   const wallet = useQuery<WalletData>({
     queryKey: ["wallet"],
@@ -48,6 +62,7 @@ export default function WalletPage() {
       toast.success(t("wallet.activated"));
     },
     onError: (error) => toast.apiError(error),
+    onSettled: () => setConfirmOpen(false),
   });
 
   const w = wallet.data;
@@ -141,7 +156,7 @@ export default function WalletPage() {
               type="button"
               className="tap-target mt-3 w-full rounded-2xl bg-warning px-4 py-3 text-sm font-semibold text-white disabled:opacity-60 dark:text-bg"
               disabled={activatePro.isPending}
-              onClick={() => activatePro.mutate()}
+              onClick={() => setConfirmOpen(true)}
             >
               {activatePro.isPending ? t("wallet.activating") : t("wallet.activate")}
             </button>
@@ -153,9 +168,44 @@ export default function WalletPage() {
         </section>
       )}
 
-      {!w.is_pro && (
+      <BottomSheet
+        open={confirmOpen}
+        onClose={() => {
+          if (!activatePro.isPending) setConfirmOpen(false);
+        }}
+        title={t("wallet.confirmTitle")}
+        footer={
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="tap-target flex-1 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-text disabled:opacity-60"
+              disabled={activatePro.isPending}
+              onClick={() => setConfirmOpen(false)}
+            >
+              {t("common.cancel")}
+            </button>
+            <button
+              type="button"
+              className="tap-target flex-1 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primaryFg disabled:opacity-60"
+              disabled={activatePro.isPending}
+              onClick={() => activatePro.mutate()}
+            >
+              {activatePro.isPending ? t("wallet.activating") : t("wallet.confirmAction")}
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm text-text">
+          {t("wallet.confirmBody", {
+            price: formatMoney(w.pro_price),
+            after: formatMoney(Math.max(0, w.balance - w.pro_price)),
+          })}
+        </p>
+      </BottomSheet>
+
+      {!w.is_pro && w.referral_reward > 0 && (
         <>
-          {/* Referral earn — primary path to Pro */}
+          {/* Referral earn — primary path to Pro (only while rewards are on) */}
           <section className="card border-2 border-primary/40 bg-primary/5 p-4">
             <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-text">
               🎁 {t("wallet.referralWayTitle")}
@@ -168,7 +218,11 @@ export default function WalletPage() {
               ✓ {t("wallet.autoPro", { amount: formatNumber(w.pro_price) })}
             </p>
           </section>
+        </>
+      )}
 
+      {!w.is_pro && (
+        <>
           {/* Admin help — secondary option */}
           <section className="card p-4">
             <h3 className="mb-2 text-sm font-semibold text-text">💳 {t("wallet.adminTitle")}</h3>
@@ -206,9 +260,11 @@ export default function WalletPage() {
 
           <section className="card p-4">
             <h3 className="mb-2 text-sm font-semibold text-text">🎁 {t("wallet.inviteTitle")}</h3>
-            <p className="mb-3 text-xs text-muted">
-              {t("wallet.inviteBody", { amount: formatNumber(w.referral_reward) })}
-            </p>
+            {w.referral_reward > 0 && (
+              <p className="mb-3 text-xs text-muted">
+                {t("wallet.inviteBody", { amount: formatNumber(w.referral_reward) })}
+              </p>
+            )}
             {refLinkRow}
           </section>
         </>

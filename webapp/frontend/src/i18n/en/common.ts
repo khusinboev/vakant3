@@ -143,6 +143,9 @@ const common: Record<keyof CommonDict, string> = {
   "wallet.activate": "Activate Pro",
   "wallet.activating": "Activating...",
   "wallet.activated": "Pro plan activated",
+  "wallet.confirmTitle": "Activate the Pro plan?",
+  "wallet.confirmBody": "{price} will be deducted from your balance. Remaining: {after}.",
+  "wallet.confirmAction": "Yes, activate",
   "wallet.needMore": "You need {amount} UZS more for Pro.",
   "wallet.referralWayTitle": "The easiest way: referrals",
   "wallet.referralWayBody":
