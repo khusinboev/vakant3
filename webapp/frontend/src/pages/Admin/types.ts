@@ -120,13 +120,3 @@ export type ResumeGoals = {
   send_success_rate_ok: boolean;
   pdf_export_success_rate_ok: boolean;
 };
-
-export type AddBalanceResult = {
-  ok: boolean;
-  new_balance: number;
-};
-
-export type ResetUserResult = {
-  ok: boolean;
-  user_id: number;
-};

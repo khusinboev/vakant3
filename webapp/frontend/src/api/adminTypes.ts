@@ -104,17 +104,6 @@ export type WalletTransactionsResponse = {
   next_cursor: number | null;
 };
 
-export type AdminAddBalanceBody = { user_id: number; amount: number; note?: string };
-export type AdminAddBalanceResponse = { ok: boolean; new_balance: number; tx_id: number };
-
-export type AdminResetUserBody = { user_id: number; note?: string };
-export type AdminResetUserResponse = {
-  ok: boolean;
-  user_id: number;
-  new_balance: number;
-  tx_id: number;
-};
-
 // ---------------------------------------------------------------------------
 // Channels — /admin/channels (m006_entry_gate schema)
 // ---------------------------------------------------------------------------

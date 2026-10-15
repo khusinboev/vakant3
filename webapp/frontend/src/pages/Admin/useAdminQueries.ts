@@ -2,11 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import client from "../../api/client";
 import type {
-  AddBalanceResult,
   AdminState,
   AdminStatePatch,
   AutoPostSchedule,
-  ResetUserResult,
   ResumeDiagnostics,
   ResumeFunnel,
   ResumeGoals,
@@ -90,25 +88,6 @@ export function useAdminStatePatch() {
       // The KPI donuts read the targets that were just changed.
       void queryClient.invalidateQueries({ queryKey: adminKeys.goals });
     },
-  });
-}
-
-export function useAddBalance() {
-  return useMutation<AddBalanceResult, unknown, { userId: number; amount: number }>({
-    mutationFn: async ({ userId, amount }) =>
-      (
-        await client.post<AddBalanceResult>("/wallet/admin/add-balance", {
-          user_id: userId,
-          amount,
-        })
-      ).data,
-  });
-}
-
-export function useResetUser() {
-  return useMutation<ResetUserResult, unknown, number>({
-    mutationFn: async (userId) =>
-      (await client.post<ResetUserResult>("/wallet/admin/reset-user", { user_id: userId })).data,
   });
 }
 

@@ -1,6 +1,6 @@
 /**
- * Typed client for every `/api/admin/*` endpoint plus the two admin-only
- * `/api/wallet/*` endpoints. One function per endpoint, named exports only
+ * Typed client for every `/api/admin/*` endpoint plus the caller's own
+ * `/api/wallet/transactions`. One function per endpoint, named exports only
  * (tree-shakeable). No React and no UI here — see CONTRACT_UI.md.
  *
  * Every endpoint below is typed against the real backend code, read directly
@@ -14,12 +14,8 @@
 import client from "./client";
 import type {
   AdminActionOkResponse,
-  AdminAddBalanceBody,
-  AdminAddBalanceResponse,
   AdminCreateBody,
   AdminListResponse,
-  AdminResetUserBody,
-  AdminResetUserResponse,
   AdminRow,
   AdminStatePatchBody,
   AdminStateV2,
@@ -180,7 +176,9 @@ export async function removeAdmin(userId: number): Promise<AdminActionOkResponse
 }
 
 // ---------------------------------------------------------------------------
-// Wallet (own history + admin mutations) — /wallet/*
+// Wallet (own history) — /wallet/*
+// Admin balance changes go through /admin/users/{id}/balance and /reset
+// (rank-checked); the old /wallet/admin/* endpoints were removed.
 // ---------------------------------------------------------------------------
 
 /** The caller's own ledger history, newest first (`before_id` cursor, NOT the P12 cursor shape). */
@@ -189,26 +187,6 @@ export async function getWalletTransactions(params?: {
   limit?: number;
 }): Promise<WalletTransactionsResponse> {
   return (await client.get<WalletTransactionsResponse>("/wallet/transactions", { params })).data;
-}
-
-/** Admin: credits a user's balance. Requires confirmation (`wallet.add_balance`, [user_id, amount]). */
-export async function adminAddBalance(body: AdminAddBalanceBody): Promise<AdminAddBalanceResponse> {
-  return withConfirm(
-    "wallet.add_balance",
-    { user_id: body.user_id, amount: body.amount },
-    async (headers) =>
-      (await client.post<AdminAddBalanceResponse>("/wallet/admin/add-balance", body, { headers })).data
-  );
-}
-
-/** Admin: zeroes a user's balance and drops Pro. Requires confirmation (`wallet.reset_user`, [user_id]). */
-export async function adminResetUser(body: AdminResetUserBody): Promise<AdminResetUserResponse> {
-  return withConfirm(
-    "wallet.reset_user",
-    { user_id: body.user_id },
-    async (headers) =>
-      (await client.post<AdminResetUserResponse>("/wallet/admin/reset-user", body, { headers })).data
-  );
 }
 
 // ---------------------------------------------------------------------------

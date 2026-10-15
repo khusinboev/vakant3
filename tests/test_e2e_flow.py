@@ -435,16 +435,17 @@ def test_05_confirmation_token_guards_money(env, tokens):
     params = {"user_id": USER_ID, "amount": 5000}
     body = {**params, "note": "e2e credit"}
 
-    token = confirm_token(env.client, headers, "wallet.add_balance", params)
+    token = confirm_token(env.client, headers, "users.balance", params)
+    url = f"/api/admin/users/{USER_ID}/balance"
 
-    refused = env.client.post("/api/wallet/admin/add-balance", headers=headers, json=body)
+    refused = env.client.post(url, headers=headers, json=body)
     assert refused.status_code == 403, refused.text
     assert detail(refused)["code"] == "CONFIRMATION_REQUIRED"
-    assert detail(refused)["action"] == "wallet.add_balance"
+    assert detail(refused)["action"] == "users.balance"
     assert query("SELECT 1 FROM wallet_transactions") == []
 
     granted = env.client.post(
-        "/api/wallet/admin/add-balance",
+        url,
         headers={**headers, "X-Confirm-Token": token},
         json=body,
     )
@@ -469,8 +470,18 @@ def test_05_confirmation_token_guards_money(env, tokens):
         "user_balance"
     ] == 5000
     assert query(
-        "SELECT target_id FROM admin_audit_log WHERE action = ?", ("wallet.add_balance",)
+        "SELECT target_id FROM admin_audit_log WHERE action = ?", ("users.balance",)
     ) == [{"target_id": str(USER_ID)}]
+    # The rank-less /wallet/admin/* twin is gone, even with a valid token.
+    legacy = env.client.post(
+        "/api/wallet/admin/add-balance",
+        headers={
+            **headers,
+            "X-Confirm-Token": confirm_token(env.client, headers, "wallet.add_balance", params),
+        },
+        json=body,
+    )
+    assert legacy.status_code == 404, legacy.text
 
     history = env.client.get("/api/wallet/transactions", headers=auth(tokens, "user"))
     assert history.status_code == 200, history.text

@@ -1425,11 +1425,7 @@ async def reset_user(
     admin=Depends(require_admin_role),
     db=Depends(get_db),
 ) -> ResetResponse:
-    """Zero the balance and drop Pro (confirm token ``users.reset``).
-
-    The rank-checked twin of ``POST /wallet/admin/reset-user``; the Users page
-    calls this one.
-    """
+    """Zero the balance and drop Pro (confirm token ``users.reset``), rank-checked."""
     if int(body.user_id) != user_id:
         raise errors.validation_error("user_id")
     note = _clean_note(body.note)
