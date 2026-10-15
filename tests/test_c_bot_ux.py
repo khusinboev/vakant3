@@ -141,7 +141,7 @@ async def test_vacancy_deeplink_has_an_open_in_app_button(ux, premium):
     assert "Dasturchi &lt;senior&gt;" in card.text
     assert '<tg-emoji emoji-id="' in card.text  # private chat: premium emoji allowed
     button = _inline(card.reply_markup)[0]
-    assert button.web_app.url == WEBAPP and button.style == "primary"
+    assert button.web_app.url == f"{WEBAPP}?go=vacancy_osonish_123" and button.style == "primary"
 
 
 # ─── /lang ──────────────────────────────────────────────────────────────────
@@ -191,7 +191,8 @@ async def test_notification_has_an_open_in_app_button(premium):
     kwargs = mock_bot.send_message.call_args.kwargs
     assert kwargs["text"].startswith(f'<tg-emoji emoji-id="{ICONS["bell"].id}">')
     button = _inline(kwargs["reply_markup"])[0]
-    assert button.web_app.url == WEBAPP
+    # Opens this vacancy's detail sheet in the Mini App, not just the app.
+    assert button.web_app.url == f"{WEBAPP}?go=vacancy_osonish_7"
     assert (button.text, button.icon_custom_emoji_id) == (t("en", "start.btn.open_app"), ICONS["app"].id)
 
 
@@ -287,3 +288,17 @@ async def test_setup_failures_are_logged_never_raised(tmp_path):
         result = await bot_setup.setup_bot_ui(fake, WEBAPP, admin_ids=[b1.OWNER])
     assert result == {"ok": 2, "failed": 2}
 
+
+
+def test_vacancy_app_url_is_a_valid_start_param_or_the_plain_app():
+    import re
+
+    from src.functions.vacancy_format import vacancy_app_url
+
+    url = vacancy_app_url("osonish_900000000123")
+    assert url == f"{WEBAPP}?go=vacancy_osonish_900000000123"
+    go = url.split("?go=", 1)[1]
+    # Same value must also work as a Telegram start_param.
+    assert re.fullmatch(r"[A-Za-z0-9_-]{1,64}", go)
+    for bad in ("", "osonish_", "osonish_12a", "hh_5", "osonish_1&go=admin", "osonish_" + "9" * 16):
+        assert vacancy_app_url(bad) == WEBAPP, bad

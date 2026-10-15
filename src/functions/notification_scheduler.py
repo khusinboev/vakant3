@@ -23,11 +23,11 @@ from datetime import datetime, timedelta
 import aiosqlite
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 
-from config import WEBAPP_URL, bot
+from config import bot
 from src.buttons.buttuns import open_app_kb
 from src.core.timeutil import now_tz, today_start_ts
 from src.db.connection import connect
-from src.functions.vacancy_format import format_vacancy_message_html
+from src.functions.vacancy_format import format_vacancy_message_html, vacancy_app_url
 from src.i18n import DEFAULT_LANG, normalize_lang
 
 logger = logging.getLogger(__name__)
@@ -237,7 +237,7 @@ async def _send_notification(user_id: int, lang: str, uid: str, data: dict) -> s
             text=text,
             parse_mode="HTML",
             disable_web_page_preview=True,
-            reply_markup=open_app_kb(lang, WEBAPP_URL),
+            reply_markup=open_app_kb(lang, vacancy_app_url(uid)),
         )
 
     try:
