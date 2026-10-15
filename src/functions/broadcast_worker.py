@@ -126,6 +126,9 @@ async def materialize_targets(
     condition, params = await _segment_condition(conn, segment, admin_ids)
     if target.get("exclude_blocked", True):
         condition = f"({condition}) AND COALESCE(u.blocked, 0) = 0"
+    # Banned users never receive a broadcast, whatever the segment says.
+    if "banned" in await _user_columns(conn):
+        condition = f"({condition}) AND COALESCE(u.banned, 0) = 0"
     await conn.execute(
         "INSERT OR IGNORE INTO broadcast_targets (broadcast_id, user_id, status) "
         f"SELECT ?, u.user_id, 'pending' FROM users u WHERE {condition}",

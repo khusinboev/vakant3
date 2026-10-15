@@ -291,6 +291,24 @@ async def touch_last_seen(
     return False
 
 
+# ─── Moderation: banned users ──────────────────────────────────────────────
+
+async def is_user_banned(db_path: str, user_id: int) -> bool:
+    """True when a moderator banned ``user_id`` (``users.banned``, m009).
+
+    Fails open: a missing column (DB older than m009), a missing row or a DB
+    error never blocks a user — the API entry gate still enforces the ban.
+    """
+    try:
+        async with connect(db_path) as conn:
+            cursor = await conn.execute("SELECT banned FROM users WHERE user_id = ?", (user_id,))
+            row = await cursor.fetchone()
+    except Exception as exc:
+        logger.debug("banned check skipped user_id=%s: %s", user_id, exc)
+        return False
+    return bool(row is not None and int(row[0] or 0))
+
+
 class StatsMiddleware(BaseMiddleware):
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -523,6 +541,10 @@ class StatsMiddleware(BaseMiddleware):
             data.setdefault("lang", DEFAULT_LANG)
             data.setdefault("is_new_user", False)
             return await handler(event, data)
+
+        if await is_user_banned(self.db_path, user.id):
+            # Silent drop: a banned user gets no handler response at all.
+            return None
 
         inviter_id = (
             parse_referrer_id(event.text, user.id) if isinstance(event, Message) else None
