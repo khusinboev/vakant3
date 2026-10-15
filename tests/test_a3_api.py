@@ -391,3 +391,21 @@ async def test_clearing_filters_clears_pref_filters_json(client):
     cleared = await client.patch("/api/profile/filters", headers=HEADERS, json={"money": 0, "specs": ""})
     assert cleared.status_code == 200
     assert await prefs() is None
+
+
+# ---------------------------------------------------------------------------
+# 6. Unknown /api/* paths
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def test_unknown_api_path_is_404_json_for_every_method(client, method):
+    response = await client.request(method, "/api/definitely/not/here", headers=HEADERS)
+    assert response.status_code == 404, response.text
+    assert response.json() == {"detail": {"code": "NOT_FOUND", "resource": "endpoint"}}
+
+
+async def test_known_api_path_with_wrong_method_stays_405(client):
+    assert (await client.delete("/api/health")).status_code == 405
+    assert (await client.post("/api/jobs/osonish_1", headers=HEADERS)).status_code == 405
+    assert (await client.get("/api/health")).json() == {"ok": True}

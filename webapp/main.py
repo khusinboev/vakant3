@@ -3,14 +3,17 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import Match
 
+from webapp.core import errors
 from webapp.core.config import get_settings
 from webapp.core.database import close_pool, init_db, open_connection
 from webapp.core.event_queue import get_event_queue
@@ -145,6 +148,27 @@ install_exception_handler(app)
 @app.get("/api/health")
 async def health() -> dict[str, bool]:
     return {"ok": True}
+
+
+_ANY_METHOD = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+
+
+@app.api_route("/api/{path:path}", methods=_ANY_METHOD, include_in_schema=False)
+async def api_not_found(request: Request, path: str):
+    """Unknown ``/api/*`` path, any method: the documented 404 JSON error.
+
+    Without this an unknown POST/DELETE fell through to the GET-only SPA
+    catch-all below and came back as a prose 405. A *known* path called with
+    the wrong method still gets Starlette's 405. Keep this the last ``/api``
+    route: anything registered after it is shadowed.
+    """
+    for route in request.app.router.routes:
+        if getattr(route, "endpoint", None) is api_not_found:
+            continue
+        match, _ = route.matches(request.scope)
+        if match == Match.PARTIAL:
+            raise StarletteHTTPException(status_code=405)
+    raise errors.not_found("endpoint")
 
 
 frontend_dist = Path(__file__).resolve().parent / "frontend" / "dist"
