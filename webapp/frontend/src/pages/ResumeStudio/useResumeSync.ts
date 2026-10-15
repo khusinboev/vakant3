@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import client from "../../api/client";
 import useToast from "../../hooks/useToast";
-import { useT } from "../../i18n/useT";
+import { useLang, useT } from "../../i18n/useT";
 import { isApiErrorCode } from "../../lib/parseApiError";
 import {
   normalizeProfile,
@@ -62,6 +62,7 @@ export function useResumeSync({
 }: Params) {
   const queryClient = useQueryClient();
   const t = useT();
+  const lang = useLang();
   const toast = useToast();
 
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
@@ -119,9 +120,12 @@ export function useResumeSync({
   });
 
   const templatesQuery = useQuery({
-    queryKey: ["resume", "templates"],
+    // Template names/descriptions are localized: key and `?lang` follow the UI language.
+    queryKey: ["resume", "templates", lang],
     queryFn: async () => {
-      const { data } = await client.get<{ items: ResumeTemplateItem[] }>("/resume/templates");
+      const { data } = await client.get<{ items: ResumeTemplateItem[] }>("/resume/templates", {
+        params: { lang },
+      });
       return data.items;
     },
     retry: false,

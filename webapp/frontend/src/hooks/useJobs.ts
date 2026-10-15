@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import client from "../api/client";
+import { useLang } from "../i18n/useT";
 import { JOBS_LIST_KEY } from "./useSaves";
 import type { VacancyDetailResponse, VacancyItem } from "../types";
 
@@ -18,15 +19,20 @@ type JobsPage = { vacancies: VacancyItem[]; page: number; last_page: number; tot
 
 /**
  * Infinite vacancy list.
- * Key: ["jobs","list",params] — namespaced so optimistic save patches never
- * touch ["jobs","detail",uid], which holds a completely different shape.
+ * Key: ["jobs","list",lang,params] — namespaced so optimistic save patches never
+ * touch ["jobs","detail",uid,lang], which holds a completely different shape.
+ *
+ * Localized responses carry the language in the key AND send it as `?lang`:
+ * the API prefers `?lang` over `users.lang`, so a refetch fired right after a
+ * language switch cannot race the `PATCH /profile/lang` and cache the old one.
  */
 export function useJobs(params: JobsParams) {
+  const lang = useLang();
   return useInfiniteQuery<JobsPage>({
-    queryKey: [...JOBS_LIST_KEY, params],
+    queryKey: [...JOBS_LIST_KEY, lang, params],
     queryFn: async ({ pageParam = 1 }) => {
       const { data } = await client.get<JobsPage>("/jobs/search", {
-        params: { ...params, page: pageParam },
+        params: { ...params, page: pageParam, lang },
       });
       return data;
     },
@@ -38,12 +44,13 @@ export function useJobs(params: JobsParams) {
   });
 }
 
-/** Single vacancy. Key: ["jobs","detail",uid]. */
+/** Single vacancy. Key: ["jobs","detail",uid,lang]. */
 export function useJobDetail(uid: string) {
+  const lang = useLang();
   return useQuery({
-    queryKey: ["jobs", "detail", uid],
+    queryKey: ["jobs", "detail", uid, lang],
     queryFn: async () => {
-      const { data } = await client.get<VacancyDetailResponse>(`/jobs/${uid}`);
+      const { data } = await client.get<VacancyDetailResponse>(`/jobs/${uid}`, { params: { lang } });
       return data;
     },
     enabled: Boolean(uid)

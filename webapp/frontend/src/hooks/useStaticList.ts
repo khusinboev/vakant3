@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import client from "../api/client";
+import { useLang } from "../i18n/useT";
 
 /** `GET /filters/regions` — `name` is localized, `name_uz` kept for compat. */
 export type Region = {
@@ -26,8 +27,9 @@ const ONE_DAY = 24 * 60 * 60 * 1000;
 
 /**
  * Reference data that never changes within a session (regions, districts, specs).
- * Cached forever per language; the query key carries the params so a language
- * switch refetches (the axios client sends `Accept-Language`).
+ * Cached forever per language: the language is appended to the query key and
+ * sent as `?lang` (which the API prefers over the stored `users.lang`), so a
+ * language switch refetches and can never cache a stale-language copy.
  */
 export function useStaticList<T>(
   key: readonly unknown[],
@@ -35,10 +37,11 @@ export function useStaticList<T>(
   params?: Record<string, string | number>,
   enabled = true,
 ): UseQueryResult<T[]> {
+  const lang = useLang();
   return useQuery<T[]>({
-    queryKey: key,
+    queryKey: [...key, lang],
     queryFn: async () => {
-      const { data } = await client.get<T[]>(url, params ? { params } : undefined);
+      const { data } = await client.get<T[]>(url, { params: { ...params, lang } });
       return data;
     },
     enabled,

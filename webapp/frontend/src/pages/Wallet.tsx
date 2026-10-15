@@ -42,6 +42,9 @@ export default function WalletPage() {
       queryClient.setQueryData<WalletData>(["wallet"], (prev) =>
         prev ? { ...prev, balance: data.balance, is_pro: data.is_pro } : prev,
       );
+      // Pro unlocks locked salaries in search/detail and lifts the save limit.
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      void queryClient.invalidateQueries({ queryKey: ["saves"] });
       toast.success(t("wallet.activated"));
     },
     onError: (error) => toast.apiError(error),

@@ -40,7 +40,7 @@ export default function Laws() {
   const list = useQuery<LawsListResponse>({
     queryKey: ["content", "laws", lang],
     queryFn: async () => {
-      const { data } = await client.get<LawsListResponse>("/content/laws");
+      const { data } = await client.get<LawsListResponse>("/content/laws", { params: { lang } });
       return data;
     },
     staleTime: 10 * 60 * 1000,
@@ -49,7 +49,7 @@ export default function Laws() {
   const detail = useQuery<ArticleDetail>({
     queryKey: ["content", "laws", lang, openId],
     queryFn: async () => {
-      const { data } = await client.get<ArticleDetail>(`/content/laws/${openId}`);
+      const { data } = await client.get<ArticleDetail>(`/content/laws/${openId}`, { params: { lang } });
       return data;
     },
     enabled: Boolean(openId),
