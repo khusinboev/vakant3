@@ -360,8 +360,15 @@ async def send_to_user(bot, job: dict[str, Any], user_id: int) -> Any:
     kind = job["kind"]
     if kind == "forward":
         target = job.get("target") or {}
-        sender = bot.copy_message if target.get("forward_mode") == "copy" else bot.forward_message
-        return await sender(user_id, job["forward_chat_id"], job["forward_message_id"])
+        if target.get("forward_mode") == "copy":
+            # copyMessage keeps the entities (incl. custom emoji) and, unlike forwardMessage, takes a keyboard.
+            return await bot.copy_message(
+                user_id,
+                job["forward_chat_id"],
+                job["forward_message_id"],
+                reply_markup=_keyboard(job.get("buttons_json")),
+            )
+        return await bot.forward_message(user_id, job["forward_chat_id"], job["forward_message_id"])
 
     markup = _keyboard(job.get("buttons_json"))
     text = job.get("text") or ""

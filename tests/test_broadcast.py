@@ -86,7 +86,8 @@ class FakeBot:
     async def forward_message(self, user_id, chat_id, message_id):
         return await self._record("forward", user_id)
 
-    async def copy_message(self, user_id, chat_id, message_id):
+    async def copy_message(self, user_id, chat_id, message_id, reply_markup=None):
+        self.__dict__.setdefault("copy_markups", []).append(reply_markup)
         return await self._record("copy", user_id)
 
     async def send_message(self, user_id, text, reply_markup=None):
@@ -211,6 +212,29 @@ class TestWorker:
         bot = FakeBot()
         await bw.run_broadcast(bot, broadcast_id, connect=connect, bucket=bw.TokenBucket(rate=10_000))
         assert {method for method, _ in bot.calls} == {"copy"}
+
+    async def test_copy_mode_keeps_the_url_button(self, connect):
+        """The bot wizard's optional URL button must reach users, not just the admin's preview."""
+        async with connect() as conn:
+            broadcast_id = await bw.create_broadcast(
+                conn,
+                actor_id=1,
+                kind="forward",
+                buttons=[{"text": "Open", "url": "https://abitur24.uz/app"}],
+                forward_chat_id=-1,
+                forward_message_id=2,
+                target={"segment": "pro", "forward_mode": "copy"},
+            )
+            await bw.queue_broadcast(conn, broadcast_id)
+            await conn.commit()
+        bot = FakeBot()
+        await bw.run_broadcast(bot, broadcast_id, connect=connect, bucket=bw.TokenBucket(rate=10_000))
+        assert bot.copy_markups, "nothing was copied"
+        for markup in bot.copy_markups:
+            assert markup is not None
+            assert [(b.text, b.url) for row in markup.inline_keyboard for b in row] == [
+                ("Open", "https://abitur24.uz/app")
+            ]
 
     async def test_cancel_mid_run_stops_sending(self, connect):
         broadcast_id, _ = await _new_job(connect)
