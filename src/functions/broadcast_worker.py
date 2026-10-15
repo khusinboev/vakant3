@@ -27,7 +27,10 @@ Design notes worth keeping:
 * **Cancellable, pausable.** ``status`` is re-read at every batch boundary
   (transitions live in ``broadcast_control.set_broadcast_state``).
 * **Classified failures.** Every Telegram error becomes an ``error_kind``
-  (``classify_error``). Permanent kinds fail the recipient at once;
+  (``classify_error``). ``sent_unparsed`` (aiogram could not deserialize an
+  ``ok`` answer, so the message *was* delivered) is not a failure: the row is
+  ``sent`` with the kind kept as a warning, never retried and never counted
+  towards the early abort. Permanent kinds fail the recipient at once;
   ``flood``/``network`` go back to ``pending`` with ``attempts + 1`` and a
   ``next_attempt_at`` backoff (10 s doubling, at most ``MAX_ATTEMPTS`` sends).
   The claim and the picker only see rows that are due, and a job never
@@ -35,7 +38,20 @@ Design notes worth keeping:
 * **One flood pause for the whole process.** A 429 pauses every send
   (``SHARED_PAUSE``) for ``retry_after``; the unsent rest of the batch is
   released rather than held through the pause. The token bucket still paces
-  normal sending at 25/s.
+  normal sending at 25/s, and is drained after a pause so sending resumes at
+  that rate instead of with a burst of 25.
+* **Retries are at-least-once.** A ``network`` failure (timeout, dropped
+  connection, Telegram 5xx, undecodable body) does not prove the message was
+  *not* delivered: Telegram may have sent it before the answer was lost, and
+  the retry then delivers it a second time. That duplicate is the accepted
+  trade-off against silently skipping recipients. The one case where delivery
+  is known (``sent_unparsed``) is never retried.
+* **Results are not lost.** A batch's results are written even when the
+  worker is cancelled mid-batch (``main.py`` cancels it on every deploy): the
+  write runs to completion and the cancellation is re-raised after it; the
+  send that was in flight and the unsent rest go back to ``pending``. A
+  ``database is locked``/``busy`` write is retried (``WRITE_RETRY_DELAYS``).
+  Only a write that still fails leaves rows ``sending`` for the stale reset.
 * **Early abort.** When Telegram keeps rejecting the message itself, the job
   stops as ``failed``/``content_rejected`` instead of trying every recipient
   (``EARLY_ABORT_MIN_FAILURES``, ``EARLY_ABORT_RATIO``).
@@ -70,6 +86,7 @@ from aiogram.exceptions import (
     TelegramServerError,
 )
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -287,25 +304,46 @@ async def broadcast_breakdown(conn, broadcast_id: int) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 class TokenBucket:
-    """Smooth ``rate`` sends per second with a small burst allowance."""
+    """Smooth ``rate`` sends per second with a small burst allowance.
 
-    def __init__(self, rate: float = SEND_RATE_PER_SECOND, capacity: float | None = None) -> None:
+    Clock and sleep are injectable for tests.
+    """
+
+    def __init__(
+        self,
+        rate: float = SEND_RATE_PER_SECOND,
+        capacity: float | None = None,
+        *,
+        clock=time.monotonic,
+        sleep=asyncio.sleep,
+    ) -> None:
         self.rate = float(rate)
         self.capacity = float(capacity if capacity is not None else rate)
+        self._clock = clock
+        self._sleep = sleep
         self._tokens = self.capacity
-        self._updated = time.monotonic()
+        self._updated = clock()
         self._lock = asyncio.Lock()
+
+    def drain(self) -> None:
+        """Drop the burst allowance that piled up while nothing was sent.
+
+        Called after a flood pause: Telegram just asked us to slow down, so
+        sending resumes at the steady ``rate``, not with ``capacity`` at once.
+        """
+        self._tokens = 0.0
+        self._updated = self._clock()
 
     async def acquire(self, tokens: float = 1.0) -> None:
         async with self._lock:
             while True:
-                now = time.monotonic()
+                now = self._clock()
                 self._tokens = min(self.capacity, self._tokens + (now - self._updated) * self.rate)
                 self._updated = now
                 if self._tokens >= tokens:
                     self._tokens -= tokens
                     return
-                await asyncio.sleep((tokens - self._tokens) / self.rate)
+                await self._sleep((tokens - self._tokens) / self.rate)
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +439,7 @@ ERROR_KINDS = (
     "flood",           # 429 RetryAfter
     "network",         # timeouts, aiohttp errors, undecodable answers, Telegram 5xx
     "other",           # anything else (unknown API codes, missing media file, ...)
+    "sent_unparsed",   # delivered, but aiogram could not deserialize Telegram's ok answer
 )
 #: Retried with backoff; every other kind fails the recipient at once.
 TRANSIENT_KINDS = frozenset({"flood", "network"})
@@ -411,6 +450,11 @@ UNREACHABLE_KINDS = frozenset({"blocked", "deactivated"})
 #: for every recipient (a deleted media file, a revoked token) is just as
 #: hopeless as a rejected entity, and must not run through 50 000 rows either.
 CONTENT_KINDS = frozenset({"bad_request", "other"})
+#: Not failures: Telegram accepted the message but its answer did not fit
+#: aiogram's model. The row is ``sent`` (counted in ``broadcasts.sent``) and
+#: keeps the kind and text as a warning; it is never retried, because a retry
+#: would deliver the same message again.
+DELIVERED_KINDS = frozenset({"sent_unparsed"})
 
 #: Send attempts per recipient, the first one included; the 6th transient
 #: failure marks the row ``failed``.
@@ -440,9 +484,29 @@ def _error_text(exc: BaseException) -> str:
     return str(text).strip()[:ERROR_TEXT_LIMIT]
 
 
+def _delivered_but_unparsed(exc: BaseException) -> bool:
+    """aiogram 3.14 ``check_response`` raises ``ClientDecodeError`` in two cases:
+
+    * "Failed to decode object" — the body is not JSON (an HTML 502 from a
+      proxy). Nothing says Telegram handled the call: retryable ``network``.
+    * "Failed to deserialize object" — the body is JSON but does not fit the
+      ``Response[...]`` model (``original`` is a pydantic ``ValidationError``).
+      Telegram answered, and unless that answer says ``ok: false`` the message
+      was delivered: retrying would send it again.
+    """
+    if not isinstance(exc, ClientDecodeError):
+        return False
+    if not isinstance(getattr(exc, "original", None), ValidationError):
+        return False
+    data = getattr(exc, "data", None)
+    return not (isinstance(data, dict) and data.get("ok") is False)
+
+
 def classify_error(exc: BaseException) -> tuple[str, str, float | None]:
     """``(kind, short text, retry_after)`` for one failed send. Pure."""
     text = _error_text(exc)
+    if _delivered_but_unparsed(exc):
+        return "sent_unparsed", text, None
     if isinstance(exc, TelegramRetryAfter):
         retry_after = max(0.0, min(float(exc.retry_after or 0), MAX_RETRY_AFTER_SECONDS))
         return "flood", text, retry_after
@@ -492,8 +556,12 @@ def plan_outcome(result: dict[str, Any], attempts_before: int, now: int) -> dict
     """
     attempts = int(attempts_before) + 1
     if result["status"] == "sent":
+        # ``sent_unparsed`` keeps its kind and text as a warning on a sent row.
+        warning = result.get("kind") if result.get("kind") in DELIVERED_KINDS else None
         return {
-            "status": "sent", "error": None, "error_kind": None,
+            "status": "sent",
+            "error": result.get("error") if warning else None,
+            "error_kind": warning,
             "attempts": attempts, "next_attempt_at": None, "sent_at": now,
         }
     kind = result["kind"]
@@ -542,9 +610,13 @@ class SendPause:
     def remaining(self) -> float:
         return max(0.0, self._until - self._clock())
 
-    async def wait(self) -> None:
+    async def wait(self) -> bool:
+        """Sleep out the pause; True when there was one to wait for."""
+        waited = False
         while (left := self.remaining()) > 0:
+            waited = True
             await self._sleep(left)
+        return waited
 
 
 #: The instance the bot process uses. Tests pass their own.
@@ -559,6 +631,17 @@ async def _deliver(bot, job: dict[str, Any], user_id: int) -> dict[str, Any]:
         raise
     except Exception as exc:  # noqa: BLE001 - one bad chat must not stop the run
         kind, text, retry_after = classify_error(exc)
+        if kind in DELIVERED_KINDS:
+            logger.warning(
+                "broadcast %s: user %s delivered, answer unparsed: %s", job["id"], user_id, text
+            )
+            return {
+                "user_id": user_id,
+                "status": "sent",
+                "kind": kind,
+                "error": text,
+                "file_id": None,
+            }
         if kind == "flood":
             logger.warning("broadcast %s: flood wait %ss", job["id"], retry_after)
         elif kind not in UNREACHABLE_KINDS:
@@ -795,6 +878,69 @@ async def _write_results(
     return aborted
 
 
+#: Waits before re-trying a result write that hit ``database is locked`` /
+#: ``busy`` (each attempt already waited the connection's busy timeout). After
+#: the last one the error propagates and the rows stay ``sending`` until
+#: ``reset_stale_claims``.
+WRITE_RETRY_DELAYS = (0.5, 1.0, 2.0)
+
+
+def _is_lock_error(exc: BaseException) -> bool:
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    text = str(exc).lower()
+    return "locked" in text or "busy" in text
+
+
+async def _write_results_retrying(conn, broadcast_id: int, *args: Any) -> bool:
+    """``_write_results`` that survives a transient lock.
+
+    Losing a batch's results is worse than a short wait: the rows would stay
+    ``sending``, be reset after ``STALE_CLAIM_SECONDS`` and sent again. The
+    write is one transaction that is rolled back on failure, so a retry
+    applies it exactly once.
+    """
+    delays = tuple(WRITE_RETRY_DELAYS)
+    for attempt in range(len(delays) + 1):
+        try:
+            return await _write_results(conn, broadcast_id, *args)
+        except sqlite3.OperationalError as exc:
+            if attempt >= len(delays) or not _is_lock_error(exc):
+                raise
+            logger.warning(
+                "broadcast %s: result write failed (%s), retry %s/%s",
+                broadcast_id, exc, attempt + 1, len(delays),
+            )
+            await asyncio.sleep(delays[attempt])
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+async def _complete_despite_cancel(coro) -> Any:
+    """Run ``coro`` to the end even if this task is cancelled meanwhile.
+
+    ``asyncio.shield`` alone is not enough: the awaiting task would leave at
+    once and close the connection under the still-running write. Here every
+    cancellation is held until the write finished and then re-raised.
+    """
+    task = asyncio.ensure_future(coro)
+    interrupted = False
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            break
+        except asyncio.CancelledError:
+            if task.done():
+                raise
+            interrupted = True
+    if interrupted:
+        raise asyncio.CancelledError
+    return result
+
+
+async def _persist_batch(conn, broadcast_id: int, *args: Any) -> bool:
+    return await _complete_despite_cancel(_write_results_retrying(conn, broadcast_id, *args))
+
+
 async def _finish(conn, broadcast_id: int, status: str, error: str | None = None) -> None:
     await conn.execute(
         "UPDATE broadcasts SET status = ?, error = COALESCE(?, error), finished_at = ? WHERE id = ?",
@@ -849,7 +995,8 @@ async def run_broadcast(
     while max_batches is None or batches < max_batches:
         batches += 1
         # A flood pause is waited out here: no connection open, no row claimed.
-        await pause.wait()
+        if await pause.wait():
+            bucket.drain()
         async with connect() as conn:
             job = await _load_job(conn, broadcast_id)
             if job is None:
@@ -881,22 +1028,37 @@ async def run_broadcast(
             results: list[dict[str, Any]] = []
             released: list[int] = []
             new_file_id: str | None = None
-            for index, user_id in enumerate(user_ids):
-                if pause.remaining() > 0:
-                    # Telegram asked every send to stop: give the rest of the
-                    # batch back instead of holding the claim through the pause.
-                    released = user_ids[index:]
-                    break
-                await bucket.acquire()
-                result = await _deliver(bot, job, user_id)
-                if not job.get("media_file_id") and result.get("file_id"):
-                    new_file_id = result["file_id"]
-                    job["media_file_id"] = new_file_id
-                if result["kind"] == "flood":
-                    pause.pause_for(result.get("retry_after") or 0)
-                results.append(result)
+            try:
+                for index, user_id in enumerate(user_ids):
+                    if pause.remaining() > 0:
+                        # Telegram asked every send to stop: give the rest of the
+                        # batch back instead of holding the claim through the pause.
+                        released = user_ids[index:]
+                        break
+                    await bucket.acquire()
+                    result = await _deliver(bot, job, user_id)
+                    if not job.get("media_file_id") and result.get("file_id"):
+                        new_file_id = result["file_id"]
+                        job["media_file_id"] = new_file_id
+                    if result["kind"] == "flood":
+                        pause.pause_for(result.get("retry_after") or 0)
+                    results.append(result)
+            except asyncio.CancelledError:
+                # Shutdown (main.py cancels the worker on every deploy): record
+                # what was already delivered, so a restart does not send it
+                # again, and hand the rest back. The send that was in flight
+                # has an unknown outcome and goes back too (at-least-once).
+                recorded = {r["user_id"] for r in results}
+                released = [uid for uid in user_ids if uid not in recorded]
+                try:
+                    await _persist_batch(conn, broadcast_id, results, new_file_id, claimed, released)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("broadcast %s: results lost on shutdown", broadcast_id)
+                raise
 
-            await _write_results(conn, broadcast_id, results, new_file_id, claimed, released)
+            await _persist_batch(conn, broadcast_id, results, new_file_id, claimed, released)
     return None
 
 
