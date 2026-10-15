@@ -24,7 +24,7 @@ from typing import Any
 from fastapi import Depends, Request
 
 from webapp.core import errors, subscription
-from webapp.core.auth import current_user
+from webapp.core.auth import current_user, has_enabled_owner
 from webapp.core.config import get_settings
 from webapp.core.database import get_db
 from webapp.core.referral_gate import get_referral_gate_state
@@ -68,9 +68,13 @@ def reset_users_columns_cache() -> None:
 async def admin_role(db, user_id: int) -> str | None:
     """The actor's admin role, or None.
 
-    Deliberately read-only and independent of ``webapp.core.auth``: the gate
-    runs on every request of every user, and must not write rows or raise.
-    ``ADMIN_IDS`` stays a fallback so a fresh database is never gate-locked.
+    Same rule as ``webapp.core.auth.resolve_admin_role`` but read-only: the
+    gate runs on every request of every user and must not write rows or
+    raise. ``ADMIN_IDS`` is bootstrap only, exactly as there: an env id counts
+    as ``owner`` while the table is missing or holds no enabled owner, so a
+    fresh database is never gate-locked. Once an owner exists the table is
+    the sole source of truth, so an admin removed from the panel loses the
+    bypass even if the server .env still lists their id.
     """
     user_id = int(user_id)
     try:
@@ -79,14 +83,21 @@ async def admin_role(db, user_id: int) -> str | None:
         )
         row = await cursor.fetchone()
     except Exception:
-        row = None  # table not created yet
-    else:
-        if row is not None:
-            if int(row["disabled"] or 0):
-                return None  # an explicit revocation beats the env list
-            role = str(row["role"] or "")
-            return role if role in _ROLES else "viewer"
-    return "owner" if user_id in get_settings().admin_ids_set else None
+        # Table not created yet: migrations have not run, fall back to the env list.
+        return "owner" if user_id in get_settings().admin_ids_set else None
+    if row is not None:
+        if int(row["disabled"] or 0):
+            return None  # an explicit revocation beats the env list
+        role = str(row["role"] or "")
+        return role if role in _ROLES else "viewer"
+    if user_id not in get_settings().admin_ids_set:
+        return None
+    try:
+        owner_exists = await has_enabled_owner(db)
+    except Exception as exc:
+        _log.warning("entry gate: admins table unreadable (%s) — no env bypass", exc)
+        return None
+    return None if owner_exists else "owner"
 
 
 async def _user_flags(db, user_id: int) -> tuple[bool, bool]:
