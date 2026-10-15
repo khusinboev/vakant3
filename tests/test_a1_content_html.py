@@ -84,3 +84,25 @@ def test_bypass_payloads_are_rejected(payload):
 )
 def test_legitimate_markup_still_passes(payload):
     assert _html_is_valid(payload) is True
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "<a" + " " * 50_000,
+        '<a href="' + "x" * 50_000,
+        "<b" * 25_000,
+        "<" + "a" * 50_000,
+        "<a " + "href=" * 10_000,
+        "<a" + " /" * 25_000,
+        "<b>" * 10_000 + "<a" + " " * 20_000,
+    ],
+)
+def test_adversarial_input_validates_in_linear_time(payload):
+    """A sync check inside an async handler must not stall the event loop."""
+    import time
+
+    assert len(payload) >= 50_000
+    started = time.perf_counter()
+    assert _html_is_valid(payload) is False
+    assert time.perf_counter() - started < 0.2

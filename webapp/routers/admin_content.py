@@ -52,9 +52,14 @@ FIELD_MAX_LEN: dict[str, int] = {
 ALLOWED_TAGS = {"b", "i", "u", "a", "code", "br"}
 VOID_TAGS = {"br"}
 
-_TAG_RE = re.compile(
-    r"<(?P<closing>/?)(?P<name>[a-zA-Z][a-zA-Z0-9]*)(?P<attrs>(?:\s+[^<>]*?)?)\s*(?P<selfclose>/?)>"
-)
+#: One tag: ``<``, optional ``/``, a name, then everything up to the next
+#: ``>``. Both quantifiers are possessive and cannot overlap (the name stops at
+#: the first non-alphanumeric, the rest stops at ``<``/``>``), so a failed
+#: match never backtracks and scanning stays linear even for adversarial input
+#: such as ``"<a" + " " * 50_000`` (the old lazy/optional attrs group was
+#: cubic there). The rest is split into attributes and a trailing ``/`` in
+#: Python, see :func:`_split_tag_rest`.
+_TAG_RE = re.compile(r"<(?P<closing>/?)(?P<name>[a-zA-Z][a-zA-Z0-9]*+)(?P<rest>[^<>]*+)>")
 #: The complete attribute text an ``<a>`` tag may carry: one ``href`` with a
 #: double- or single-quoted value and nothing else. The value may not contain
 #: either quote, a backtick or angle brackets, so it cannot close itself early
@@ -93,6 +98,18 @@ def href_is_safe(raw: str) -> bool:
     return collapsed.startswith(ALLOWED_HREF_SCHEMES)
 
 
+def _split_tag_rest(rest: str) -> tuple[str, bool]:
+    """``(attrs, selfclose)`` for the text between a tag name and its ``>``.
+
+    A single trailing ``/`` is the self-close marker. Whatever else is left
+    (``/onclick=x`` from ``<b/onclick=x>`` included) is attribute text, which
+    the caller rejects unless it is exactly one safe quoted ``href`` on ``<a>``.
+    """
+    selfclose = rest.endswith("/")
+    attrs = rest[:-1] if selfclose else rest
+    return attrs.strip(), selfclose
+
+
 def _html_is_valid(value: str) -> bool:
     """Strict allowlist scanner: unknown tags/attrs or unbalanced tags fail."""
     stack: list[str] = []
@@ -106,8 +123,7 @@ def _html_is_valid(value: str) -> bool:
         if name not in ALLOWED_TAGS:
             return False
         closing = m.group("closing") == "/"
-        selfclose = m.group("selfclose") == "/"
-        attrs_raw = (m.group("attrs") or "").strip()
+        attrs_raw, selfclose = _split_tag_rest(m.group("rest"))
         if closing:
             if attrs_raw or selfclose or not stack or stack[-1] != name:
                 return False
