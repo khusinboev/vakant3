@@ -464,6 +464,9 @@ def spa_catch_all():
         return {"spa": path}
 
     before = list(app.router.routes)
+    # A local build (webapp/frontend/dist) makes main.py register the real catch-all already; replace it so the
+    # test sees the same shape with or without dist.
+    app.router.routes[:] = [r for r in before if getattr(r, "path", None) != "/{path:path}"]
     app.add_api_route("/{path:path}", frontend, methods=["GET"])
     try:
         yield
