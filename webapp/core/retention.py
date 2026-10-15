@@ -38,6 +38,10 @@ SUBSCRIPTION_CHECKS_TTL_SECONDS = 24 * 60 * 60
 #: expired rows only while claiming a new balance key, so this sweep is what
 #: keeps a quiet table small.
 ADMIN_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
+PAYMENT_EVENTS_TTL_SECONDS = 365 * 24 * 60 * 60
+PAYMENT_RATE_LIMIT_TTL_SECONDS = 2 * 24 * 60 * 60
+#: A one-time Click card token whose payment was never submitted.
+PAYMENT_CARD_TOKEN_TTL_SECONDS = 30 * 60
 
 #: Rows per DELETE transaction. Each chunk commits on its own, so the SQLite
 #: write lock (shared with the bot process) is held for milliseconds, not for
@@ -87,6 +91,10 @@ def _rules(now: int) -> list[tuple[str, tuple[str, ...], str, tuple]]:
         ("subscription_checks", (), "checked_at < ?", (now - SUBSCRIPTION_CHECKS_TTL_SECONDS,)),
         # m018.
         ("admin_idempotency", (), "created_at < ?", (now - ADMIN_IDEMPOTENCY_TTL_SECONDS,)),
+        # m020: the raw Click webhook trail (disputes / reconciliation) for a year.
+        ("payment_events", (), "received_at < ?", (now - PAYMENT_EVENTS_TTL_SECONDS,)),
+        # m020: the longest abuse window is one day.
+        ("payment_rate_limits", (), "window_start < ?", (now - PAYMENT_RATE_LIMIT_TTL_SECONDS,)),
     ]
 
 
@@ -129,6 +137,18 @@ async def purge_expired(db, *, chunk: int = DELETE_CHUNK_ROWS) -> dict[str, int]
                 await db.rollback()
             except Exception as rollback_exc:  # pragma: no cover - connection gone
                 _log.error("retention: rollback failed: %s", rollback_exc)
+    if "payment_orders" in tables:
+        try:
+            cursor = await db.execute(
+                "UPDATE payment_orders SET click_card_token = NULL "
+                "WHERE click_card_token IS NOT NULL AND updated_at < ?",
+                (now - PAYMENT_CARD_TOKEN_TTL_SECONDS,),
+            )
+            deleted["payment_card_tokens"] = int(cursor.rowcount or 0)
+            await db.commit()
+        except Exception as exc:
+            _log.warning("retention: skipping payment card tokens (%s)", exc)
+            await db.rollback()
     return deleted
 
 

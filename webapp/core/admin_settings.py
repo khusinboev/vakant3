@@ -19,6 +19,8 @@ DEFAULTS: dict[str, Any] = {
     "auto_post_per_day_min": 4,
     "auto_post_per_day_max": 8,
     "auto_post_scheduled_times_json": "[]",
+    # m020: N % of every paid Click top-up as a bonus (0 = off, max 50).
+    "payment_bonus_percent": 0,
 }
 
 
