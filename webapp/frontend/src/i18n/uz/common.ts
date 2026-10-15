@@ -149,6 +149,9 @@ const common = {
   "wallet.activate": "Pro tarifni aktivlashtirish",
   "wallet.activating": "Faollashtirilmoqda...",
   "wallet.activated": "Pro tarif faollashtirildi",
+  "wallet.confirmTitle": "Pro tarifni faollashtirasizmi?",
+  "wallet.confirmBody": "Balansingizdan {price} yechiladi. Qoladigan balans: {after}.",
+  "wallet.confirmAction": "Ha, faollashtirish",
   "wallet.needMore": "Pro uchun yana {amount} so'm kerak.",
   "wallet.referralWayTitle": "Eng oson usul: referral orqali",
   "wallet.referralWayBody":
@@ -236,6 +239,18 @@ const common = {
   "error.BOT_START_REQUIRED": "Avval botda /start tugmasini bosing.",
   "error.SUBSCRIPTION_REQUIRED": "Avval majburiy kanallarga obuna bo'ling.",
   "error.USER_BANNED": "Hisobingiz bloklangan.",
+  "error.FORBIDDEN": "Bu amalga ruxsat yo'q.",
+  "error.CONFIRMATION_REQUIRED": "Amalni tasdiqlash muddati o'tdi. Qayta urinib ko'ring.",
+  "error.SERVER_BUSY": "Server band. Birozdan so'ng qayta urinib ko'ring.",
+  "error.SERVER_MISCONFIGURED": "Server sozlamalarida xatolik. Administratorga xabar bering.",
+  "error.INTERNAL_ERROR": "Serverda xatolik yuz berdi. Qayta urinib ko'ring.",
+  "error.PDF_RENDER_FAILED": "PDF yaratib bo'lmadi. Qayta urinib ko'ring.",
+  "error.JOB_ALREADY_QUEUED": "Bu vazifa allaqachon navbatda.",
+  "error.BROADCAST_INVALID": "Xabar ma'lumotlari noto'g'ri.",
+  "error.BROADCAST_NOT_CANCELLABLE": "Bu xabarnomani endi bekor qilib bo'lmaydi.",
+  "error.UPLOAD_EMPTY": "Fayl bo'sh.",
+  "error.UPLOAD_TOO_LARGE": "Fayl juda katta.",
+  "error.UPLOAD_TYPE_NOT_ALLOWED": "Bu turdagi faylga ruxsat yo'q.",
   "error.UNKNOWN": "Xatolik yuz berdi. Qayta urinib ko'ring.",
 };
 

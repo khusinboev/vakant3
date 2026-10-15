@@ -89,7 +89,6 @@ export function useSaves(page = 1, limit = 10, enabled = true) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["saves"] });
-      void queryClient.invalidateQueries({ queryKey: ["profile"] });
     },
   });
 
@@ -104,7 +103,6 @@ export function useSaves(page = 1, limit = 10, enabled = true) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["saves"] });
-      void queryClient.invalidateQueries({ queryKey: ["profile"] });
     },
   });
 

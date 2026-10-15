@@ -1,3 +1,5 @@
+import type { TFunction, TranslationKey } from "../i18n";
+
 /**
  * Normalizes anything axios can throw into one shape.
  *
@@ -22,9 +24,14 @@ type AxiosLike = {
   code?: string;
 };
 
+/**
+ * Codes for responses that carry no contract `code`. A bare 403 is NOT
+ * `PRO_REQUIRED`: the API always names that one explicitly, so a code-less
+ * 403 (proxy, CSRF, misrouted request) is a generic refusal.
+ */
 const STATUS_CODE_FALLBACK: Record<number, string> = {
   401: "AUTH_REQUIRED",
-  403: "PRO_REQUIRED",
+  403: "FORBIDDEN",
   404: "NOT_FOUND",
   413: "PAYLOAD_TOO_LARGE",
   422: "VALIDATION_ERROR",
@@ -80,6 +87,27 @@ export function parseApiError(error: unknown): ApiError {
     status,
     message,
   };
+}
+
+/**
+ * The translated message for an error: `error.<CODE>` with its params, else
+ * the server's prose, else the generic `error.UNKNOWN`.
+ */
+export function apiErrorMessage(error: unknown, t: TFunction): string {
+  const parsed = parseApiError(error);
+  const key = `error.${parsed.code}` as TranslationKey;
+  const text = t(key, parsed.params as Record<string, string | number>);
+  return text === key ? parsed.message || t("error.UNKNOWN") : text;
+}
+
+/**
+ * React Query retry policy: a 4xx (including 429) is an answer, not a glitch,
+ * so it is never retried; network failures and 5xx get up to 3 attempts.
+ */
+export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  const { status } = parseApiError(error);
+  if (status >= 400 && status < 500) return false;
+  return failureCount < 3;
 }
 
 /** `true` when the error carries this code — the common branching shorthand. */

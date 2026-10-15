@@ -143,6 +143,9 @@ const common: Record<keyof CommonDict, string> = {
   "wallet.activate": "Activate Pro",
   "wallet.activating": "Activating...",
   "wallet.activated": "Pro plan activated",
+  "wallet.confirmTitle": "Activate the Pro plan?",
+  "wallet.confirmBody": "{price} will be deducted from your balance. Remaining: {after}.",
+  "wallet.confirmAction": "Yes, activate",
   "wallet.needMore": "You need {amount} UZS more for Pro.",
   "wallet.referralWayTitle": "The easiest way: referrals",
   "wallet.referralWayBody":
@@ -230,6 +233,18 @@ const common: Record<keyof CommonDict, string> = {
   "error.BOT_START_REQUIRED": "Press /start in the bot first.",
   "error.SUBSCRIPTION_REQUIRED": "Subscribe to the required channels first.",
   "error.USER_BANNED": "Your account is blocked.",
+  "error.FORBIDDEN": "You are not allowed to do this.",
+  "error.CONFIRMATION_REQUIRED": "The confirmation expired. Please try again.",
+  "error.SERVER_BUSY": "The server is busy. Please try again shortly.",
+  "error.SERVER_MISCONFIGURED": "The server is misconfigured. Please tell an administrator.",
+  "error.INTERNAL_ERROR": "A server error occurred. Please try again.",
+  "error.PDF_RENDER_FAILED": "Could not create the PDF. Please try again.",
+  "error.JOB_ALREADY_QUEUED": "This job is already queued.",
+  "error.BROADCAST_INVALID": "The broadcast data is invalid.",
+  "error.BROADCAST_NOT_CANCELLABLE": "This broadcast can no longer be cancelled.",
+  "error.UPLOAD_EMPTY": "The file is empty.",
+  "error.UPLOAD_TOO_LARGE": "The file is too large.",
+  "error.UPLOAD_TYPE_NOT_ALLOWED": "This file type is not allowed.",
   "error.UNKNOWN": "Something went wrong. Please try again.",
 };
 

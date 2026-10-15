@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import client from "../../api/client";
 import useToast from "../../hooks/useToast";
-import { useT } from "../../i18n/useT";
+import { useLang, useT } from "../../i18n/useT";
 import { isApiErrorCode } from "../../lib/parseApiError";
 import {
   normalizeProfile,
@@ -62,6 +62,7 @@ export function useResumeSync({
 }: Params) {
   const queryClient = useQueryClient();
   const t = useT();
+  const lang = useLang();
   const toast = useToast();
 
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
@@ -85,6 +86,11 @@ export function useResumeSync({
   fingerprintRef.current = fingerprint;
   const stepRef = useRef<StepId>(currentStep);
   stepRef.current = currentStep;
+  // While the server holds a copy the user has not decided about (a newer
+  // draft on first load, or another device's save over local edits), the
+  // timer must not silently overwrite it.
+  const awaitingDecisionRef = useRef(false);
+  awaitingDecisionRef.current = conflict || serverDraftAvailable;
 
   /** Only try the API when there is some credential to authenticate with. */
   const authHintAvailable = useMemo(
@@ -114,9 +120,12 @@ export function useResumeSync({
   });
 
   const templatesQuery = useQuery({
-    queryKey: ["resume", "templates"],
+    // Template names/descriptions are localized: key and `?lang` follow the UI language.
+    queryKey: ["resume", "templates", lang],
     queryFn: async () => {
-      const { data } = await client.get<{ items: ResumeTemplateItem[] }>("/resume/templates");
+      const { data } = await client.get<{ items: ResumeTemplateItem[] }>("/resume/templates", {
+        params: { lang },
+      });
       return data.items;
     },
     retry: false,
@@ -158,6 +167,9 @@ export function useResumeSync({
       serverUpdatedAtRef.current = Number(data.updated_at || serverUpdatedAtRef.current);
       markSynced(syncFpRef.current, fingerprintRef.current);
       setConflict(false);
+      // A write the user started (or one made after they chose their copy)
+      // replaced the server copy, so there is nothing newer left to offer.
+      setServerDraftAvailable(false);
       setSyncStatus("synced");
     },
     [queryClient, userId, markSynced],
@@ -243,14 +255,16 @@ export function useResumeSync({
     },
     mutationFn: async () => {
       const startedAt = now();
-      await persistProfile("resume_send_persist");
+      const data = await persistProfile("resume_send_persist");
       // The response carries no prose any more, only {ok, status}.
       await client.post("/resume/send-telegram", { template_id: docRef.current.selectedTemplate });
-      return { latencyMs: Math.max(0, Math.round(now() - startedAt)) };
+      return { data, latencyMs: Math.max(0, Math.round(now() - startedAt)) };
     },
-    onSuccess: ({ latencyMs }) => {
+    onSuccess: ({ data, latencyMs }) => {
+      // The send persisted the profile first: record that write exactly like a
+      // save, so the doc is clean and the next poll is not taken for a conflict.
+      acceptSaved(data);
       toast.success(t("resume.toast.sent"));
-      void queryClient.invalidateQueries({ queryKey: ["resume", "profile", userId] });
       trackEvent({
         event_name: "send_success",
         step: "final",
@@ -276,6 +290,7 @@ export function useResumeSync({
       if (
         dirtyRef.current &&
         hydratedRef.current &&
+        !awaitingDecisionRef.current &&
         !savePendingRef.current &&
         !sendPendingRef.current &&
         !autoSavePendingRef.current
@@ -338,6 +353,7 @@ export function useResumeSync({
   const keepLocal = useCallback(() => {
     serverUpdatedAtRef.current = Number(profileQuery.data?.updated_at || serverUpdatedAtRef.current);
     setConflict(false);
+    setServerDraftAvailable(false);
   }, [profileQuery.data]);
 
   return {

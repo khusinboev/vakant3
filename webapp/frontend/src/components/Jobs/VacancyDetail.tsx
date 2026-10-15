@@ -5,6 +5,7 @@ import BottomSheet from "../ui/BottomSheet";
 import { botDeepLink, openTelegramLink } from "../../lib/constants";
 import { useT, useVacancyCodeLabel } from "../../i18n/useT";
 import { useLocale } from "../../i18n/useLocale";
+import { apiErrorMessage } from "../../lib/parseApiError";
 import type { VacancyCodes, VacancyDetailResponse } from "../../types";
 
 type Props = {
@@ -13,6 +14,9 @@ type Props = {
   data: VacancyDetailResponse | null;
   isLoading?: boolean;
   isLocked?: boolean;
+  /** The detail request failed; shown with a retry instead of a spinner. */
+  error?: unknown;
+  onRetry?: () => void;
 };
 
 function Row({ label, value }: { label: string; value?: string | null }) {
@@ -47,13 +51,42 @@ function str(value: unknown): string | null {
   return text ? text : null;
 }
 
-export default function VacancyDetail({ open, onClose, data, isLoading, isLocked = false }: Props) {
+export default function VacancyDetail({
+  open,
+  onClose,
+  data,
+  isLoading,
+  isLocked = false,
+  error,
+  onRetry,
+}: Props) {
   const navigate = useNavigate();
   const t = useT();
   const { formatNumber } = useLocale();
   const codeLabel = useVacancyCodeLabel();
 
   if (!open) return null;
+
+  if (!data && !isLoading && error) {
+    return (
+      <BottomSheet open onClose={onClose} showHandle={false} ariaLabel={t("vacancy.fallbackTitle")}>
+        <div className="flex min-h-40 flex-col items-center justify-center gap-3 px-4 py-6 text-center">
+          <p role="alert" className="text-sm text-muted">
+            {apiErrorMessage(error, t)}
+          </p>
+          {onRetry && (
+            <button
+              type="button"
+              className="tap-target text-sm font-medium text-primary"
+              onClick={onRetry}
+            >
+              {t("common.retry")}
+            </button>
+          )}
+        </div>
+      </BottomSheet>
+    );
+  }
 
   if (isLoading || !data) {
     return (

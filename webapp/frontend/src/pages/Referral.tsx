@@ -42,8 +42,10 @@ export default function Referral() {
     return <div className="card p-4 text-sm text-danger">{t("referral.loadError")}</div>;
   }
 
-  const reward = wallet.data?.referral_reward ?? 2000;
-  const totalEarned = (referral.data.ref_count ?? 0) * reward;
+  // Exactly what the server stores; 0 means referral rewards are switched off.
+  const reward = wallet.data?.referral_reward;
+  const rewardOn = reward !== undefined && reward > 0;
+  const totalEarned = (referral.data.ref_count ?? 0) * (reward ?? 0);
 
   return (
     <div className="space-y-4">
@@ -51,15 +53,17 @@ export default function Referral() {
 
       <section className="card p-4">
         <h3 className="text-sm font-semibold text-text">{t("referral.income")}</h3>
-        <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+        <div className={`mt-3 grid gap-3 text-sm ${rewardOn ? "grid-cols-2" : "grid-cols-1"}`}>
           <div className="rounded-xl bg-success/10 p-3 text-center">
             <p className="text-2xl font-bold text-success">{referral.data.ref_count}</p>
             <p className="mt-0.5 text-xs text-muted">{t("referral.invited")}</p>
           </div>
-          <div className="rounded-xl bg-warning/10 p-3 text-center">
-            <p className="text-2xl font-bold text-warning">{formatNumber(totalEarned)}</p>
-            <p className="mt-0.5 text-xs text-muted">{t("referral.totalEarned")}</p>
-          </div>
+          {rewardOn && (
+            <div className="rounded-xl bg-warning/10 p-3 text-center">
+              <p className="text-2xl font-bold text-warning">{formatNumber(totalEarned)}</p>
+              <p className="mt-0.5 text-xs text-muted">{t("referral.totalEarned")}</p>
+            </div>
+          )}
         </div>
       </section>
 

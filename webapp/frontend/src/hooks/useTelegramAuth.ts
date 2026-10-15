@@ -12,13 +12,14 @@ type AuthResponse = {
 };
 
 /**
- * Returns true when the page is running inside Telegram WebApp.
+ * Returns true when the page is running inside a Telegram Mini App.
+ *
+ * `telegram-web-app.js` defines `window.Telegram.WebApp` in every browser, so
+ * the object alone proves nothing; only Telegram fills `initData` (from the
+ * launch URL, kept in sessionStorage across reloads).
  */
 export function isTelegramWebApp(): boolean {
-  return Boolean(
-    typeof window !== "undefined" &&
-      (window as Window & { Telegram?: { WebApp?: unknown } }).Telegram?.WebApp
-  );
+  return typeof window !== "undefined" && Boolean(window.Telegram?.WebApp?.initData);
 }
 
 /**

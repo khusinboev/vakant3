@@ -162,8 +162,12 @@ export default function Home() {
         open={Boolean(activeUid)}
         onClose={() => setActiveUid("")}
         data={detail.data ?? null}
-        isLoading={detail.isLoading && Boolean(activeUid)}
+        // A retry after an error keeps `isLoading` false in react-query v5, so a
+        // fetch without data counts as loading too (spinner instead of the error).
+        isLoading={Boolean(activeUid) && (detail.isLoading || (detail.isFetching && !detail.data))}
         isLocked={isLocked}
+        error={detail.isError ? detail.error : undefined}
+        onRetry={() => void detail.refetch()}
       />
 
       {showLoginPrompt && <LoginPrompt onClose={() => setShowLoginPrompt(false)} />}

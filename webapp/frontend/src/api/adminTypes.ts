@@ -377,6 +377,7 @@ export type SetProResult = {
   tx_id: number | null;
 };
 
+/** Form fields of a balance change; the request helpers add `user_id` to the wire body. */
 export type AdminUserBalanceBody = { amount: number; note?: string };
 export type AdminUserBalanceResult = {
   ok: boolean;

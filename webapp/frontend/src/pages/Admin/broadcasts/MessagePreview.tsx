@@ -1,5 +1,6 @@
 import type { BroadcastButton } from "../../../api/adminTypes";
 import { useT } from "../../../i18n/useT";
+import { renderSafeHtml, TELEGRAM_HTML } from "../../../lib/safeHtml";
 
 export type MessagePreviewProps = {
   /** Already sanitized by `checkTelegramHtml` — never raw admin input. */
@@ -18,12 +19,11 @@ export default function MessagePreview({ html, buttons = [] }: MessagePreviewPro
   return (
     <div className="rounded-xl bg-surfaceAlt p-3">
       {html ? (
-        // Safe: rebuilt from the Telegram allowlist in telegramHtml.ts — every
-        // text node is escaped and only a validated `href` survives.
-        <div
-          className="whitespace-pre-wrap break-words text-[13px] text-text [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:font-mono"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        // Rendered as React nodes through the Telegram allowlist (lib/safeHtml.ts),
+        // on top of the sanitizing in telegramHtml.ts — never as raw HTML.
+        <div className="whitespace-pre-wrap break-words text-[13px] text-text [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:font-mono">
+          {renderSafeHtml(html, TELEGRAM_HTML)}
+        </div>
       ) : (
         <p className="text-[13px] text-muted">{t("adminBroadcasts.composer.previewEmpty")}</p>
       )}
