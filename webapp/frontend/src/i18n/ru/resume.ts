@@ -1,0 +1,241 @@
+import type { ResumeDict } from "../uz/resume";
+
+const resume: Record<keyof ResumeDict, string> = {
+  // ── Shell ──────────────────────────────────────────────────────────────────
+  "resume.title": "Мастер резюме",
+  "resume.preview": "Просмотр",
+  "resume.previewTitle": "Как выглядит резюме",
+  "resume.previewLive": "Живой просмотр",
+  "resume.stepOf": "{step}/{total}",
+  "resume.sync.idle": "Ожидание",
+  "resume.sync.saving": "Сохранение...",
+  "resume.sync.synced": "Сохранено",
+  "resume.sync.error": "Ошибка",
+
+  // ── Steps ──────────────────────────────────────────────────────────────────
+  "resume.step.basic": "Основное",
+  "resume.step.experience": "Опыт",
+  "resume.step.education": "Образование",
+  "resume.step.skills": "Навыки",
+  "resume.step.summary": "О себе",
+  "resume.step.template": "Шаблон",
+  "resume.hint.basic": "Имя, должность и контактные данные",
+  "resume.hint.experience": "Укажите опыт работы и достижения",
+  "resume.hint.education": "Укажите образование и квалификацию",
+  "resume.hint.skills": "Укажите навыки и знание языков",
+  "resume.hint.summary": "Напишите краткое профессиональное описание",
+  "resume.hint.template": "Выберите дизайн и подготовьте резюме",
+
+  // ── Draft / conflict banners ───────────────────────────────────────────────
+  "resume.serverDraft.text": "На сервере есть более новая сохранённая версия.",
+  "resume.serverDraft.load": "Загрузить с сервера",
+  "resume.serverDraft.loaded": "Данные загружены с сервера.",
+  "resume.localDraft.restored": "Несохранённый черновик восстановлен.",
+  "resume.conflict.title": "Версия на сервере обновилась",
+  "resume.conflict.body": "Резюме изменили на другом устройстве. Какую версию оставить?",
+  "resume.conflict.reload": "Загрузить серверную",
+  "resume.conflict.keepMine": "Оставить мою",
+
+  // ── Basic step ─────────────────────────────────────────────────────────────
+  "resume.field.fullName": "Ф.И.О.",
+  "resume.field.position": "Должность",
+  "resume.field.phone": "Телефон",
+  "resume.field.email": "Email",
+  "resume.field.location": "Адрес",
+  "resume.field.website": "Портфолио / LinkedIn",
+  "resume.ph.fullName": "Абдуллаев Али",
+  "resume.ph.position": "Frontend-разработчик",
+  "resume.ph.phone": "+998 90 123 45 67",
+  "resume.ph.email": "ali@email.com",
+  "resume.ph.location": "Ташкент, Узбекистан",
+  "resume.ph.website": "linkedin.com/in/username",
+
+  // ── Experience step ────────────────────────────────────────────────────────
+  "resume.exp.empty": "Опыт работы не добавлен",
+  "resume.exp.emptyHint": "Нажмите кнопку ниже, чтобы добавить",
+  "resume.exp.add": "Добавить опыт",
+  "resume.exp.item": "Опыт {n}",
+  "resume.exp.remove": "Удалить опыт",
+  "resume.exp.role": "Должность",
+  "resume.exp.company": "Компания",
+  "resume.exp.start": "Начало",
+  "resume.exp.end": "Окончание",
+  "resume.exp.location": "Местоположение",
+  "resume.exp.description": "Результаты и обязанности",
+  "resume.exp.roleFallback": "Должность",
+  "resume.exp.companyFallback": "Компания",
+  "resume.ph.role": "Senior-разработчик",
+  "resume.ph.company": "Google Inc.",
+  "resume.ph.expLocation": "Ташкент",
+  "resume.ph.expDescription": "- Ключевые достижения и задачи...",
+
+  // ── Experience suggestions ─────────────────────────────────────────────────
+  "resume.suggest.dev1": "Оптимизировал ключевые процессы и сократил время отклика на 30%.",
+  "resume.suggest.dev2":
+    "Внедрил автоматические тесты и снизил количество ошибок на продакшене на 20%.",
+  "resume.suggest.dev3":
+    "Вместе с командой запустил ключевую функцию, которой пользуются ежедневно.",
+  "resume.suggest.sales1": "Перевыполнил квартальные планы продаж на 18%.",
+  "resume.suggest.sales2": "Укрепил отношения с клиентами и повысил их удержание на 15%.",
+  "resume.suggest.sales3": "Обучал участников команды и улучшил показатель закрытия сделок.",
+  "resume.suggest.design1": "Проанализировал пользовательский опыт и повысил конверсию на 25%.",
+  "resume.suggest.design2":
+    "Разработал прототипы адаптивных интерфейсов для мобильных и веб-платформ.",
+  "resume.suggest.design3":
+    "Улучшил дизайн продукта на основе интервью и тестов с пользователями.",
+  "resume.suggest.generic1":
+    "Улучшил рабочие процессы команды и добился измеримых бизнес-результатов.",
+  "resume.suggest.generic2": "В связке со стейкхолдерами сдал важные проекты в срок.",
+  "resume.suggest.generic3": "Отслеживал KPI и последовательно повышал качество работы.",
+
+  // ── Education step ─────────────────────────────────────────────────────────
+  "resume.edu.empty": "Образование не добавлено",
+  "resume.edu.emptyHint": "Нажмите кнопку ниже, чтобы добавить",
+  "resume.edu.add": "Добавить образование",
+  "resume.edu.item": "Образование {n}",
+  "resume.edu.remove": "Удалить образование",
+  "resume.edu.school": "Учебное заведение",
+  "resume.edu.degree": "Степень",
+  "resume.edu.start": "Начало",
+  "resume.edu.end": "Окончание",
+  "resume.edu.description": "Дополнительно",
+  "resume.edu.schoolFallback": "Учебное заведение",
+  "resume.edu.degreeFallback": "Степень",
+  "resume.edu.selectDegree": "Выберите степень",
+  "resume.ph.school": "Ташкентский государственный технический университет",
+  "resume.ph.eduDescription": "Диплом, награды, проекты...",
+  "resume.degree.secondary": "Среднее образование",
+  "resume.degree.vocational": "Среднее специальное (колледж / техникум)",
+  "resume.degree.bachelor": "Бакалавр",
+  "resume.degree.master": "Магистр",
+  "resume.degree.phd": "Докторантура (PhD)",
+  "resume.degree.courses": "Сертификаты / Курсы",
+  "resume.degree.other": "Другое",
+
+  // ── Skills step ────────────────────────────────────────────────────────────
+  "resume.skills.label": "Навыки",
+  "resume.skills.hint": "— разделяйте Enter или запятой",
+  "resume.skills.count": "Навыков: {n}",
+  "resume.skills.min": "(минимум {n})",
+  "resume.skills.suggestTitle": "Рекомендации для «{position}»",
+  "resume.languages.label": "Языки",
+  "resume.ph.skills": "JavaScript, React, Python...",
+  "resume.ph.languages": "Узбекский, английский, русский...",
+
+  // ── Summary step ───────────────────────────────────────────────────────────
+  "resume.summary.label": "Профессиональное резюме",
+  "resume.summary.minHint": "Минимум {n} символов",
+  "resume.summary.charCount": "{n} символов",
+  "resume.ph.summary": "Разработчик с опытом более 5 лет...",
+  "resume.match.title": "Подгонка под вакансию",
+  "resume.match.subtitle": "Вставьте текст вакансии — подскажем ключевые слова",
+  "resume.ph.jobDescription": "Скопируйте сюда текст объявления о работе...",
+  "resume.match.topKeywords": "Топ ключевых слов:",
+  "resume.match.missing": "Ключевые слова, которых нет в резюме:",
+  "resume.match.allPresent": "Все ключевые слова уже есть в резюме!",
+
+  // ── Template step ──────────────────────────────────────────────────────────
+  "resume.tpl.section": "Шаблон",
+  "resume.tpl.change": "Изменить",
+  "resume.tpl.sheetTitle": "Выбор шаблона",
+  "resume.tpl.accent": "Акцентный цвет",
+  "resume.tpl.done": "Готово",
+  "resume.tpl.badgePhoto": "ФОТО",
+  "resume.tpl.badgeSidebar": "ПАНЕЛЬ",
+  "resume.tpl.badgeMono": "МОНО",
+  "resume.tpl.badgeDark": "ТЁМНЫЙ",
+  "resume.tpl.badgeColor": "цвет",
+  "resume.tpl.badgePro": "PRO",
+  "resume.tpl.pick": "Выбрать шаблон «{title}»",
+
+  // ── Template catalogue (fallback when the API list is unavailable) ─────────
+  "resume.tplTitle.clean": "Clean Classic",
+  "resume.tplDesc.clean": "Простой классический вид, подходит для любой сферы.",
+  "resume.tplTitle.modern": "Modern Accent",
+  "resume.tplDesc.modern": "Компактный современный стиль с боковой панелью.",
+  "resume.tplTitle.compact": "Compact One-Page",
+  "resume.tplDesc.compact": "Плотный формат, помещается на одну страницу.",
+  "resume.tplTitle.executive": "Executive Dark",
+  "resume.tplDesc.executive": "Корпоративный стиль: тёмная шапка и навыки в две колонки.",
+  "resume.tplTitle.timeline": "Timeline Classic",
+  "resume.tplDesc.timeline": "Хронология опыта с вертикальной линией и точками.",
+  "resume.tplTitle.minimal": "Minimal Pure",
+  "resume.tplDesc.minimal": "Только типографика, без цветных блоков — чистый профессиональный вид.",
+  "resume.tplTitle.creative": "Creative Stripe",
+  "resume.tplDesc.creative": "Широкая цветная полоса слева — для креативных профессий.",
+  "resume.tplTitle.photo_classic": "Photo Classic",
+  "resume.tplDesc.photo_classic": "Классический стиль с фото в правой части шапки.",
+  "resume.tplTitle.photo_sidebar": "Photo Sidebar",
+  "resume.tplDesc.photo_sidebar":
+    "Широкая боковая панель: фото сверху, опыт и образование в основной колонке.",
+  "resume.tplTitle.europass": "Europass Grid",
+  "resume.tplDesc.europass": "Двухколоночная сетка в стиле Europass с опциональным фото.",
+  "resume.tplTitle.infographic": "Infographic Visual",
+  "resume.tplDesc.infographic": "Визуальные шкалы навыков, цветные секции и акцентные маркеры.",
+
+  // ── Photo ──────────────────────────────────────────────────────────────────
+  "resume.photo.title": "Фото профиля",
+  "resume.photo.alt": "Фото профиля",
+  "resume.photo.included": "Фото попадёт в PDF",
+  "resume.photo.replace": "Заменить",
+  "resume.photo.remove": "Удалить",
+  "resume.photo.pick": "Выбрать фото",
+  "resume.photo.uploading": "Загрузка...",
+  "resume.photo.formats": "JPEG · PNG · WEBP",
+  "resume.photo.error": "Не удалось загрузить фото. Выберите другой файл.",
+
+  // ── Actions / toasts ───────────────────────────────────────────────────────
+  "resume.action.back": "Назад",
+  "resume.action.next": "Далее",
+  "resume.action.save": "Сохранить",
+  "resume.action.saved": "Сохранено",
+  "resume.action.saving": "Сохранение",
+  "resume.send.title": "Отправка",
+  "resume.send.button": "Отправить в Telegram",
+  "resume.send.short": "Отправить",
+  "resume.send.sending": "Отправка...",
+  "resume.toast.saved": "Данные сохранены.",
+  "resume.toast.sent": "Резюме отправлено в Telegram.",
+
+  // ── Validation ─────────────────────────────────────────────────────────────
+  "resume.err.fullName": "Укажите Ф.И.О.",
+  "resume.err.position": "Укажите должность",
+  "resume.err.contact": "Укажите хотя бы email или телефон",
+  "resume.err.experienceRequired": "Добавьте хотя бы одно место работы",
+  "resume.err.experienceFields": "В каждом опыте укажите должность и компанию",
+  "resume.err.educationRequired": "Добавьте хотя бы одну запись об образовании",
+  "resume.err.skillsMin": "Укажите минимум {n} навыка",
+  "resume.err.summaryMin": "Описание должно быть не короче {n} символов",
+  "resume.err.templateRequired": "Выберите шаблон",
+
+  // ── Premium upsell ─────────────────────────────────────────────────────────
+  "resume.premium.title": "Этот шаблон доступен в тарифе Pro",
+  "resume.premium.body": "Пригласите друзей или пополните баланс и перейдите на тариф Pro.",
+  "resume.premium.perk1": "{n} премиум-шаблонов",
+  "resume.premium.perk2": "Безлимитные сохранения",
+  "resume.premium.perk3": "Все контакты по вакансиям",
+  "resume.premium.toWallet": "Перейти в кошелёк",
+
+  // ── Live preview card ──────────────────────────────────────────────────────
+  "resume.card.unnamed": "Без имени",
+  "resume.card.noPosition": "Должность не указана",
+  "resume.card.noContact": "Контакты не указаны",
+  "resume.card.summary": "О себе",
+  "resume.card.experience": "Опыт",
+  "resume.card.skills": "Навыки",
+
+  // ── Date picker (src/components/ui/MonthYearPicker.tsx) ────────────────────
+  "resume.date.placeholder": "Месяц / год",
+  "resume.date.sheetTitle": "Выбор даты",
+  "resume.date.month": "Месяц",
+  "resume.date.year": "Год",
+  "resume.date.present": "Настоящее время (продолжаю)",
+  "resume.date.presentShort": "Настоящее время",
+  "resume.date.clear": "Очистить",
+
+  // ── Tag input (src/components/ui/TagInput.tsx) ─────────────────────────────
+  "resume.tag.add": "+добавить",
+  "resume.tag.remove": "Удалить «{tag}»",
+};
+
+export default resume;

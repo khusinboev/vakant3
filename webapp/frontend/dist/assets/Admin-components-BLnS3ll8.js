@@ -1,0 +1,1 @@
+import{j as t}from"./vendor-query-CkGAblPF.js";import{S as o,e as a}from"./Admin-ui-DCFHTEsg.js";function f({query:r,skeletonClassName:e="h-24",empty:n=null,children:i}){return r.isPending?t.jsx(o,{height:e}):r.isError?t.jsx(a,{error:r.error,onRetry:()=>void r.refetch()}):r.data===void 0?t.jsx(t.Fragment,{children:n}):t.jsx(t.Fragment,{children:i(r.data)})}export{f as Q};
