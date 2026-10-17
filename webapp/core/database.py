@@ -386,6 +386,8 @@ async def init_db() -> None:
             ("channel_lang", "'uz'", "TEXT"),
             ("auto_post_scheduled_day", "''", "TEXT"),
             ("last_weekly_stats_week", "''", "TEXT"),
+            # m024: auto-post quality floor over the vacancy store.
+            ("autopost_min_quality", 60, "INTEGER"),
         ]:
             if col not in admin_cols:
                 try:
