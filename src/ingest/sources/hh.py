@@ -269,6 +269,7 @@ def normalize(item: Any, *, detail: bool = False) -> Optional[NormalizedVacancy]
         source="hh",
         source_id=vacancy_id,
         title=title,
+        published_at=published,
         employer=clean_line(_dict(item.get("employer")).get("name") or ""),
         salary_min=_int_or_none(salary.get("from")),
         salary_max=_int_or_none(salary.get("to")),

@@ -63,6 +63,7 @@ def normalize(item: Mapping[str, Any], region_names: Mapping[str, str] | None = 
         source="osonish",
         source_id=str(raw_id),
         title=clean_line(item.get("title") or ""),
+        published_at=published,
         employer=clean_line(company.get("name") or item.get("company_name") or ""),
         salary_min=_int_or_none(item.get("min_salary")),
         salary_max=_int_or_none(item.get("max_salary")),
