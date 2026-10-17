@@ -369,3 +369,36 @@ async def test_recheck_picks_never_checked_first(conn):
     await repo.apply_detail(conn, vac(sid="1"), NOW)
     await repo.apply_detail(conn, vac(sid="2", title="B"), NOW - 100)
     assert await repo.pick_for_recheck(conn, "hh", 3) == ["3", "2", "1"]
+
+
+async def test_runner_end_to_end_with_hh_adapter_and_stub_transport(conn):
+    """Real HHAdapter + HHClient over a stub transport: list -> store -> detail re-check -> FTS search."""
+    from src.ingest.base import RateLimiter
+    from src.ingest.sources.hh import HHAdapter, HHClient, HttpResponse
+
+    item = {
+        "id": "4242", "name": "Data analyst", "published_at": "2026-10-17T09:00:00+0500",
+        "salary": {"from": 8_000_000, "to": None, "currency": "UZS", "gross": True},
+        "area": {"id": "2760", "name": "Самарканд"}, "employer": {"name": "Synthetic Bank"},
+        "alternate_url": "https://hh.uz/vacancy/4242", "snippet": {"requirement": "SQL"},
+    }
+
+    async def transport(url, params, headers):
+        if url.endswith("/vacancies"):
+            return HttpResponse(200, {"items": [item], "found": 1, "pages": 1}, {})
+        if url.endswith("/vacancies/4242"):
+            return HttpResponse(200, {**item, "description": "<p>Power BI va <b>SQL</b></p>"}, {})
+        return HttpResponse(404, None, {})
+
+    async def no_sleep(_):
+        return None
+
+    client = HHClient("synthetic", transport=transport, rate=RateLimiter(0), sleep=no_sleep)
+    adapter = HHAdapter(token="synthetic", client=client)
+    result = await IngestRunner([adapter], clock=lambda: NOW).run_once(conn)
+    assert result["hh"]["new"] == 1 and result["hh"]["checked"] == 1 and result["hh"]["requests"] == 2
+    found = await repo.search(conn, query="power bi", region_soato="1718")
+    assert [i["uid"] for i in found["items"]] == ["hh_4242"]
+    assert found["items"][0]["description_text"] == "Power BI va SQL"
+    assert found["items"][0]["salary_gross"] is True
+    assert (await repo.get_cursor(conn, "hh"))["cursor"] == str(NOW)
