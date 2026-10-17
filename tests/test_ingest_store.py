@@ -201,6 +201,8 @@ async def test_search_fts_filters_and_cursor(conn):
     rich = await repo.search(conn, min_salary=8_000_000)
     assert "hh_51" not in {i["uid"] for i in rich["items"]}  # USD never passes a UZS floor
     assert rich["total"] == 8
+    low_floor = await repo.search(conn, min_salary=1_000)
+    assert "hh_51" not in {i["uid"] for i in low_floor["items"]} and low_floor["total"] == 8
     assert (await repo.search(conn, source="osonish"))["items"] == []
     assert (await repo.search(conn, cursor="garbage!!"))["items"] == []
 

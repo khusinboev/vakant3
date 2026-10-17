@@ -196,6 +196,10 @@ def test_hh_normalize_rejects_unusable_and_unsafe_links():
     assert v.url == "https://hh.uz/vacancy/100008"
     v = hh_mod.normalize(hh_item(9, NOW, alternate_url="https://hh.uz.evil.example/vacancy/1"))
     assert v.url == "https://hh.uz/vacancy/100009"
+    v = hh_mod.normalize(hh_item(11, NOW, alternate_url="http://hh.uz/vacancy/100011"))
+    assert v.url == "https://hh.uz/vacancy/100011"  # plain http is replaced, never kept
+    v = hh_mod.normalize(hh_item(12, NOW, alternate_url="https://tashkent.hh.uz/vacancy/100012"))
+    assert v.url == "https://tashkent.hh.uz/vacancy/100012"
 
 
 def test_hh_normalize_detail_sanitizes_description_and_reads_skills_contacts():
