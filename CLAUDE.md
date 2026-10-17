@@ -108,6 +108,11 @@ The `webapp_admin_settings` row (edited via `PATCH /api/admin/state` and the Adm
 ### Referral gate
 `src/functions/referral_gate.py:compute_referral_state(conn, user_id)` is the single rule implementation; the bot wrapper adds the admin bypass and message, `webapp/core/referral_gate.py` raises `REFERRAL_LOCKED`.
 
+### Vacancy ingestion
+- `src/ingest/` stores vacancies from every source in our DB (migration `m023_vacancy_store`): table `vacancies` (`uid = "<source>_<source_id>"`, explicit `id` rowid for the external-content FTS5 table `vacancies_fts` synced by triggers, `status` open/closed, `quality_score`, `dedup_group`/`dup_of`) and `ingest_cursor` (per-source cursor, last run/error, stats). Description is stored as sanitized plain text (`text.py`), still `html.escape` it on output; the UI shows an excerpt plus the source link.
+- Adapters in `sources/` (`osonish.py` always on; `hh.py` = official API `api.hh.ru` with `host=hh.uz`, on only when `HH_APP_TOKEN` is set, `HH_USER_AGENT`, `HH_RATE_PER_SECOND`, 429/5xx backoff, >2000-result windows split by date). `regions.py` maps hh cities to our region SOATO; `dedup.py` (exact key + difflib fuzzy, canonical hh > osonish); `quality.py` (0-100).
+- `runner.py:ingest_loop` is a bot background task (tick 60 s, each source every 10 min, `INGEST_ENABLED=0` turns it off): list -> batched upserts, detail re-check (fills descriptions, closes 404/archived), stale close after 21 days unconfirmed, purge closed > 60 days. Never a transaction across network I/O. All SQL is in `repo.py`; read API for consumers: `search`, `get`, `freshest_for_post`. Tests stub all HTTP.
+
 ### Vacancy formatting is shared
 `src/functions/vacancy_format.py`: `normalize_vacancy_detail(uid, detail, lang)` (localized labels plus `codes`), `format_vacancy_message_html(uid, detail, lang, compact)` used by the bot deeplink, auto-post, notifications and `webapp/routers/jobs.py`. Integer code -> label maps live in the i18n dictionaries on both sides (`src/i18n/*.py` and `webapp/frontend/src/i18n/*/vacancy.ts`); keep the code numbers in sync.
 

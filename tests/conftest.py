@@ -44,6 +44,9 @@ os.environ.update(
         "CLICK_MERCHANT_ID": "",
         "CLICK_SECRET_KEY": "",
         "CLICK_MERCHANT_USER_ID": "",
+        # Vacancy ingestion: hh.uz stays disabled (no token) and tests stub every HTTP call.
+        "HH_APP_TOKEN": "",
+        "HH_USER_AGENT": "BandlikUZ-tests/1.0",
     }
 )
 

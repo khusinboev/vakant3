@@ -218,6 +218,24 @@ async def fetch_osonish_list(
     return vacancies, _last_page(data_block)
 
 
+async def fetch_osonish_raw_page(page: int, per_page: int = 50) -> tuple[list[dict[str, Any]], int]:
+    """One unfiltered list page as raw osonish dicts (default order: newest first) and ``last_page``.
+
+    For the ingestion adapter (``src/ingest/sources/osonish.py``), which needs
+    fields ``fetch_osonish_list`` drops (region codes, ids as-is). Raises
+    ``UpstreamError`` exactly like ``fetch_osonish_list``.
+    """
+    params = {"page": max(1, int(page)), "per_page": max(1, min(int(per_page), 100))}
+    status, payload = await request_json(f"{OSONISH_BASE}/vacancies", params=params, headers=_osonish_headers())
+    if status != 200:
+        raise UpstreamError("http_status", status)
+    data_block = payload.get("data") if isinstance(payload, dict) else None
+    items = data_block.get("data") if isinstance(data_block, dict) else None
+    if not isinstance(items, list):
+        raise UpstreamError("invalid_payload", status)
+    return [item for item in items if isinstance(item, dict)], _last_page(data_block)
+
+
 def _last_page(data_block: dict[str, Any]) -> int:
     try:
         return max(1, int(data_block.get("last_page") or 1))

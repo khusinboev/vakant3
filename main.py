@@ -15,6 +15,7 @@ from src.functions.daily_rollup import daily_rollup_loop
 from src.functions.notification_scheduler import notification_loop
 from src.functions.weekly_stats_scheduler import weekly_stats_loop
 from src.handlers import admin, content, membership, start
+from src.ingest.runner import ingest_loop
 from src.middleware.middlewares import StatsMiddleware
 
 # Logging
@@ -88,6 +89,7 @@ async def main():
         _start_task(broadcast_worker_loop, "broadcast_worker_loop"),
         _start_task(bot_jobs_loop, "bot_jobs_loop"),
         _start_task(daily_rollup_loop, "daily_rollup_loop"),
+        _start_task(ingest_loop, "ingest_loop"),
     ]
 
     try:
