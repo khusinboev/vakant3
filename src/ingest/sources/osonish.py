@@ -12,7 +12,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Mapping, Optional
 
 from src.functions import scraping
 from src.functions.vacancy_format import extract_codes
-from src.ingest.base import Batch, NormalizedVacancy, RateLimiter, SourceError, new_stats, parse_ts
+from src.ingest.base import Batch, DetailUnusable, NormalizedVacancy, RateLimiter, SourceError, new_stats, parse_ts
 from src.ingest.regions import osonish_region
 from src.ingest.text import clean_line, html_to_text
 
@@ -152,4 +152,7 @@ class OsonishAdapter:
         data = await self._call(self._fetch_detail, vacancy_id)
         if data is None:
             return None
-        return normalize(data, self.region_names, detail=True)
+        vacancy = normalize(data, self.region_names, detail=True)
+        if vacancy is None:
+            raise DetailUnusable(f"osonish {vacancy_id}: unparseable detail")
+        return vacancy

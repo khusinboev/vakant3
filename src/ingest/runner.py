@@ -5,8 +5,13 @@ Per due adapter and run:
    transaction; the cursor is saved as soon as a unit of work completes;
 2. re-check up to ``recheck_per_run`` open vacancies through the detail
    endpoint (never-checked first) — this fills descriptions and closes the
-   ones the source answers 404 / archived for;
-3. close rows not confirmed for ``stale_after_seconds``.
+   ones the source answers 404 / archived for. A failed request is counted on
+   the row and backed off (``repo.record_detail_failure``) and the next row is
+   tried; ``MAX_CONSECUTIVE_DETAIL_ERRORS`` failures in a row mean an outage
+   and end the re-checks. An unparseable answer only rotates the row;
+3. close rows not confirmed for ``stale_after_seconds`` — skipped when this
+   run's re-checks hit an outage or failed for ``STALE_SKIP_FAILURE_RATIO`` of
+   the rows, so a source outage never closes healthy vacancies.
 Then closed rows older than ``PURGE_AFTER_SECONDS`` are deleted.
 
 No transaction is ever open while a request is in flight. One adapter
@@ -22,12 +27,14 @@ import time
 from typing import Any, Callable, Optional, Sequence
 
 from src.ingest import repo
-from src.ingest.base import Adapter, SourceError
+from src.ingest.base import Adapter, BudgetExhausted, DetailUnusable, SourceError
 
 logger = logging.getLogger(__name__)
 
 TICK_SECONDS = 60
 PURGE_AFTER_SECONDS = 60 * 86_400
+MAX_CONSECUTIVE_DETAIL_ERRORS = 3
+STALE_SKIP_FAILURE_RATIO = 0.5
 
 
 class IngestRunner:
@@ -97,16 +104,38 @@ class IngestRunner:
                 new_cursor = batch.cursor
                 await repo.save_cursor(conn, adapter.name, new_cursor)
 
-        checked = closed = 0
+        checked = closed = attempted = failed = unusable = consecutive = 0
+        outage = False
         recheck_error = None
-        for source_id in await repo.pick_for_recheck(conn, adapter.name, adapter.recheck_per_run):
+        picked = await repo.pick_for_recheck(conn, adapter.name, adapter.recheck_per_run, now=self._now())
+        for source_id in picked:
             uid = f"{adapter.name}_{source_id}"
             try:
                 vacancy = await adapter.fetch_detail(source_id)
-            except SourceError as exc:
-                recheck_error = f"recheck: {exc}"
-                logger.warning("ingest %s: detail re-check stopped: %s", adapter.name, exc)
+            except BudgetExhausted:
+                logger.info("ingest %s: request budget used up after %d re-checks", adapter.name, attempted)
                 break
+            except DetailUnusable as exc:
+                attempted += 1
+                unusable += 1
+                consecutive = 0
+                logger.warning("ingest %s: %s", adapter.name, exc)
+                await repo.mark_checked(conn, uid, self._now())
+                continue
+            except SourceError as exc:
+                attempted += 1
+                failed += 1
+                consecutive += 1
+                recheck_error = f"recheck: {exc}"
+                await repo.record_detail_failure(conn, uid, self._now())
+                if consecutive >= MAX_CONSECUTIVE_DETAIL_ERRORS:
+                    outage = True
+                    logger.warning("ingest %s: detail re-check stopped: %s", adapter.name, exc)
+                    break
+                logger.warning("ingest %s: detail re-check of %s failed: %s", adapter.name, source_id, exc)
+                continue
+            attempted += 1
+            consecutive = 0
             ts = self._now()
             if vacancy is None:
                 closed += await repo.close(conn, [uid], "gone", ts)
@@ -119,8 +148,16 @@ class IngestRunner:
             if not vacancy.is_open:
                 closed += 1
 
-        stale = await repo.close_stale(conn, adapter.name, now - adapter.stale_after_seconds, self._now())
-        stats = {**adapter.stats, "seen": seen, "new": new, "checked": checked, "closed": closed, "stale": stale}
+        skip_stale = outage or (attempted > 0 and failed / attempted >= STALE_SKIP_FAILURE_RATIO)
+        stale = 0
+        if skip_stale:
+            logger.warning("ingest %s: re-checks failing (%d/%d), stale close skipped", adapter.name, failed, attempted)
+        else:
+            stale = await repo.close_stale(conn, adapter.name, now - adapter.stale_after_seconds, self._now())
+        stats = {
+            **adapter.stats, "seen": seen, "new": new, "checked": checked, "closed": closed, "stale": stale,
+            "detail_failed": failed, "detail_unusable": unusable, "stale_skipped": int(skip_stale),
+        }
         await repo.save_run(
             conn, adapter.name, now=now, cursor=new_cursor, ok=recheck_error is None, error=recheck_error, stats=stats
         )
@@ -132,11 +169,30 @@ def ingest_enabled() -> bool:
     return (os.getenv("INGEST_ENABLED") or "1").strip().lower() not in ("0", "false", "no", "off")
 
 
-def build_adapters() -> list[Adapter]:
-    from src.ingest.sources.hh import HHAdapter
+def _osonish() -> Adapter:
     from src.ingest.sources.osonish import OsonishAdapter
 
-    return [OsonishAdapter(), HHAdapter()]
+    return OsonishAdapter()
+
+
+def _hh() -> Adapter:
+    from src.ingest.sources.hh import HHAdapter
+
+    return HHAdapter()
+
+
+ADAPTER_FACTORIES: tuple[Callable[[], Adapter], ...] = (_osonish, _hh)
+
+
+def build_adapters(factories: Sequence[Callable[[], Adapter]] = ADAPTER_FACTORIES) -> list[Adapter]:
+    """Every adapter that can be built; one failing (bad config) is logged and left out."""
+    adapters: list[Adapter] = []
+    for factory in factories:
+        try:
+            adapters.append(factory())
+        except Exception:
+            logger.exception("ingest: could not build adapter %s", getattr(factory, "__name__", factory))
+    return adapters
 
 
 async def ingest_loop(tick_seconds: int = TICK_SECONDS) -> None:
@@ -146,11 +202,13 @@ async def ingest_loop(tick_seconds: int = TICK_SECONDS) -> None:
     if not ingest_enabled():
         logger.info("ingest: disabled by INGEST_ENABLED")
         return
-    runner = IngestRunner(build_adapters())
-    for adapter in runner.adapters:
-        logger.info("ingest: source %s %s", adapter.name, "enabled" if adapter.enabled() else "disabled")
+    runner: Optional[IngestRunner] = None
     while True:
         try:
+            if runner is None:
+                runner = IngestRunner(build_adapters())
+                for adapter in runner.adapters:
+                    logger.info("ingest: source %s %s", adapter.name, "enabled" if adapter.enabled() else "disabled")
             async with connect() as conn:
                 await runner.run_once(conn)
         except asyncio.CancelledError:

@@ -21,8 +21,16 @@ from src.ingest.text import excerpt
 BATCH_SIZE = 200
 SEARCH_MAX_LIMIT = 50
 EXCERPT_LEN = 400
-_RAW_DROP_KEYS = ("description", "branded_description")
-_RAW_MAX = 20_000
+#: Description-like fields are already stored as ``description_text``.
+_RAW_DROP_KEYS = ("description", "branded_description", "info", "requirements")
+#: ``raw`` must keep these (``vacancy_format.osonish_store_detail``); other keys are dropped largest first.
+_RAW_KEEP_KEYS = ("id", "hr")
+_RAW_MAX = 4_096
+#: A detail re-check failure backs the row off 1 h, 2 h, ... up to a day.
+DETAIL_BACKOFF_BASE = 3_600
+DETAIL_BACKOFF_MAX = 86_400
+#: After this many failed re-checks in a row the stale rule applies again.
+DETAIL_FAILURE_GIVE_UP = 8
 
 
 @asynccontextmanager
@@ -36,10 +44,27 @@ async def write_tx(conn) -> AsyncIterator[None]:
     await conn.commit()
 
 
+def _dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
 def _raw_json(raw: dict[str, Any]) -> str:
+    """The source payload without description fields, at most ``_RAW_MAX`` chars.
+
+    Too large: the largest other top-level values go first; ``{}`` when even
+    the kept keys do not fit.
+    """
     slim = {k: v for k, v in raw.items() if k not in _RAW_DROP_KEYS}
-    text = json.dumps(slim, ensure_ascii=False, separators=(",", ":"), default=str)
-    return text if len(text) <= _RAW_MAX else "{}"
+    text = _dumps(slim)
+    if len(text) <= _RAW_MAX:
+        return text
+    sizes = sorted(((len(_dumps(v)), k) for k, v in slim.items() if k not in _RAW_KEEP_KEYS), reverse=True)
+    for _size, key in sizes:
+        del slim[key]
+        text = _dumps(slim)
+        if len(text) <= _RAW_MAX:
+            return text
+    return "{}"
 
 
 def _row_values(v: NormalizedVacancy, now: int) -> tuple:
@@ -68,6 +93,8 @@ _PLACEHOLDERS = ",".join("?" * 30)
 
 # A list sighting refreshes the list fields; detail-only fields (description,
 # skills, contacts, category, raw) are kept once a detail check has filled them.
+# A row the detail endpoint answered "gone" for stays closed: only a detail
+# answer (``_UPSERT_DETAIL``) reopens it.
 _UPSERT_LIST = f"""
 INSERT INTO vacancies ({_COLUMNS}) VALUES ({_PLACEHOLDERS})
 ON CONFLICT(uid) DO UPDATE SET
@@ -87,9 +114,10 @@ ON CONFLICT(uid) DO UPDATE SET
     url = excluded.url,
     published_at = excluded.published_at,
     last_seen_at = excluded.last_seen_at,
-    status = excluded.status,
-    closed_at = excluded.closed_at,
-    close_reason = excluded.close_reason,
+    status = CASE WHEN vacancies.close_reason = 'gone' THEN vacancies.status ELSE excluded.status END,
+    closed_at = CASE WHEN vacancies.close_reason = 'gone' THEN vacancies.closed_at ELSE excluded.closed_at END,
+    close_reason = CASE WHEN vacancies.close_reason = 'gone'
+        THEN vacancies.close_reason ELSE excluded.close_reason END,
     dedup_key = excluded.dedup_key,
     description_text = CASE WHEN vacancies.checked_at IS NULL
         THEN excluded.description_text ELSE vacancies.description_text END,
@@ -137,16 +165,23 @@ async def upsert_batch(conn, items: Sequence[NormalizedVacancy], now: int) -> in
     for chunk in _chunks(unique, BATCH_SIZE):
         uids = [v.uid for v in chunk]
         marks = ",".join("?" * len(uids))
+        # Everything that needs no lock is computed before BEGIN IMMEDIATE.
+        values = [_row_values(v, now) for v in chunk]
+        keys = {v.uid: dedup.dedup_key(v) for v in chunk}
         async with write_tx(conn):
-            cur = await conn.execute(f"SELECT uid, dedup_key, status FROM vacancies WHERE uid IN ({marks})", uids)
-            before = {row[0]: (row[1], row[2]) for row in await cur.fetchall()}
-            await conn.executemany(_UPSERT_LIST, [_row_values(v, now) for v in chunk])
+            cur = await conn.execute(
+                f"SELECT uid, dedup_key, status, district_soato FROM vacancies WHERE uid IN ({marks})", uids
+            )
+            before = {row[0]: (row[1], row[2], row[3]) for row in await cur.fetchall()}
+            await conn.executemany(_UPSERT_LIST, values)
             changed = []
             for v in chunk:
                 if v.uid not in before:
                     new_count += 1
                     changed.append(v.uid)
-                elif before[v.uid][0] != dedup.dedup_key(v):
+                elif before[v.uid][0] != keys[v.uid] or (
+                    v.district_soato is not None and before[v.uid][2] != v.district_soato
+                ):
                     changed.append(v.uid)
             await dedup.assign(conn, changed)
             # Closed by the source, or reopened by a new sighting: the group's canonical may change.
@@ -161,9 +196,13 @@ async def upsert_batch(conn, items: Sequence[NormalizedVacancy], now: int) -> in
 
 async def apply_detail(conn, v: NormalizedVacancy, now: int) -> None:
     """Store a full detail answer and mark the row checked (closing it when the source says so)."""
+    values = _row_values(v, now)
     async with write_tx(conn):
-        await conn.execute(_UPSERT_DETAIL, _row_values(v, now))
-        await conn.execute("UPDATE vacancies SET checked_at = ? WHERE uid = ?", (now, v.uid))
+        await conn.execute(_UPSERT_DETAIL, values)
+        await conn.execute(
+            "UPDATE vacancies SET checked_at = ?, detail_failures = 0, recheck_after = NULL WHERE uid = ?",
+            (now, v.uid),
+        )
         await dedup.assign(conn, [v.uid])
         if not v.is_open:
             await _regroup_for(conn, [v.uid])
@@ -196,10 +235,16 @@ async def close(conn, uids: Sequence[str], reason: str, now: int) -> int:
 
 
 async def close_stale(conn, source: str, seen_before: int, now: int, limit: int = 2000) -> int:
-    """Close open rows of ``source`` neither seen in a list nor confirmed by detail since ``seen_before``."""
+    """Close open rows of ``source`` neither seen in a list nor confirmed by detail since ``seen_before``.
+
+    A row whose last detail re-check failed is not closed: the failure says
+    nothing about the vacancy. After ``DETAIL_FAILURE_GIVE_UP`` failures in a
+    row (days, with the backoff) the stale rule applies again.
+    """
     cur = await conn.execute(
-        "SELECT uid FROM vacancies WHERE source = ? AND status = 'open' AND last_seen_at < ? LIMIT ?",
-        (source, seen_before, limit),
+        """SELECT uid FROM vacancies WHERE source = ? AND status = 'open' AND last_seen_at < ?
+             AND (detail_failures = 0 OR detail_failures >= ?) LIMIT ?""",
+        (source, seen_before, DETAIL_FAILURE_GIVE_UP, limit),
     )
     uids = [row[0] for row in await cur.fetchall()]
     return await close(conn, uids, "stale", now)
@@ -221,6 +266,17 @@ async def mark_checked(conn, uid: str, now: int) -> None:
         await conn.execute("UPDATE vacancies SET checked_at = ? WHERE uid = ?", (now, uid))
 
 
+async def record_detail_failure(conn, uid: str, now: int) -> None:
+    """A re-check failed (outage, 5xx): count it and back the row off; it stays open and unconfirmed."""
+    async with write_tx(conn):
+        await conn.execute(
+            """UPDATE vacancies SET checked_at = ?, detail_failures = detail_failures + 1,
+                   recheck_after = ? + MIN(?, ? * (1 << MIN(detail_failures, 10)))
+               WHERE uid = ?""",
+            (now, now, DETAIL_BACKOFF_MAX, DETAIL_BACKOFF_BASE, uid),
+        )
+
+
 async def save_cursor(conn, source: str, cursor: str) -> None:
     """Persist progress mid-run so a later failure does not redo completed windows."""
     async with write_tx(conn):
@@ -231,14 +287,18 @@ async def save_cursor(conn, source: str, cursor: str) -> None:
         )
 
 
-async def pick_for_recheck(conn, source: str, limit: int) -> list[str]:
-    """``source_id`` of open vacancies never detail-checked first, then the longest unchecked."""
+async def pick_for_recheck(conn, source: str, limit: int, now: Optional[int] = None) -> list[str]:
+    """``source_id`` of open vacancies never detail-checked first, then the longest unchecked.
+
+    With ``now``, rows backed off after a failed re-check wait until ``recheck_after``.
+    """
     if limit <= 0:
         return []
     cur = await conn.execute(
         """SELECT source_id FROM vacancies WHERE source = ? AND status = 'open'
+             AND (? IS NULL OR recheck_after IS NULL OR recheck_after <= ?)
            ORDER BY checked_at IS NOT NULL, checked_at, published_at DESC LIMIT ?""",
-        (source, limit),
+        (source, now, now, limit),
     )
     return [row[0] for row in await cur.fetchall()]
 
@@ -310,6 +370,8 @@ def _to_dict(row: Any) -> dict[str, Any]:
 
 
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+#: Same set the FTS view strips (``m025_ingest_hardening.APOSTROPHES``): o'qituvchi = oʻqituvchi.
+_APOSTROPHES = str.maketrans("", "", "ʻʼ'`‘’")
 
 
 def fts_query(text: str, max_terms: int = 8) -> str:
@@ -318,7 +380,7 @@ def fts_query(text: str, max_terms: int = 8) -> str:
     Quoting removes FTS5 syntax (``OR``, ``NEAR``, ``*``, ``:``, ``"``) from
     user input, so no input can raise a syntax error or widen the query.
     """
-    terms = _TOKEN_RE.findall(text or "")[:max_terms]
+    terms = _TOKEN_RE.findall((text or "").translate(_APOSTROPHES))[:max_terms]
     return " ".join(f'"{t}"*' for t in terms)
 
 
