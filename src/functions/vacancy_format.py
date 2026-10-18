@@ -332,6 +332,9 @@ def normalize_store_vacancy(
 
     codes: dict[str, int | None] = {name: None for name in _CODE_NAMESPACES}
     labels: dict[str, str] = {name: "" for name in _CODE_NAMESPACES}
+    #: Raw hh dictionary ids (``experience``/``employment``/``schedule``) for the
+    #: Mini App's own ``vacancy.hh.*`` maps; empty for other sources.
+    hh_codes: dict[str, str] = {}
     if source == "osonish":
         for name, column in (("experience", "experience"), ("busyness_type", "employment"), ("work_type", "schedule")):
             codes[name] = _to_int(row.get(column))
@@ -340,6 +343,8 @@ def normalize_store_vacancy(
         for name, (column, known) in _HH_FIELDS.items():
             value = str(row.get(column) or "")
             labels[name] = t(lang, f"vacancy.hh.{column}.{value}") if value in known else ""
+            if value:
+                hh_codes[column] = value
 
     description = str(row.get("description_text") or "")
     limit = excerpt_len if excerpt_len is not None else (HH_EXCERPT_LEN if source == "hh" else None)
@@ -368,6 +373,7 @@ def normalize_store_vacancy(
         "hr_email": str(contacts.get("email") or "").strip(),
         "source_url": url,
         "codes": codes,
+        "hh_codes": hh_codes,
         **extra,
     }
 

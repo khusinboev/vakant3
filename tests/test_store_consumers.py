@@ -91,6 +91,7 @@ def test_hh_row_labels_salary_and_excerpt(lang):
     assert n["url"] == n["source_url"] == "https://hh.uz/vacancy/900000000001"
     assert n["source"] == "hh" and n["source_label"] == "hh.uz"
     assert n["codes"]["experience"] is None
+    assert n["hh_codes"] == {"experience": "between1And3", "employment": "full", "schedule": "remote"}
     assert n["posted_at"] == datetime.fromtimestamp(1_792_213_200, TZ).strftime("%Y-%m-%d")
 
 
