@@ -379,5 +379,7 @@ def test_vacancy_app_url_is_a_valid_start_param_or_the_plain_app():
     go = url.split("?go=", 1)[1]
     # Same value must also work as a Telegram start_param.
     assert re.fullmatch(r"[A-Za-z0-9_-]{1,64}", go)
-    for bad in ("", "osonish_", "osonish_12a", "hh_5", "osonish_1&go=admin", "osonish_" + "9" * 16):
+    # Store sources other than osonish deep-link too (hh.uz since the vacancy store).
+    assert vacancy_app_url("hh_5") == f"{WEBAPP}?go=vacancy_hh_5"
+    for bad in ("", "osonish_", "osonish_12a", "hh_", "hh_5a", "zz_5", "osonish_1&go=admin", "osonish_" + "9" * 16):
         assert vacancy_app_url(bad) == WEBAPP, bad

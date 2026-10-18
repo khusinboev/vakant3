@@ -366,6 +366,19 @@ def _filters(
     return where, params
 
 
+#: Sort orders of ``search``: (SQL key expression, direction). The key is an
+#: integer so one ``key:id`` cursor format serves every order.
+_SORTS: dict[str, tuple[str, str]] = {
+    "new": ("v.published_at", "DESC"),
+    "old": ("v.published_at", "ASC"),
+    # Only UZS amounts are comparable: foreign-currency rows sort as "no salary".
+    "salary": (
+        "CASE WHEN COALESCE(v.currency, 'UZS') = 'UZS' THEN COALESCE(v.salary_max, v.salary_min, 0) ELSE 0 END",
+        "DESC",
+    ),
+}
+
+
 async def search(
     conn,
     *,
@@ -376,31 +389,40 @@ async def search(
     source: Optional[str] = None,
     limit: int = 20,
     cursor: Optional[str] = None,
+    sort: str = "new",
+    offset: int = 0,
+    with_total: bool = False,
 ) -> dict[str, Any]:
-    """Open canonical vacancies, newest first: ``{items, next_cursor, total|None}``.
+    """Open canonical vacancies: ``{items, next_cursor, total|None}``.
 
-    ``total`` is counted only for the first page (``cursor is None``).
+    ``sort`` is ``new`` (default), ``old`` or ``salary`` (UZS, highest first).
+    ``total`` is counted for the first page (``cursor is None``) or when
+    ``with_total`` is set. ``offset`` (only without a cursor) serves clients
+    that page by number; the cursor is the normal way to page.
     """
     limit = max(1, min(int(limit), SEARCH_MAX_LIMIT))
+    key_sql, direction = _SORTS.get(sort, _SORTS["new"])
     where, params = _filters(
         query=query, region_soato=region_soato, district_soato=district_soato, min_salary=min_salary, source=source
     )
     total = None
-    if cursor is None:
+    if cursor is None or with_total:
         cur = await conn.execute(f"SELECT COUNT(*) FROM vacancies v WHERE {' AND '.join(where)}", params)
         total = int((await cur.fetchone())[0])
     page_where, page_params = list(where), list(params)
     if cursor:
         decoded = _decode_cursor(cursor)
         if decoded is None:
-            return {"items": [], "next_cursor": None, "total": None}
-        page_where.append("(v.published_at < ? OR (v.published_at = ? AND v.id < ?))")
+            return {"items": [], "next_cursor": None, "total": total}
+        op = "<" if direction == "DESC" else ">"
+        page_where.append(f"(({key_sql}) {op} ? OR (({key_sql}) = ? AND v.id {op} ?))")
         page_params += [decoded[0], decoded[0], decoded[1]]
+    skip = max(0, int(offset)) if not cursor else 0
     cur = await conn.execute(
-        f"""SELECT v.id AS _id, {', '.join('v.' + c.strip() for c in _PUBLIC_COLUMNS.split(','))}
+        f"""SELECT v.id AS _id, ({key_sql}) AS _key, {', '.join('v.' + c.strip() for c in _PUBLIC_COLUMNS.split(','))}
             FROM vacancies v WHERE {' AND '.join(page_where)}
-            ORDER BY v.published_at DESC, v.id DESC LIMIT ?""",
-        (*page_params, limit + 1),
+            ORDER BY _key {direction}, v.id {direction} LIMIT ? OFFSET ?""",
+        (*page_params, limit + 1, skip),
     )
     rows = await cur.fetchall()
     has_more = len(rows) > limit
@@ -409,16 +431,40 @@ async def search(
     for row in rows:
         item = _to_dict(row)
         item.pop("_id", None)
+        item.pop("_key", None)
         items.append(item)
-    next_cursor = _encode_cursor(rows[-1]["published_at"], rows[-1]["_id"]) if has_more and rows else None
+    next_cursor = _encode_cursor(int(rows[-1]["_key"] or 0), rows[-1]["_id"]) if has_more and rows else None
     return {"items": items, "next_cursor": next_cursor, "total": total}
 
 
-async def get(conn, uid: str) -> Optional[dict[str, Any]]:
-    """One vacancy by uid in any status (``None`` when unknown)."""
-    cur = await conn.execute(f"SELECT {_PUBLIC_COLUMNS} FROM vacancies WHERE uid = ?", (uid,))
+async def get(conn, uid: str, *, with_raw: bool = False) -> Optional[dict[str, Any]]:
+    """One vacancy by uid in any status (``None`` when unknown).
+
+    ``with_raw`` adds ``raw`` (the source payload without its description,
+    ``{}`` when it was too large) for consumers that render the source's own
+    fields, e.g. an osonish detail checked by the runner.
+    """
+    columns = _PUBLIC_COLUMNS + (", raw_json" if with_raw else "")
+    cur = await conn.execute(f"SELECT {columns} FROM vacancies WHERE uid = ?", (uid,))
     row = await cur.fetchone()
-    return _to_dict(row) if row is not None else None
+    if row is None:
+        return None
+    out = _to_dict(row)
+    if with_raw:
+        try:
+            raw = json.loads(out.pop("raw_json") or "{}")
+        except ValueError:
+            raw = {}
+        out["raw"] = raw if isinstance(raw, dict) else {}
+    return out
+
+
+async def has_open(conn) -> bool:
+    """True once the store holds at least one open vacancy (False before the first ingest)."""
+    if not await _table_exists(conn, "vacancies"):
+        return False
+    cur = await conn.execute("SELECT 1 FROM vacancies WHERE status = 'open' LIMIT 1")
+    return await cur.fetchone() is not None
 
 
 async def _table_exists(conn, name: str) -> bool:
@@ -436,17 +482,24 @@ async def freshest_for_post(
     channel: Optional[str] = None,
     region_soato: Optional[str] = None,
     limit: int = 20,
+    require_salary: bool = False,
+    require_employer: bool = False,
 ) -> list[dict[str, Any]]:
     """Open canonical vacancies published at/after ``since`` for the auto-post, newest then best first.
 
     ``exclude_posted`` skips uids already in ``posted_vacancies`` (for ``channel``
-    when given, else for any channel).
+    when given, else for any channel). ``require_salary`` keeps only rows with
+    an amount (any currency), ``require_employer`` only rows naming the employer.
     """
     where, params = _filters(
         query=None, region_soato=region_soato, district_soato=None, min_salary=min_salary, source=None
     )
     where += ["v.published_at >= ?", "v.quality_score >= ?"]
     params += [int(since), int(min_quality)]
+    if require_salary:
+        where.append("COALESCE(v.salary_max, v.salary_min, 0) > 0")
+    if require_employer:
+        where.append("TRIM(COALESCE(v.employer, '')) != ''")
     if exclude_posted and await _table_exists(conn, "posted_vacancies"):
         if channel:
             where.append("NOT EXISTS (SELECT 1 FROM posted_vacancies p WHERE p.vacancy_uid = v.uid AND p.channel = ?)")

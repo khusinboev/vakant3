@@ -27,6 +27,7 @@ STRINGS: dict[str, str] = {
     "start.subscribe_prompt": "Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:",
     "start.btn.open_app": "Ilovada ochish",
     "start.btn.open_in_bot": "Botda batafsil",
+    "start.btn.open_original": "Asl e'lon",
     "bot.menu_button": "Ilova",
     "cmd.start": "Botni boshlash",
     "cmd.lang": "Tilni o'zgartirish",
@@ -89,6 +90,9 @@ STRINGS: dict[str, str] = {
     "vacancy.salary.upto": "{max} so'mgacha",
     "vacancy.salary.negotiable": "Kelishiladi",
     "vacancy.salary.unspecified": "Ko'rsatilmagan",
+    "vacancy.salary.cur_range": "{min} – {max} {cur}",
+    "vacancy.salary.cur_from": "{min} {cur} dan",
+    "vacancy.salary.cur_upto": "{max} {cur} gacha",
     "vacancy.code_unknown": "Kod {code}",
 
     "vacancy.gender.1": "Erkak",
@@ -116,6 +120,22 @@ STRINGS: dict[str, str] = {
     "vacancy.experience.2": "1 yilgacha",
     "vacancy.experience.3": "1-3 yil",
     "vacancy.experience.4": "3+ yil",
+
+    # hh.uz dictionary ids (experience / employment / schedule)
+    "vacancy.hh.experience.noExperience": "Tajriba talab etilmaydi",
+    "vacancy.hh.experience.between1And3": "1–3 yil",
+    "vacancy.hh.experience.between3And6": "3–6 yil",
+    "vacancy.hh.experience.moreThan6": "6 yildan ortiq",
+    "vacancy.hh.employment.full": "To'liq bandlik",
+    "vacancy.hh.employment.part": "Qisman bandlik",
+    "vacancy.hh.employment.project": "Loyiha bo'yicha ish",
+    "vacancy.hh.employment.volunteer": "Ko'ngillilik",
+    "vacancy.hh.employment.probation": "Amaliyot (stajirovka)",
+    "vacancy.hh.schedule.fullDay": "To'liq kun",
+    "vacancy.hh.schedule.shift": "Smenali grafik",
+    "vacancy.hh.schedule.flexible": "Moslashuvchan grafik",
+    "vacancy.hh.schedule.remote": "Masofaviy ish",
+    "vacancy.hh.schedule.flyInFlyOut": "Vaxta usuli",
 
     # ── Vakansiya: xabar yorliqlari ───────────────────────────
     "vacancy.label.company": "Tashkilot",

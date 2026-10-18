@@ -1,7 +1,11 @@
 """
 Bildirishnomalar scheduleri — har 30 daqiqada ishga tushadi.
 Pro foydalanuvchilar uchun, kuniga max MAX_PER_DAY ta, deterministik random vaqtlarda.
-Faqat vacancy_cache dan, user filtrlariga mos keluvchi vakansiyalar.
+Candidates come from the vacancy store (``src/ingest/``: open canonical rows of
+every source published in the last ``STORE_FRESH_SECONDS``, newest first);
+when the store has none (ingestion off) the old ``vacancy_cache`` rows are used.
+Matching rules are unchanged (region, salary floor; a vacancy without a
+category passes a category filter, as before).
 
 Vaqt mantig'i: har bir foydalanuvchi uchun bugungi kunga MAX_PER_DAY ta slot
 deterministik hisoblanadi. Vaqti o'tgan slotlar soni bugun yuborilganlar sonidan
@@ -27,8 +31,9 @@ from config import bot
 from src.buttons.buttuns import open_app_kb
 from src.core.timeutil import now_tz, today_start_ts
 from src.db.connection import connect
-from src.functions.vacancy_format import format_vacancy_message_html, vacancy_app_url
+from src.functions.vacancy_format import format_vacancy_message_html, is_store_row, vacancy_app_url
 from src.i18n import DEFAULT_LANG, normalize_lang
+from src.ingest import repo as store
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +48,7 @@ SENT_LOOKUP_CHUNK = 500        # sent_notifications uchun `user_id IN (...)` bo'
 MAX_CONCURRENT_SENDS = 10      # bir vaqtda ochiq Telegram so'rovlari
 SEND_RATE_PER_SECOND = 20      # token bucket: sekundiga max xabar
 MAX_RETRY_AFTER_SECONDS = 60   # flood wait shu qiymatdan katta bo'lsa kutilmaydi
+STORE_FRESH_SECONDS = 72 * 3600  # store candidates: published within this window
 
 
 def _now_uzb() -> datetime:
@@ -97,6 +103,14 @@ def _next_notification_ts(user_id: int) -> int:
 
 
 def _max_salary_of(data: dict) -> int:
+    """Highest UZS amount; a store row in another currency never passes a UZS floor."""
+    if is_store_row(data):
+        if str(data.get("currency") or "UZS").upper() != "UZS":
+            return 0
+        try:
+            return int(data.get("salary_max") or data.get("salary_min") or 0)
+        except (TypeError, ValueError):
+            return 0
     try:
         return int(data.get("salary_max") or data.get("max_salary") or 0)
     except (TypeError, ValueError):
@@ -108,7 +122,23 @@ def _max_salary_of(data: dict) -> int:
 # ───────────────────────────────────────────────
 
 async def _load_candidates(conn: aiosqlite.Connection) -> list[tuple[str, dict]]:
-    """Tirik vacancy_cache qatorlari — bir tickda BIR marta o'qiladi va parse qilinadi."""
+    """Store rows (one query), else live ``vacancy_cache`` rows — read ONCE per tick."""
+    try:
+        rows = await store.freshest_for_post(
+            conn,
+            since=int(time.time()) - STORE_FRESH_SECONDS,
+            exclude_posted=False,
+            limit=CANDIDATE_LIMIT,
+        )
+    except aiosqlite.OperationalError:  # store table not migrated yet
+        rows = []
+    if rows:
+        return [(row["uid"], row) for row in rows]
+    return await _load_cache_candidates(conn)
+
+
+async def _load_cache_candidates(conn: aiosqlite.Connection) -> list[tuple[str, dict]]:
+    """Tirik vacancy_cache qatorlari (fallback while the store is empty)."""
     cursor = await conn.execute(
         """
         SELECT uid, data_json

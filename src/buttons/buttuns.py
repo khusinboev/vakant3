@@ -29,6 +29,7 @@ BUTTON_ICONS: dict[str, str] = {
     "start.btn.subscribed": "success",
     "start.btn.open_app": "app",
     "start.btn.open_in_bot": "job",
+    "start.btn.open_original": "link",
     "referral.btn.share": "share",
     "content.laws.read_more": "link",
     "btn.admin.stats": "stats",
@@ -311,11 +312,16 @@ def open_app_kb(lang: str, webapp_url: str) -> InlineKeyboardMarkup:
     )
 
 
-def channel_vacancy_kb(lang: str, deeplink: str) -> InlineKeyboardMarkup:
-    """URL button under a channel post: plain emoji (no custom emoji in channels)."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[key_inline(lang, "start.btn.open_in_bot", url=deeplink, plain=True)]]
-    )
+def channel_vacancy_kb(lang: str, deeplink: str, original_url: str | None = None) -> InlineKeyboardMarkup:
+    """URL buttons under a channel post: plain emoji (no custom emoji in channels).
+
+    ``original_url`` (an https link to the source posting, e.g. hh.uz) adds a
+    second row with the original.
+    """
+    rows = [[key_inline(lang, "start.btn.open_in_bot", url=deeplink, plain=True)]]
+    if original_url and original_url.startswith("https://"):
+        rows.append([key_inline(lang, "start.btn.open_original", url=original_url, plain=True)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def referral_share_kb(lang: str, share_url: str) -> InlineKeyboardMarkup:

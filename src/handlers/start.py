@@ -24,8 +24,9 @@ from src.functions.main_menu import send_main_menu
 from src.functions.functions import channel_row_target, functions, load_channel_rows
 from src.functions.referral_gate import get_referral_gate_state, referral_gate_message
 from src.functions.scraping import fetch_osonish_detail
-from src.functions.vacancy_format import format_vacancy_message_html, vacancy_app_url
+from src.functions.vacancy_format import format_vacancy_message_html, parse_vacancy_uid, vacancy_app_url
 from src.i18n import DEFAULT_LANG, LANGS, normalize_lang, t
+from src.ingest import repo as store
 from src.ui.emoji import clip
 
 logger = logging.getLogger(__name__)
@@ -108,17 +109,23 @@ async def welcome(
         )
         return
 
-    # ── Vakansiya deeplink: /start vacancy_osonish_12345 ────────────────
-    if start_param.startswith("vacancy_osonish_"):
-        uid = start_param[len("vacancy_"):]   # "osonish_12345"
-        try:
-            raw_id = int(uid.split("_", 1)[1])
-        except (IndexError, ValueError):
+    # ── Vakansiya deeplink: /start vacancy_osonish_12345 | vacancy_hh_123 ──
+    if start_param.startswith("vacancy_"):
+        uid = start_param[len("vacancy_"):]   # "osonish_12345" / "hh_123"
+        parsed = parse_vacancy_uid(uid)
+        if parsed is None:
             await message.answer(t(lang, "start.bad_vacancy_link"))
             return
 
         await message.answer(t(lang, "start.loading_vacancy"))
-        detail = await fetch_osonish_detail(raw_id)
+        source, source_id = parsed
+        # osonish: the live detail (contacts); the vacancy store otherwise
+        # (hh.uz) or when osonish does not answer.
+        detail = await fetch_osonish_detail(int(source_id)) if source == "osonish" else None
+        if not isinstance(detail, dict):
+            async with connect() as conn:
+                row = await store.get(conn, uid, with_raw=True)
+            detail = row if row is not None and row.get("status") == "open" else None
         if not isinstance(detail, dict):
             await message.answer(t(lang, "start.vacancy_not_found"))
             return

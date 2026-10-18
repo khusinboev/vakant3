@@ -27,6 +27,7 @@ STRINGS: dict[str, str] = {
     "start.subscribe_prompt": "To use the bot, please subscribe to the channels below:",
     "start.btn.open_app": "Open in the app",
     "start.btn.open_in_bot": "Details in the bot",
+    "start.btn.open_original": "Original posting",
     "bot.menu_button": "App",
     "cmd.start": "Start the bot",
     "cmd.lang": "Change language",
@@ -89,6 +90,9 @@ STRINGS: dict[str, str] = {
     "vacancy.salary.upto": "up to {max} UZS",
     "vacancy.salary.negotiable": "Negotiable",
     "vacancy.salary.unspecified": "Not specified",
+    "vacancy.salary.cur_range": "{min} – {max} {cur}",
+    "vacancy.salary.cur_from": "from {min} {cur}",
+    "vacancy.salary.cur_upto": "up to {max} {cur}",
     "vacancy.code_unknown": "Code {code}",
 
     "vacancy.gender.1": "Male",
@@ -116,6 +120,22 @@ STRINGS: dict[str, str] = {
     "vacancy.experience.2": "Up to 1 year",
     "vacancy.experience.3": "1–3 years",
     "vacancy.experience.4": "3+ years",
+
+    # hh.uz dictionary ids (experience / employment / schedule)
+    "vacancy.hh.experience.noExperience": "No experience",
+    "vacancy.hh.experience.between1And3": "1–3 years",
+    "vacancy.hh.experience.between3And6": "3–6 years",
+    "vacancy.hh.experience.moreThan6": "Over 6 years",
+    "vacancy.hh.employment.full": "Full-time",
+    "vacancy.hh.employment.part": "Part-time",
+    "vacancy.hh.employment.project": "Project work",
+    "vacancy.hh.employment.volunteer": "Volunteering",
+    "vacancy.hh.employment.probation": "Internship",
+    "vacancy.hh.schedule.fullDay": "Full day",
+    "vacancy.hh.schedule.shift": "Shift work",
+    "vacancy.hh.schedule.flexible": "Flexible schedule",
+    "vacancy.hh.schedule.remote": "Remote work",
+    "vacancy.hh.schedule.flyInFlyOut": "Rotation (fly-in/fly-out)",
 
     # ── Vacancy: field labels ─────────────────────────────────
     "vacancy.label.company": "Company",
