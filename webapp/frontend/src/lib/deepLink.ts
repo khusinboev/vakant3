@@ -4,7 +4,8 @@
  * The bot opens the app with `?go=<value>` (inline `web_app` buttons) or a
  * Telegram `start_param` (`t.me/<bot>/<app>?startapp=<value>`). Both carry the
  * same values: `profile`, `saves`, `home`/`app`/`jobs`, or
- * `vacancy_osonish_<id>` (Telegram allows only `[A-Za-z0-9_-]`, max 64 chars).
+ * `vacancy_<source>_<id>` with source `osonish` | `hh` (Telegram allows only
+ * `[A-Za-z0-9_-]`, max 64 chars).
  */
 
 export type EntryTarget =
@@ -13,11 +14,12 @@ export type EntryTarget =
   | { kind: "saves" }
   | { kind: "vacancy"; uid: string };
 
-/** Query key Home uses for the open vacancy sheet: `/app?vacancy=osonish_<id>`. */
+/** Query key Home uses for the open vacancy sheet: `/app?vacancy=<source>_<id>`. */
 export const VACANCY_QUERY_KEY = "vacancy";
 
-const VACANCY_UID_RE = /^osonish_\d{1,15}$/;
-const VACANCY_ENTRY_RE = /^vacancy_(osonish_\d{1,15})$/;
+// Same shape the API accepts (`src/functions/vacancy_format.py` _STORE_UID_RE).
+const VACANCY_UID_RE = /^(osonish|hh)_[1-9]\d{0,14}$/;
+const VACANCY_ENTRY_RE = /^vacancy_((?:osonish|hh)_[1-9]\d{0,14})$/;
 
 /** True for a vacancy uid the API accepts (guards the `/jobs/<uid>` path). */
 export function isVacancyUid(value: string): boolean {

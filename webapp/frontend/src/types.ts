@@ -17,6 +17,10 @@ export type VacancyItem = {
   posted_at: string | null;
   is_saved: boolean;
   is_pro_locked: boolean;
+  /** Vacancy store source (`osonish` | `hh`), its display name and the original posting URL. */
+  source?: string;
+  source_label?: string | null;
+  url?: string | null;
 };
 
 /** Raw integer codes from osonish.uz — render them with `useVacancyCodeLabel`. */
@@ -29,9 +33,20 @@ export type VacancyCodes = {
   experience?: number | null;
 };
 
+/** Raw hh.uz dictionary ids — render them with the `vacancy.hh.*` maps. */
+export type VacancyHhCodes = {
+  experience?: string;
+  employment?: string;
+  schedule?: string;
+};
+
 /** `data.normalized` of `GET /jobs/{uid}`: localized labels plus raw `codes`. */
 export type VacancyNormalized = Record<string, unknown> & {
   codes?: VacancyCodes;
+  hh_codes?: VacancyHhCodes;
+  source?: string;
+  source_label?: string;
+  url?: string;
 };
 
 /** `GET /jobs/{uid}` response. */

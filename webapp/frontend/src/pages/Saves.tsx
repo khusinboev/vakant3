@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Trash2 } from "lucide-react";
 
 import LoginPrompt from "../components/LoginPrompt";
+import SourceBadge from "../components/Jobs/SourceBadge";
 import VacancyDetail from "../components/Jobs/VacancyDetail";
 import { useSaves } from "../hooks/useSaves";
 import { useT } from "../i18n/useT";
@@ -66,22 +67,30 @@ export default function Saves() {
       <div className="grid gap-3 md:grid-cols-2">
         {list.data.items.map((item) => {
           const d = item.data;
+          // Store rows (hh.uz, checked osonish) carry `normalized`; live osonish rows only raw fields.
+          const n = (d.normalized ?? {}) as Record<string, unknown>;
+          const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
           const companyObj = d.company as Record<string, unknown> | null | undefined;
           const districtObj = d.soato_district as Record<string, unknown> | null | undefined;
           const regionObj = d.soato_region as Record<string, unknown> | null | undefined;
-          const company = String(companyObj?.name || "");
+          const company = text(n.company) || String(companyObj?.name || "");
           const district = String(districtObj?.name || districtObj?.name_uz || "");
           const region = String(regionObj?.name || regionObj?.name_uz || "");
-          const location = [district, region].filter(Boolean).join(", ") || String(d.address || "");
-          const salary = fmtSalary(d.min_salary, d.max_salary);
+          const location =
+            [district, region].filter(Boolean).join(", ") || String(d.address || "") || text(n.address) || text(n.region);
+          const salary = text(n.salary) || fmtSalary(d.min_salary, d.max_salary);
+          const source = text(n.source) || text(d.source);
 
           return (
             <article key={item.uid} className="card p-4">
-              {company && (
-                <p className="text-xs font-medium uppercase tracking-wide text-muted">{company}</p>
-              )}
+              <div className="flex items-center gap-2">
+                {company && (
+                  <p className="min-w-0 truncate text-xs font-medium uppercase tracking-wide text-muted">{company}</p>
+                )}
+                <SourceBadge source={source || "osonish"} label={text(n.source_label) || null} />
+              </div>
               <p className="mt-0.5 text-sm font-semibold leading-snug text-text line-clamp-2">
-                {String(d.title || t("vacancy.fallbackTitle"))}
+                {String(d.title || text(n.title) || t("vacancy.fallbackTitle"))}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                 <span className="rounded-full bg-primary/10 px-2 py-1 font-semibold text-primary">

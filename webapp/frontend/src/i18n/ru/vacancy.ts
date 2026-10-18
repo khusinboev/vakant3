@@ -17,6 +17,9 @@ const vacancy: Record<keyof VacancyDict, string> = {
   "vacancy.goPro": "Перейти на Pro",
   "vacancy.opening": "Открываем...",
   "vacancy.unknownCode": "Код {code}",
+  "vacancy.openOriginal": "Исходное объявление",
+  "vacancy.openOn": "Открыть на {site}",
+  "vacancy.source": "Источник: {site}",
 
   // ── Detail rows ────────────────────────────────────────────────────────────
   "vacancy.row.address": "Адрес",
@@ -65,6 +68,22 @@ const vacancy: Record<keyof VacancyDict, string> = {
   "vacancy.experience.2": "До 1 года",
   "vacancy.experience.3": "1–3 года",
   "vacancy.experience.4": "3+ года",
+
+  // ── hh.uz dictionary ids (source: src/functions/vacancy_format.py _HH_FIELDS) ──
+  "vacancy.hh.experience.noExperience": "Без опыта",
+  "vacancy.hh.experience.between1And3": "1–3 года",
+  "vacancy.hh.experience.between3And6": "3–6 лет",
+  "vacancy.hh.experience.moreThan6": "Более 6 лет",
+  "vacancy.hh.employment.full": "Полная занятость",
+  "vacancy.hh.employment.part": "Частичная занятость",
+  "vacancy.hh.employment.project": "Проектная работа",
+  "vacancy.hh.employment.volunteer": "Волонтёрство",
+  "vacancy.hh.employment.probation": "Стажировка",
+  "vacancy.hh.schedule.fullDay": "Полный день",
+  "vacancy.hh.schedule.shift": "Сменный график",
+  "vacancy.hh.schedule.flexible": "Гибкий график",
+  "vacancy.hh.schedule.remote": "Удалённая работа",
+  "vacancy.hh.schedule.flyInFlyOut": "Вахтовый метод",
 };
 
 export default vacancy;
