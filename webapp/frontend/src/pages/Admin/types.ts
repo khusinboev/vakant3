@@ -26,6 +26,8 @@ export type AdminState = {
   resume_target_export_success_rate: number;
   /** N % of every paid Click top-up credited as a bonus (0 = off, max 50). */
   payment_bonus_percent: number;
+  /** Auto-post takes only store vacancies with quality_score >= this (0–100, default 60). */
+  autopost_min_quality: number;
 };
 
 /** The patch body of `PATCH /admin/state` — every field is optional. */

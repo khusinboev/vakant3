@@ -27,6 +27,7 @@ STRINGS: dict[str, str] = {
     "start.subscribe_prompt": "Чтобы пользоваться ботом, подпишитесь на каналы ниже:",
     "start.btn.open_app": "Открыть в приложении",
     "start.btn.open_in_bot": "Подробнее в боте",
+    "start.btn.open_original": "Исходное объявление",
     "bot.menu_button": "Приложение",
     "cmd.start": "Запустить бота",
     "cmd.lang": "Сменить язык",
@@ -89,6 +90,9 @@ STRINGS: dict[str, str] = {
     "vacancy.salary.upto": "до {max} сум",
     "vacancy.salary.negotiable": "По договорённости",
     "vacancy.salary.unspecified": "Не указана",
+    "vacancy.salary.cur_range": "{min} – {max} {cur}",
+    "vacancy.salary.cur_from": "от {min} {cur}",
+    "vacancy.salary.cur_upto": "до {max} {cur}",
     "vacancy.code_unknown": "Код {code}",
 
     "vacancy.gender.1": "Мужчина",
@@ -116,6 +120,22 @@ STRINGS: dict[str, str] = {
     "vacancy.experience.2": "До 1 года",
     "vacancy.experience.3": "1–3 года",
     "vacancy.experience.4": "3+ года",
+
+    # hh.uz dictionary ids (experience / employment / schedule)
+    "vacancy.hh.experience.noExperience": "Без опыта",
+    "vacancy.hh.experience.between1And3": "1–3 года",
+    "vacancy.hh.experience.between3And6": "3–6 лет",
+    "vacancy.hh.experience.moreThan6": "Более 6 лет",
+    "vacancy.hh.employment.full": "Полная занятость",
+    "vacancy.hh.employment.part": "Частичная занятость",
+    "vacancy.hh.employment.project": "Проектная работа",
+    "vacancy.hh.employment.volunteer": "Волонтёрство",
+    "vacancy.hh.employment.probation": "Стажировка",
+    "vacancy.hh.schedule.fullDay": "Полный день",
+    "vacancy.hh.schedule.shift": "Сменный график",
+    "vacancy.hh.schedule.flexible": "Гибкий график",
+    "vacancy.hh.schedule.remote": "Удалённая работа",
+    "vacancy.hh.schedule.flyInFlyOut": "Вахтовый метод",
 
     # ── Вакансия: подписи полей ───────────────────────────────
     "vacancy.label.company": "Организация",

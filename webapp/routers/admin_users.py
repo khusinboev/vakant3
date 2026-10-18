@@ -88,6 +88,7 @@ from webapp.core.confirm import canonical_params, require_confirmation
 from webapp.core.database import get_db, open_connection
 from webapp.core.limiter import limiter
 from webapp.core.request_ip import client_ip as _client_ip
+from webapp.core.vacancy_store import uid_of_save
 
 _log = logging.getLogger(__name__)
 
@@ -1318,7 +1319,8 @@ async def list_user_saves(
     items = [
         {
             "save_id": save_id,
-            "uid": str(save_id) if str(save_id).startswith("osonish_") else f"osonish_{save_id}",
+            # INTEGER osonish ids, legacy ``osonish_<id>`` text, store uids (``hh_<id>``).
+            "uid": uid_of_save(save_id) or str(save_id),
         }
         for save_id in rows
     ]

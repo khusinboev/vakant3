@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, type InfiniteData } from "@tanstack/react-query";
 
 import client from "../api/client";
 import { useLang } from "../i18n/useT";
@@ -15,7 +15,17 @@ export type JobsParams = {
   sort_type: string;
 };
 
-type JobsPage = { vacancies: VacancyItem[]; page: number; last_page: number; total_estimate: number };
+type JobsPage = {
+  vacancies: VacancyItem[];
+  page: number;
+  last_page: number;
+  total_estimate: number;
+  /** Store results page by cursor; null on the last page and on the live osonish fallback. */
+  next_cursor?: string | null;
+};
+
+/** Next page request: the store's cursor when it sent one, else the next page number. */
+type JobsPageParam = { page: number; cursor?: string };
 
 /**
  * Infinite vacancy list.
@@ -28,17 +38,19 @@ type JobsPage = { vacancies: VacancyItem[]; page: number; last_page: number; tot
  */
 export function useJobs(params: JobsParams) {
   const lang = useLang();
-  return useInfiniteQuery<JobsPage>({
+  return useInfiniteQuery<JobsPage, Error, InfiniteData<JobsPage>, readonly unknown[], JobsPageParam>({
     queryKey: [...JOBS_LIST_KEY, lang, params],
-    queryFn: async ({ pageParam = 1 }) => {
+    queryFn: async ({ pageParam }) => {
       const { data } = await client.get<JobsPage>("/jobs/search", {
-        params: { ...params, page: pageParam, lang },
+        params: { ...params, page: pageParam.page, cursor: pageParam.cursor, lang },
       });
       return data;
     },
-    initialPageParam: 1,
-    getNextPageParam: (lastPage) =>
-      lastPage.page < lastPage.last_page ? lastPage.page + 1 : undefined,
+    initialPageParam: { page: 1 },
+    getNextPageParam: (lastPage) => {
+      if (lastPage.next_cursor) return { page: lastPage.page + 1, cursor: lastPage.next_cursor };
+      return lastPage.page < lastPage.last_page ? { page: lastPage.page + 1 } : undefined;
+    },
     staleTime: 2 * 60 * 1000,   // 2 min — don't refetch on tab focus
     gcTime: 5 * 60 * 1000,      // keep pages in memory 5 min for back-navigation
   });

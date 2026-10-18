@@ -17,6 +17,9 @@ const vacancy: Record<keyof VacancyDict, string> = {
   "vacancy.goPro": "Upgrade to Pro",
   "vacancy.opening": "Opening...",
   "vacancy.unknownCode": "Code {code}",
+  "vacancy.openOriginal": "Original posting",
+  "vacancy.openOn": "Open on {site}",
+  "vacancy.source": "Source: {site}",
 
   // ── Detail rows ────────────────────────────────────────────────────────────
   "vacancy.row.address": "Address",
@@ -65,6 +68,22 @@ const vacancy: Record<keyof VacancyDict, string> = {
   "vacancy.experience.2": "Up to 1 year",
   "vacancy.experience.3": "1–3 years",
   "vacancy.experience.4": "3+ years",
+
+  // ── hh.uz dictionary ids (source: src/functions/vacancy_format.py _HH_FIELDS) ──
+  "vacancy.hh.experience.noExperience": "No experience",
+  "vacancy.hh.experience.between1And3": "1–3 years",
+  "vacancy.hh.experience.between3And6": "3–6 years",
+  "vacancy.hh.experience.moreThan6": "Over 6 years",
+  "vacancy.hh.employment.full": "Full-time",
+  "vacancy.hh.employment.part": "Part-time",
+  "vacancy.hh.employment.project": "Project work",
+  "vacancy.hh.employment.volunteer": "Volunteering",
+  "vacancy.hh.employment.probation": "Internship",
+  "vacancy.hh.schedule.fullDay": "Full day",
+  "vacancy.hh.schedule.shift": "Shift work",
+  "vacancy.hh.schedule.flexible": "Flexible schedule",
+  "vacancy.hh.schedule.remote": "Remote work",
+  "vacancy.hh.schedule.flyInFlyOut": "Rotation (fly-in/fly-out)",
 };
 
 export default vacancy;

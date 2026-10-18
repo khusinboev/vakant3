@@ -12,16 +12,36 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Any
+from datetime import datetime
+from typing import Any, Callable, Mapping
 
 from config import BOT_USERNAME, WEBAPP_URL
+from src.core.timeutil import TZ
 from src.i18n import DEFAULT_LANG, t
+from src.ingest.regions import REGION_SOATO
+from src.ingest.text import excerpt as _excerpt
 from src.ui.emoji import e as _icon
 
 _TAG_RE = re.compile(r"<[^>]+>")
 #: A vacancy uid the Mini App can deep-link to (``vacancy_<uid>`` fits the
 #: 64-char ``[A-Za-z0-9_-]`` start_param alphabet).
-_APP_UID_RE = re.compile(r"^osonish_\d{1,15}$")
+_APP_UID_RE = re.compile(r"^(osonish|hh)_\d{1,15}$")
+#: ``<source>_<id>`` of a vacancy in the store (``src/ingest/``): the sources
+#: we ingest, a positive decimal id without leading zeros.
+_STORE_UID_RE = re.compile(r"^(osonish|hh)_([1-9][0-9]{0,15})$")
+#: Display names of the store's sources (brand names, not translated).
+SOURCE_LABELS: dict[str, str] = {"osonish": "osonish.uz", "hh": "hh.uz"}
+#: hh.uz terms of use: we show a short excerpt and link to the original.
+HH_EXCERPT_LEN = 500
+#: Excerpt length of an hh vacancy in a channel post.
+HH_POST_EXCERPT_LEN = 300
+#: hh dictionary ids we label: normalized field -> (store column, known ids).
+_HH_FIELDS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "experience": ("experience", ("noExperience", "between1And3", "between3And6", "moreThan6")),
+    "busyness_type": ("employment", ("full", "part", "project", "volunteer", "probation")),
+    "work_type": ("schedule", ("fullDay", "shift", "flexible", "remote", "flyInFlyOut")),
+}
+_CURRENCY_DISPLAY = {"RUR": "RUB"}
 _MULTI_NL_RE = re.compile(r"\n{3,}")
 
 #: Telegram rejects a message whose text is longer than this *after* entity
@@ -124,11 +144,28 @@ def clean_html_text(value: Any) -> str:
 
 
 def format_salary(
-    min_salary: Any, max_salary: Any, lang: str = DEFAULT_LANG, allow_unspecified: bool = False
+    min_salary: Any,
+    max_salary: Any,
+    lang: str = DEFAULT_LANG,
+    allow_unspecified: bool = False,
+    currency: str | None = None,
 ) -> str:
-    """Maosh matnini tanlangan tilda qaytaradi."""
+    """Maosh matnini tanlangan tilda qaytaradi.
+
+    ``currency`` other than UZS (hh.uz posts USD/RUR/EUR too) is written next to
+    the amount instead of "so'm".
+    """
     min_val = _to_int(min_salary)
     max_val = _to_int(max_salary)
+    cur = str(currency or "UZS").strip().upper() or "UZS"
+
+    if cur != "UZS" and (min_val or max_val):
+        cur = _CURRENCY_DISPLAY.get(cur, cur)
+        if min_val and max_val:
+            return t(lang, "vacancy.salary.cur_range", min=_fmt_amount(min_val), max=_fmt_amount(max_val), cur=cur)
+        if max_val:
+            return t(lang, "vacancy.salary.cur_upto", max=_fmt_amount(max_val), cur=cur)
+        return t(lang, "vacancy.salary.cur_from", min=_fmt_amount(min_val), cur=cur)
 
     if min_val and max_val:
         return t(lang, "vacancy.salary.range", min=_fmt_amount(min_val), max=_fmt_amount(max_val))
@@ -212,6 +249,135 @@ def normalize_vacancy_detail(
     }
 
 
+# ---------------------------------------------------------------- vacancy store rows
+
+
+def parse_vacancy_uid(uid: Any) -> tuple[str, str] | None:
+    """``"<source>_<id>"`` of a stored vacancy -> ``(source, id)``, else ``None``."""
+    if not isinstance(uid, str):
+        return None
+    match = _STORE_UID_RE.fullmatch(uid)
+    return (match.group(1), match.group(2)) if match else None
+
+
+def is_store_row(detail: Any) -> bool:
+    """True for a row of ``src/ingest/repo`` (``get`` / ``search`` / ``freshest_for_post``)."""
+    return isinstance(detail, Mapping) and "source_id" in detail and "source" in detail
+
+
+def store_date(ts: Any) -> str:
+    try:
+        return datetime.fromtimestamp(int(ts), TZ).strftime("%Y-%m-%d")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
+def _default_region_label(soato: str, fallback: str, lang: str) -> str:
+    return REGION_SOATO.get(soato) or fallback
+
+
+def osonish_store_detail(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The stored osonish detail payload (runner-checked rows), else ``None``.
+
+    The store drops ``description`` from ``raw``; the sanitized text is put back
+    unless the payload still carries ``info``.
+    """
+    raw = row.get("raw")
+    if row.get("source") != "osonish" or not row.get("checked_at") or not isinstance(raw, dict) or not raw:
+        return None
+    if not isinstance(raw.get("id"), int) or not isinstance(raw.get("hr"), dict):
+        return None
+    detail = dict(raw)
+    if not (detail.get("info") or detail.get("description")) and row.get("description_text"):
+        detail["description"] = str(row["description_text"])
+    return detail
+
+
+def normalize_store_vacancy(
+    row: Mapping[str, Any],
+    lang: str = DEFAULT_LANG,
+    *,
+    region_label: Callable[[str, str, str], str] | None = None,
+    excerpt_len: int | None = None,
+) -> dict[str, Any]:
+    """A store row -> the ``normalize_vacancy_detail`` shape plus ``source``, ``source_label``, ``url``.
+
+    osonish rows checked by the runner (``row["raw"]`` from ``repo.get(...,
+    with_raw=True)`` holding the detail payload) go through
+    ``normalize_vacancy_detail`` unchanged. Other rows are built from the store
+    columns: osonish codes become the usual labels, hh dictionary ids the
+    ``vacancy.hh.*`` labels. hh rows never carry contacts and their description
+    is an excerpt (hh.uz terms of use). ``region_label(soato, fallback, lang)``
+    localizes the region (the API passes its own map; the default is the
+    Uzbek region name).
+    """
+    uid = str(row.get("uid") or f"{row.get('source')}_{row.get('source_id')}")
+    source = str(row.get("source") or "")
+    url = str(row.get("url") or "")
+    extra = {"source": source, "source_label": SOURCE_LABELS.get(source, source), "url": url}
+
+    detail = osonish_store_detail(row)
+    if detail is not None:
+        normalized = normalize_vacancy_detail(uid, detail, lang)
+        if url:
+            normalized["source_url"] = url
+        return {**normalized, **extra}
+
+    label = region_label or _default_region_label
+    soato = str(row.get("region_soato") or "")
+    place = str(row.get("region_name") or "").strip()
+    region = label(soato, place, lang) if soato else place
+    # The source's own place (an hh city) first, then our region; posts print this line.
+    address = ", ".join(p for p in ((place if source == "hh" and place != region else ""), region) if p)
+
+    codes: dict[str, int | None] = {name: None for name in _CODE_NAMESPACES}
+    labels: dict[str, str] = {name: "" for name in _CODE_NAMESPACES}
+    #: Raw hh dictionary ids (``experience``/``employment``/``schedule``) for the
+    #: Mini App's own ``vacancy.hh.*`` maps; empty for other sources.
+    hh_codes: dict[str, str] = {}
+    if source == "osonish":
+        for name, column in (("experience", "experience"), ("busyness_type", "employment"), ("work_type", "schedule")):
+            codes[name] = _to_int(row.get(column))
+            labels[name] = _label_for_code(_CODE_NAMESPACES[name], codes[name], lang)
+    elif source == "hh":
+        for name, (column, known) in _HH_FIELDS.items():
+            value = str(row.get(column) or "")
+            labels[name] = t(lang, f"vacancy.hh.{column}.{value}") if value in known else ""
+            if value:
+                hh_codes[column] = value
+
+    description = str(row.get("description_text") or "")
+    limit = excerpt_len if excerpt_len is not None else (HH_EXCERPT_LEN if source == "hh" else None)
+    if limit is not None:
+        description = _excerpt(description, limit)
+
+    contacts = row.get("contacts") if source != "hh" and isinstance(row.get("contacts"), Mapping) else {}
+    phones = contacts.get("phones") if isinstance(contacts.get("phones"), list) else []
+
+    return {
+        "uid": uid,
+        "title": str(row.get("title") or "").strip() or t(lang, "vacancy.title_fallback"),
+        "company": str(row.get("employer") or "").strip(),
+        "salary": format_salary(row.get("salary_min"), row.get("salary_max"), lang, currency=row.get("currency")),
+        "address": address,
+        "district": "",
+        "region": region,
+        **labels,
+        "count": "",
+        "working_hours": "",
+        "posted_at": store_date(row.get("published_at")),
+        "deadline": "",
+        "description": description,
+        "hr_name": str(contacts.get("name") or "").strip(),
+        "hr_phone": str(phones[0] if phones else "").strip(),
+        "hr_email": str(contacts.get("email") or "").strip(),
+        "source_url": url,
+        "codes": codes,
+        "hh_codes": hh_codes,
+        **extra,
+    }
+
+
 def _esc(value: Any) -> str:
     return html.escape(str(value or ""), quote=False)
 
@@ -284,7 +450,12 @@ def format_vacancy_message_html(
     mandatory for CHANNEL posts (custom emoji only work in private/group chats
     for this bot).
     """
-    normalized = normalize_vacancy_detail(uid, detail, lang)
+    if is_store_row(detail):
+        normalized = normalize_store_vacancy(
+            detail, lang, excerpt_len=HH_POST_EXCERPT_LEN if detail.get("source") == "hh" else None
+        )
+    else:
+        normalized = normalize_vacancy_detail(uid, detail, lang)
     normalized["title"] = _clip_utf16(normalized["title"], _MAX_TITLE)
 
     def esc(key: str) -> str:

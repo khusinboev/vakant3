@@ -1,12 +1,15 @@
-import { Lock, X } from "lucide-react";
+import { ExternalLink, Lock, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import BottomSheet from "../ui/BottomSheet";
-import { botDeepLink, openTelegramLink } from "../../lib/constants";
+import SourceBadge from "./SourceBadge";
+import { botDeepLink, openExternalLink, openTelegramLink } from "../../lib/constants";
 import { useT, useVacancyCodeLabel } from "../../i18n/useT";
+import type { TranslationKey } from "../../i18n";
 import { useLocale } from "../../i18n/useLocale";
 import { apiErrorMessage } from "../../lib/parseApiError";
-import type { VacancyCodes, VacancyDetailResponse } from "../../types";
+import { originalUrl, sourceLabel } from "../../lib/vacancySource";
+import type { VacancyCodes, VacancyDetailResponse, VacancyHhCodes } from "../../types";
 
 type Props = {
   open: boolean;
@@ -131,11 +134,28 @@ export default function VacancyDetail({
     str(normalized.description) ||
     str(cleanHtmlText(d.info ?? d.description ?? d.requirements));
 
+  // hh.uz dictionary ids through our own `vacancy.hh.*` maps (unknown id -> server label).
+  const hhCodes: VacancyHhCodes = normalized.hh_codes ?? {};
+  const hhLabel = (group: "experience" | "employment" | "schedule"): string | null => {
+    const id = hhCodes[group];
+    if (!id) return null;
+    const key = `vacancy.hh.${group}.${id}` as TranslationKey;
+    const label = t(key);
+    return label === key ? null : label;
+  };
+
   // Prefer our own maps over the server-rendered label (CONTRACT.md).
-  const workType = codeLabel("vacancy.work_type", codes.work_type ?? d.work_type) || str(normalized.work_type);
-  const busyness = codeLabel("vacancy.busyness", codes.busyness_type ?? d.busyness_type) || str(normalized.busyness_type);
+  const workType =
+    codeLabel("vacancy.work_type", codes.work_type ?? d.work_type) || hhLabel("schedule") || str(normalized.work_type);
+  const busyness =
+    codeLabel("vacancy.busyness", codes.busyness_type ?? d.busyness_type) ||
+    hhLabel("employment") ||
+    str(normalized.busyness_type);
   const payment = codeLabel("vacancy.payment", codes.payment_type ?? d.payment_type) || str(normalized.payment_type);
-  const experience = codeLabel("vacancy.experience", codes.experience ?? d.work_experiance) || str(normalized.experience);
+  const experience =
+    codeLabel("vacancy.experience", codes.experience ?? d.work_experiance) ||
+    hhLabel("experience") ||
+    str(normalized.experience);
   const education = codeLabel("vacancy.education", codes.education ?? d.min_education) || str(normalized.education);
   const gender = codeLabel("vacancy.gender", codes.gender ?? d.gender) || str(normalized.gender);
 
@@ -146,6 +166,12 @@ export default function VacancyDetail({
     str(normalized.working_hours) ||
     str([d.working_time_from, d.working_time_to].filter(Boolean).join(" - "));
   const count = str(normalized.count) || str(d.count);
+
+  const source = str(normalized.source) || str(d.source);
+  const site = sourceLabel(source, str(normalized.source_label) || str(d.source_label));
+  // The original posting shows the contacts: never offered while Pro-locked.
+  const original = isLocked ? null : originalUrl(normalized.url ?? d.url ?? normalized.source_url);
+  const originalText = source === "hh" && site ? t("vacancy.openOn", { site }) : t("vacancy.openOriginal");
 
   const primaryAction = () => {
     if (isLocked) {
@@ -172,7 +198,10 @@ export default function VacancyDetail({
               </span>
             )}
           </div>
-          {company && <p className="mt-0.5 text-sm font-medium text-primary">{company}</p>}
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
+            {company && <p className="min-w-0 truncate text-sm font-medium text-primary">{company}</p>}
+            <SourceBadge source={source} label={site} />
+          </div>
         </div>
         <button
           type="button"
@@ -271,6 +300,17 @@ export default function VacancyDetail({
             <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.012 9.47c-.148.658-.537.818-1.088.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.56-4.456c.537-.194 1.006.12.889.746z" />
           </svg>
           {t("vacancy.openInBot")}
+        </button>
+      )}
+
+      {original && (
+        <button
+          type="button"
+          onClick={() => openExternalLink(original)}
+          className="tap-target mt-2 flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-surface px-4 py-3 text-sm font-semibold text-text"
+        >
+          <ExternalLink size={16} aria-hidden="true" />
+          {originalText}
         </button>
       )}
     </BottomSheet>

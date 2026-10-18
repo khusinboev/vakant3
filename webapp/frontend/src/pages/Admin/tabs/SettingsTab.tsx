@@ -160,6 +160,25 @@ export default function SettingsTab({ state, version, onReload }: SettingsTabPro
                   }
                 />
                 <InlineEditRow
+                  label={t("admin.settings.field.autoPostMinQuality")}
+                  value={state.autopost_min_quality ?? 60}
+                  type="number"
+                  saving={saving}
+                  onSave={(value) =>
+                    saveNumber(
+                      t("admin.settings.field.autoPostMinQuality"),
+                      value,
+                      (n) => ({ autopost_min_quality: n }),
+                      (n) =>
+                        Number.isInteger(n) && n >= 0 && n <= 100
+                          ? null
+                          : t("admin.settings.validation.qualityRange", {
+                              label: t("admin.settings.field.autoPostMinQuality"),
+                            }),
+                    )
+                  }
+                />
+                <InlineEditRow
                   label={perDayLabelMin}
                   value={state.auto_post_per_day_min}
                   type="number"

@@ -21,6 +21,8 @@ DEFAULTS: dict[str, Any] = {
     "auto_post_scheduled_times_json": "[]",
     # m020: N % of every paid Click top-up as a bonus (0 = off, max 50).
     "payment_bonus_percent": 0,
+    # m024: minimum vacancies.quality_score (0-100) a channel auto-post needs.
+    "autopost_min_quality": 60,
 }
 
 

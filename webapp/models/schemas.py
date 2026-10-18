@@ -27,6 +27,10 @@ class VacancyItem(BaseModel):
     posted_at: str | None = None
     is_saved: bool = False
     is_pro_locked: bool = False
+    #: Vacancy store source (``osonish`` / ``hh``), its display name and the original posting.
+    source: str = "osonish"
+    source_label: str | None = None
+    url: str | None = None
 
 
 class JobsSearchResponse(BaseModel):
@@ -34,6 +38,9 @@ class JobsSearchResponse(BaseModel):
     page: int
     last_page: int
     total_estimate: int
+    #: Store results page by cursor (send it back as ``?cursor=`` with ``page+1``);
+    #: ``None`` on the last page and on the live osonish fallback (page numbers).
+    next_cursor: str | None = None
 
 
 class VacancyDetailResponse(BaseModel):

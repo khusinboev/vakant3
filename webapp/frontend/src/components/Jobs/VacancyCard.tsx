@@ -2,6 +2,7 @@ import { Heart, Lock, MapPin } from "lucide-react";
 
 import { useT } from "../../i18n/useT";
 import type { VacancyItem } from "../../types";
+import SourceBadge from "./SourceBadge";
 
 type Props = {
   item: VacancyItem;
@@ -21,6 +22,7 @@ export default function VacancyCard({ item, onOpen, onToggleSave }: Props) {
             <div className="min-w-0 flex-1 overflow-hidden">
               <div className="flex items-center gap-2">
                 <p className="truncate text-xs font-medium uppercase tracking-wide text-muted">{item.company}</p>
+                <SourceBadge source={item.source} label={item.source_label} />
                 {item.is_pro_locked && (
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold text-warning">
                     <Lock size={10} /> PRO
