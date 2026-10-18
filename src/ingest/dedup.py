@@ -1,9 +1,11 @@
 """Cross-source duplicate detection.
 
-Two vacancies are the same job when either
+Two vacancies are the same job only when they name the same (non-empty)
+normalised employer, were published within 14 days of each other and are not
+in two different known districts, and then either
 - their exact key matches: normalised title + employer + region + salary bucket, or
-- fuzzy: same normalised employer and region, published within 14 days of
-  each other, and ``difflib`` title ratio >= 0.9.
+- fuzzy: same region and ``difflib`` title ratio >= 0.9, unless the titles
+  differ in a short or numeric token ("Haydovchi B" / "Haydovchi C").
 
 Matches form a group (``dedup_group`` = the canonical uid). The canonical copy
 is the open row with the highest source priority (hh > osonish), then the
@@ -33,6 +35,7 @@ _LEGAL_FORMS = re.compile(
     r"\b(ooo|mchj|xk|ok|aj|llc|ltd|inc|jsc|qk|chp|ip|oao|zao|pao|ao|unitar|korxona|davlat|"
     r"масъулияти|чекланган|жамияти)\b"
 )
+_APOSTROPHES = str.maketrans("", "", "ʻʼ'`‘’")
 _NON_WORD = re.compile(r"[^\w]+", re.UNICODE)
 
 
@@ -41,7 +44,7 @@ def _translit(text: str) -> str:
 
 
 def normalize_text(text: str) -> str:
-    text = text.lower().replace("ʻ", "").replace("'", "").replace("’", "").replace("`", "")
+    text = text.lower().translate(_APOSTROPHES)
     text = _translit(text)
     text = _NON_WORD.sub(" ", text)
     return " ".join(text.split())
@@ -84,43 +87,84 @@ def canonical_rank(row: Any) -> tuple:
     )
 
 
+_MATCH_COLUMNS = (
+    "uid, title, employer_key, region_soato, district_soato, published_at, dedup_key, dedup_group, "
+    "COALESCE(dedup_group, uid) AS grp"
+)
+
+
+def _distinguishing_tokens(a: str, b: str) -> bool:
+    """True when the titles differ in a short or numeric token ("Haydovchi B" / "Haydovchi C", "Kassir 1" / "2")."""
+    diff = set(normalize_text(a).split()) ^ set(normalize_text(b).split())
+    return any(len(tok) <= 3 or any(ch.isdigit() for ch in tok) for tok in diff)
+
+
+def titles_match(a: str, b: str) -> bool:
+    return title_ratio(a, b) >= FUZZY_RATIO and not _distinguishing_tokens(a, b)
+
+
+def is_match(a: Any, b: Any) -> bool:
+    """Do two vacancy rows (``_MATCH_COLUMNS``) describe the same job?
+
+    Never without a named employer, never more than ``FUZZY_WINDOW_SECONDS``
+    apart, never in two different known districts. Then either the exact key
+    matches, or the same employer in the same region has a near-identical title.
+    """
+    if not a["employer_key"] or a["employer_key"] != b["employer_key"]:
+        return False
+    if abs(int(a["published_at"] or 0) - int(b["published_at"] or 0)) > FUZZY_WINDOW_SECONDS:
+        return False
+    if a["district_soato"] and b["district_soato"] and a["district_soato"] != b["district_soato"]:
+        return False
+    if a["dedup_key"] and a["dedup_key"] == b["dedup_key"]:
+        return True
+    if not a["region_soato"] or a["region_soato"] != b["region_soato"]:
+        return False
+    return titles_match(a["title"], b["title"])
+
+
+async def _load(conn, uid: str) -> Any:
+    cur = await conn.execute(f"SELECT {_MATCH_COLUMNS} FROM vacancies WHERE uid = ?", (uid,))
+    return await cur.fetchone()
+
+
 async def find_match(conn, uid: str) -> str | None:
-    """Group id of an existing *other-source-or-same* vacancy that duplicates ``uid``, else ``None``."""
+    """Group id of an open vacancy (any source) that duplicates ``uid``, else ``None``.
+
+    Both lookups are index range scans (``m025_ingest_hardening``): this runs
+    inside the upsert's write transaction, so it must never scan the table.
+    ``+status`` keeps the planner (no ``sqlite_stat1``) off
+    ``idx_vacancies_status_pub``, which would walk every open row.
+    """
+    me = await _load(conn, uid)
+    if me is None or not me["employer_key"]:
+        return None
+    lo, hi = me["published_at"] - FUZZY_WINDOW_SECONDS, me["published_at"] + FUZZY_WINDOW_SECONDS
+    own_group = me["dedup_group"] or uid
     cur = await conn.execute(
-        "SELECT uid, title, employer_key, region_soato, published_at, dedup_key FROM vacancies WHERE uid = ?",
-        (uid,),
+        f"""SELECT {_MATCH_COLUMNS} FROM vacancies
+            WHERE dedup_key = ? AND status = 'open' AND published_at BETWEEN ? AND ? AND uid != ?
+            ORDER BY published_at LIMIT 50""",
+        (me["dedup_key"], lo, hi, uid),
     )
-    me = await cur.fetchone()
-    if me is None:
+    for cand in await cur.fetchall():
+        if cand["grp"] != own_group and is_match(me, cand):
+            return cand["grp"]
+    if not me["region_soato"]:
         return None
     cur = await conn.execute(
-        """SELECT COALESCE(dedup_group, uid) FROM vacancies
-           WHERE dedup_key = ? AND uid != ? AND status = 'open'
-           ORDER BY published_at LIMIT 1""",
-        (me["dedup_key"], uid),
-    )
-    row = await cur.fetchone()
-    if row is not None:
-        return row[0]
-    if not me["employer_key"] or not me["region_soato"]:
-        return None
-    cur = await conn.execute(
-        """SELECT uid, title, COALESCE(dedup_group, uid) AS grp FROM vacancies
-           WHERE employer_key = ? AND region_soato = ? AND uid != ? AND status = 'open'
-             AND published_at BETWEEN ? AND ?
-           LIMIT 200""",
-        (
-            me["employer_key"],
-            me["region_soato"],
-            uid,
-            me["published_at"] - FUZZY_WINDOW_SECONDS,
-            me["published_at"] + FUZZY_WINDOW_SECONDS,
-        ),
+        f"""SELECT {_MATCH_COLUMNS} FROM vacancies
+            WHERE employer_key = ? AND region_soato = ? AND published_at BETWEEN ? AND ?
+              AND +status = 'open' AND uid != ?
+            LIMIT 200""",
+        (me["employer_key"], me["region_soato"], lo, hi, uid),
     )
     best: tuple[float, str] | None = None
     for cand in await cur.fetchall():
+        if cand["grp"] == own_group or not is_match(me, cand):
+            continue
         ratio = title_ratio(me["title"], cand["title"])
-        if ratio >= FUZZY_RATIO and (best is None or ratio > best[0]):
+        if best is None or ratio > best[0]:
             best = (ratio, cand["grp"])
     return best[1] if best else None
 
@@ -146,16 +190,54 @@ async def regroup(conn, group_ids: Iterable[str]) -> None:
         )
 
 
+async def _still_grouped(conn, me: Any) -> bool:
+    """True when ``me`` still duplicates at least one other member of its group."""
+    cur = await conn.execute(
+        f"SELECT {_MATCH_COLUMNS} FROM vacancies WHERE dedup_group = ? AND uid != ? LIMIT 200",
+        (me["dedup_group"], me["uid"]),
+    )
+    return any(is_match(me, other) for other in await cur.fetchall())
+
+
+async def _detach(conn, me: Any) -> None:
+    """Take ``me`` out of its group (it no longer matches anyone there) and fix the rest of the group."""
+    uid, group = me["uid"], me["dedup_group"]
+    await conn.execute("UPDATE vacancies SET dedup_group = uid, dup_of = NULL WHERE uid = ?", (uid,))
+    if group != uid:
+        await regroup(conn, [group])
+        return
+    # ``me`` was the group id: the others move under their own best member.
+    cur = await conn.execute(
+        "SELECT uid, source, status, quality_score, published_at FROM vacancies WHERE dedup_group = ? AND uid != ?",
+        (uid, uid),
+    )
+    others = await cur.fetchall()
+    if not others:
+        return
+    new_group = sorted(others, key=canonical_rank)[0]["uid"]
+    await conn.execute(
+        "UPDATE vacancies SET dedup_group = ? WHERE dedup_group = ? AND uid != ?", (new_group, uid, uid)
+    )
+    await regroup(conn, [new_group])
+
+
 async def assign(conn, uids: Iterable[str]) -> None:
-    """Attach each new/changed vacancy to its duplicate group (or its own). Caller owns the transaction."""
+    """Attach each new/changed vacancy to its duplicate group (or its own). Caller owns the transaction.
+
+    A grouped row that no longer matches any other member (its title, salary
+    or employer changed) is split out and shown again before it looks for a
+    new group.
+    """
     for uid in uids:
-        cur = await conn.execute("SELECT dedup_group FROM vacancies WHERE uid = ?", (uid,))
-        row = await cur.fetchone()
-        if row is None:
+        me = await _load(conn, uid)
+        if me is None:
             continue
-        current = row[0]
-        if current and current != uid:
-            continue  # already joined to a group; regroup on close keeps it right
+        current = me["dedup_group"]
+        if current:
+            if await _still_grouped(conn, me):
+                continue
+            await _detach(conn, me)
+            current = uid
         match = await find_match(conn, uid)
         if match is None:
             if current is None:

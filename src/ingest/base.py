@@ -30,6 +30,21 @@ class SourceError(Exception):
         self.status = status
 
 
+class BudgetExhausted(SourceError):
+    """The adapter's request budget for this run is used up: stop, nothing failed."""
+
+    def __init__(self) -> None:
+        super().__init__("request_budget_exhausted")
+
+
+class DetailUnusable(Exception):
+    """The source answered the detail request, but with a payload we cannot parse.
+
+    The vacancy exists, so this must never close it; the runner only rotates it
+    to the back of the re-check queue.
+    """
+
+
 @dataclass
 class NormalizedVacancy:
     source: str
@@ -89,7 +104,11 @@ class Adapter(Protocol):
     def iter_new(self, cursor: Optional[str], now: int) -> AsyncIterator[Batch]: ...
 
     async def fetch_detail(self, source_id: str) -> Optional[NormalizedVacancy]:
-        """Full vacancy, ``None`` when the source says it no longer exists; ``SourceError`` on outage."""
+        """Full vacancy, ``None`` when the source says it no longer exists.
+
+        ``SourceError`` on outage (``BudgetExhausted`` when the run's budget is
+        spent), ``DetailUnusable`` when the answer cannot be parsed.
+        """
         ...
 
 
