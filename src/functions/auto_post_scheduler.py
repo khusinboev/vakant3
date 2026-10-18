@@ -518,16 +518,16 @@ async def _run_auto_post(conn: aiosqlite.Connection, settings: dict) -> None:
     if not due:
         return
 
+    # vacancy_cache is still refreshed as before: it is the fallback pool when
+    # the store has nothing fresh, and the weekly stats charts read it.
+    count_cur = await conn.execute(
+        "SELECT COUNT(*) FROM vacancy_cache WHERE expires_at > ?", (now_ts,)
+    )
+    count_row = await count_cur.fetchone()
+    cached_count = int(count_row[0] if count_row else 0)
+    if cached_count < 5:
+        await _refresh_vacancy_cache(conn, min_salary)
     use_store = await _store_has_fresh(conn, now_ts)
-    if not use_store:
-        # Fallback: the store has nothing fresh -> the old live osonish cache.
-        count_cur = await conn.execute(
-            "SELECT COUNT(*) FROM vacancy_cache WHERE expires_at > ?", (now_ts,)
-        )
-        count_row = await count_cur.fetchone()
-        cached_count = int(count_row[0] if count_row else 0)
-        if cached_count < 5:
-            await _refresh_vacancy_cache(conn, min_salary)
 
     # pick_and_post never raises and always writes one auto_post_log row —
     # the slot is closed either way so a broken pick/send is not retried.

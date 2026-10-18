@@ -175,6 +175,12 @@ async def test_autopost_picks_fresh_quality_rows_with_salary_and_employer(conn):
     assert again["status"] == "skipped" and again["error"] == "no_vacancy"
 
 
+async def test_autopost_needs_a_salary_even_without_a_floor(conn):
+    await put(conn, vac(sid="900000000015", smin=None, smax=None))
+    result, _ = await _post(conn, min_quality=0)
+    assert result["status"] == "skipped"
+
+
 async def test_autopost_quality_floor(conn):
     await put(conn, vac(sid="900000000011", desc=""))  # short text -> lower quality score
     score = (await repo.get(conn, "hh_900000000011"))["quality_score"]
@@ -251,19 +257,27 @@ async def test_autopost_fresh_store_does_not_fall_back(conn):
     assert result["status"] == "skipped"
 
 
-async def test_scheduler_tick_passes_min_quality_and_skips_cache_refresh(conn):
+async def test_scheduler_tick_uses_the_store_and_its_min_quality(conn):
     await apt._seed_admin_settings(conn, autopost_min_quality=100)
     await put(conn, vac(sid="900000000091"))
+    # A live cache row exists too: with a fresh store it must not be posted.
+    await conn.execute(
+        "INSERT INTO vacancy_cache (uid, data_json, expires_at) VALUES ('osonish_900000000092', ?, ?)",
+        ('{"title": "Cached"}', int(time.time()) + HOUR),
+    )
+    await conn.commit()
     settings = dict(await (await conn.execute("SELECT * FROM webapp_admin_settings")).fetchone())
-    now = int(time.time())
-    settings.update(auto_post_scheduled_day=ap.day_key(),
-                    auto_post_scheduled_times_json=f'[{{"ts": {now - 60}, "done": false, "uid": null}}]')
-    refresh = AsyncMock()
-    with patch.object(ap, "bot", _bot()), patch.object(ap, "_refresh_vacancy_cache", refresh):
+    slot = f'[{{"ts": {int(time.time()) - 60}, "done": false, "uid": null}}]'
+    settings.update(auto_post_scheduled_day=ap.day_key(), auto_post_scheduled_times_json=slot)
+    with patch.object(ap, "bot", _bot()), patch.object(ap, "_refresh_vacancy_cache", AsyncMock()):
         await ap._run_auto_post(conn, settings)
-    refresh.assert_not_called()  # the store is fresh: no live osonish call
-    log = await (await conn.execute("SELECT status, error FROM auto_post_log")).fetchall()
-    assert [tuple(r) for r in log] == [("skipped", "no_vacancy")]  # quality 100 not reached
+        settings.update(autopost_min_quality=0, auto_post_scheduled_times_json=slot)
+        await ap._run_auto_post(conn, settings)
+    log = await (await conn.execute("SELECT status, error, uid FROM auto_post_log ORDER BY rowid")).fetchall()
+    assert [tuple(r) for r in log] == [
+        ("skipped", "no_vacancy", None),  # quality 100 not reached; the cache row is not used
+        ("sent", None, "hh_900000000091"),
+    ]
 
 
 def test_min_quality_of_clamps_and_defaults():
@@ -339,6 +353,7 @@ async def test_notification_matching_on_store_rows(tmp_path):
         # A UZS floor: foreign currency never passes, salary_min counts when there is no max.
         assert pool({"min_salary": 7_000_000}) == ["hh_900000000301", "hh_900000000302"]
         assert pool({"min_salary": 8_500_000}) == ["hh_900000000302"]
+        assert pool({"min_salary": 1_000}) == ["hh_900000000301", "hh_900000000302"]  # 4000 USD != 4000 UZS
         # No category on store rows: a category filter does not exclude them (as before).
         assert len(pool({"specs": "spec:12"})) == 3
     finally:
