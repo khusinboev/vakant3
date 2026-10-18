@@ -15,7 +15,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Protocol
 from src.core.timeutil import TZ
 
 #: Canonical-copy priority inside a duplicate group: higher wins.
-SOURCE_PRIORITY: dict[str, int] = {"hh": 20, "osonish": 10}
+SOURCE_PRIORITY: dict[str, int] = {"hh": 20, "osonish": 10, "vacancy_gov": 5}
 
 
 class SourceError(Exception):

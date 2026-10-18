@@ -181,7 +181,13 @@ def _hh() -> Adapter:
     return HHAdapter()
 
 
-ADAPTER_FACTORIES: tuple[Callable[[], Adapter], ...] = (_osonish, _hh)
+def _vacancy_gov() -> Adapter:
+    from src.ingest.sources.vacancy_gov import VacancyGovAdapter
+
+    return VacancyGovAdapter()
+
+
+ADAPTER_FACTORIES: tuple[Callable[[], Adapter], ...] = (_osonish, _hh, _vacancy_gov)
 
 
 def build_adapters(factories: Sequence[Callable[[], Adapter]] = ADAPTER_FACTORIES) -> list[Adapter]:

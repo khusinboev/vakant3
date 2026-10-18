@@ -541,7 +541,7 @@ def test_build_adapters_skips_a_broken_factory():
 
     adapters = runner.build_adapters((broken, runner._osonish))
     assert [a.name for a in adapters] == ["osonish"]
-    assert [a.name for a in runner.build_adapters()] == ["osonish", "hh"]
+    assert [a.name for a in runner.build_adapters()] == ["osonish", "hh", "vacancy_gov"]
 
 
 async def test_hh_detail_unparseable_raises_detail_unusable():
