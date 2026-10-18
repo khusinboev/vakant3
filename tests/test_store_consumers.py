@@ -29,8 +29,12 @@ from src.i18n import t
 from src.ingest import repo
 from src.ingest.base import NormalizedVacancy
 from tests import test_autopost_admin as apt
-from tests.test_c_bot_ux import _inline, premium, ux  # noqa: F401  (fixtures)
-from tests.test_c_bot_ux import USER
+from tests import test_c_bot_ux
+from tests.test_c_bot_ux import USER, _inline
+
+# Shared fixtures of the bot UX harness.
+ux = test_c_bot_ux.ux
+premium = test_c_bot_ux.premium
 
 HOUR = 3600
 
@@ -388,7 +392,7 @@ async def _store_rows(db_path, *items):
         await repo.upsert_batch(c, list(items), int(time.time()))
 
 
-async def test_deeplink_to_an_hh_vacancy_renders_it_from_the_store(ux, premium):  # noqa: F811
+async def test_deeplink_to_an_hh_vacancy_renders_it_from_the_store(ux, premium):
     await _store_rows(ux.db_path, vac(sid="900000000901", title="Dasturchi <hh>", employer="Synthetic LLC"))
     await ux.send(USER, "/start vacancy_hh_900000000901")
     card = ux.session.of(SendMessage)[-1]
@@ -397,11 +401,11 @@ async def test_deeplink_to_an_hh_vacancy_renders_it_from_the_store(ux, premium):
     assert button.web_app.url.endswith("?go=vacancy_hh_900000000901")
 
 
-async def test_deeplink_to_an_unknown_hh_vacancy_says_not_found(ux):  # noqa: F811
+async def test_deeplink_to_an_unknown_hh_vacancy_says_not_found(ux):
     await ux.send(USER, "/start vacancy_hh_900000000999")
     assert ux.session.of(SendMessage)[-1].text == t("uz", "start.vacancy_not_found")
 
 
-async def test_deeplink_with_a_bad_uid_is_rejected(ux):  # noqa: F811
+async def test_deeplink_with_a_bad_uid_is_rejected(ux):
     await ux.send(USER, "/start vacancy_hh_12a")
     assert ux.session.of(SendMessage)[-1].text == t("uz", "start.bad_vacancy_link")

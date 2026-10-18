@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from src.functions.cache import cache_get, cache_set, make_cache_key
 from src.functions.scraping import UpstreamError, get_osonish_detail, parse_osonish_uid
-from webapp.core import errors
+from webapp.core import errors, vacancy_store
 from webapp.core.auth import current_user
 from webapp.core.database import get_db, release_db
 from webapp.core.entry_gate import require_entry
+from webapp.core.i18n import get_lang
 from webapp.core.limiter import limiter
 from webapp.core.referral_gate import get_referral_gate_state, raise_if_referral_locked
 from webapp.models.schemas import SaveActionResponse, SavesResponse
@@ -30,8 +31,14 @@ def _row_to_raw_id(value: object) -> int | None:
         return None
 
 
+def _is_osonish(uid: str) -> bool:
+    """osonish (or unparseable: the strict/lenient osonish checks answer those)."""
+    parsed = vacancy_store.parse_uid(uid)
+    return parsed is None or parsed[0] == "osonish"
+
+
 def _uid_to_raw_id(uid: str) -> int:
-    """Strict: what POST accepts as a new save."""
+    """Strict: what POST accepts as a new osonish save."""
     raw_id = parse_osonish_uid(uid)
     if raw_id is None:
         raise errors.api_error(400, errors.INVALID_UID, uid=uid[:64])
@@ -60,6 +67,7 @@ async def list_saves(
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=10, ge=1, le=50),
     user=Depends(current_user),
+    lang: str = Depends(get_lang),
     db=Depends(get_db),
 ) -> SavesResponse:
     user_id = int(user["user_id"])
@@ -71,22 +79,42 @@ async def list_saves(
         "SELECT DISTINCT save_id FROM saves WHERE user_id = ? ORDER BY save_id DESC",
         (user_id,),
     )
-    seen: set[int] = set()
-    all_ids: list[int] = []
+    seen: set[str] = set()
+    # Store sources other than osonish keep the uid as TEXT (``hh_123``).
+    all_ids: list[int | str] = []
     for row in await cursor.fetchall():
-        raw_id = _row_to_raw_id(row[0])
-        if raw_id is None or raw_id in seen:
+        value = row[0]
+        if isinstance(value, str) and vacancy_store.parse_uid(value) and not value.startswith("osonish_"):
+            key, item = value, value
+        else:
+            raw_id = _row_to_raw_id(value)
+            if raw_id is None:
+                continue
+            key, item = f"osonish_{raw_id}", raw_id
+        if key in seen:
             continue
-        seen.add(raw_id)
-        all_ids.append(raw_id)
+        seen.add(key)
+        all_ids.append(item)
     total = len(all_ids)
     save_ids = all_ids[offset: offset + limit]
+    # Non-osonish saves render from the store (DB only, read now).
+    store_items: dict[str, dict] = {}
+    for save_id in save_ids:
+        if isinstance(save_id, str):
+            row = await vacancy_store.get_row(db, save_id)
+            store_items[save_id] = (
+                {"uid": save_id, "data": vacancy_store.detail_payload(row, lang)}
+                if row is not None
+                else {"uid": save_id, "title": None, "unavailable": True, "data": None}
+            )
     # Up to ``limit`` detail fetches follow; none of them may pin a pool slot.
     await release_db(db)
 
     semaphore = asyncio.Semaphore(MAX_PARALLEL_DETAIL_FETCHES)
 
-    async def _load_item(save_id: int) -> dict:
+    async def _load_item(save_id: int | str) -> dict:
+        if isinstance(save_id, str):
+            return store_items[save_id]
         uid = f"osonish_{save_id}"
         cache_key = make_cache_key("detail", uid=uid)
         cached = await cache_get(cache_key)
@@ -114,7 +142,8 @@ async def list_saves(
         if isinstance(item, dict):
             items.append(item)
         else:
-            items.append({"uid": f"osonish_{save_id}", "title": None, "unavailable": True, "data": None})
+            uid = save_id if isinstance(save_id, str) else f"osonish_{save_id}"
+            items.append({"uid": uid, "title": None, "unavailable": True, "data": None})
 
     return SavesResponse(items=items, total=total)
 
@@ -130,7 +159,15 @@ async def add_save(
     user_id = int(user["user_id"])
     raise_if_referral_locked(await get_referral_gate_state(db, user_id))
 
-    raw_id = _uid_to_raw_id(uid)
+    if _is_osonish(uid):
+        raw_id = _uid_to_raw_id(uid)
+        save_value: int | str = raw_id
+    else:
+        # Other store sources: only a vacancy the store knows can be saved.
+        if vacancy_store.parse_uid(uid) is None or await vacancy_store.get_row(db, uid) is None:
+            raise errors.api_error(400, errors.INVALID_UID, uid=uid[:64])
+        raw_id = None
+        save_value = uid
 
     if not bool(user.get("is_pro")):
         count_cursor = await db.execute(
@@ -147,11 +184,13 @@ async def add_save(
 
     await db.execute(
         "INSERT OR IGNORE INTO saves (user_id, save_id) VALUES (?, ?)",
-        (user_id, raw_id),
+        (user_id, save_value),
     )
     # Commit and hand the pooled connection back before any network call.
     await db.commit()
     await release_db(db)
+    if raw_id is None:
+        return SaveActionResponse(saved=True)
 
     # Warm the detail cache so /saves opens immediately.
     cache_key = make_cache_key("detail", uid=f"osonish_{raw_id}")
@@ -176,6 +215,11 @@ async def remove_save(
 ) -> SaveActionResponse:
     user_id = int(user["user_id"])
     raise_if_referral_locked(await get_referral_gate_state(db, user_id))
+
+    if not _is_osonish(uid):
+        await db.execute("DELETE FROM saves WHERE user_id = ? AND save_id = ?", (user_id, uid))
+        await db.commit()
+        return SaveActionResponse(removed=True)
 
     raw_id = _stored_uid_to_raw_id(uid)
 
