@@ -1,7 +1,10 @@
+import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -12,6 +15,17 @@ logger = logging.getLogger(__name__)
 
 OSONISH_BASE = "https://osonish.uz/api/v1"
 OSONISH_TIMEOUT_SECONDS = 15
+#: osonish.uz asks for a crawl delay: every request of this process to the
+#: osonish host (API routers, bot deeplinks, the ingest adapter, region
+#: seeding) is spaced at least this far apart.
+OSONISH_MIN_INTERVAL_SECONDS = 1.0
+#: A request that would have to queue longer than this fails fast with
+#: ``UpstreamError("rate_limited")`` instead of piling up behind the others.
+OSONISH_MAX_QUEUE_SECONDS = 10.0
+_OSONISH_HOST = "osonish.uz"
+_pace_clock = time.monotonic
+_pace_sleep = asyncio.sleep
+_osonish_next_at = 0.0
 
 #: Largest vacancy id we accept from a client: JSON numbers stay exact up to
 #: 2**53, and it keeps ``saves.save_id`` well inside SQLite's INTEGER range.
@@ -71,6 +85,30 @@ class UpstreamError(Exception):
         self.status = status
 
 
+def _is_osonish(url: str) -> bool:
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == _OSONISH_HOST or host.endswith("." + _OSONISH_HOST)
+
+
+async def osonish_pace() -> None:
+    """Process-wide spacing of osonish requests (one slot per ``OSONISH_MIN_INTERVAL_SECONDS``).
+
+    The slot is reserved before the first ``await``, so concurrent callers in
+    one event loop never share a slot and no lock (bound to a loop) is needed.
+    """
+    global _osonish_next_at
+    now = _pace_clock()
+    slot = max(now, _osonish_next_at)
+    if slot - now > OSONISH_MAX_QUEUE_SECONDS:
+        raise UpstreamError("rate_limited")
+    _osonish_next_at = slot + OSONISH_MIN_INTERVAL_SECONDS
+    if slot > now:
+        await _pace_sleep(slot - now)
+
+
 async def request_json(
     url: str,
     params: Optional[dict[str, Any]] = None,
@@ -83,6 +121,8 @@ async def request_json(
     caller decides what it means (a detail 404 is "not found", not an outage).
     """
     req_headers = headers or _osonish_headers()
+    if _is_osonish(url):
+        await osonish_pace()
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(

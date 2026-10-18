@@ -343,11 +343,11 @@ async def test_hh_adapter_incremental_cursor_with_overlap():
 
 async def test_hh_adapter_stops_at_request_budget_keeping_completed_cursor():
     fake = FakeHH([hh_item(i, NOW - 60 * i) for i in range(1, 2501)])
-    adapter = HHAdapter(token="t", client=make_client(fake), max_requests_per_run=3)
+    adapter = HHAdapter(token="t", client=make_client(fake), max_requests_per_run=25)
     batches = await collect(adapter, str(NOW - 2 * 86_400), NOW)
     cursors = [b.cursor for b in batches if b.cursor]
     assert cursors and int(cursors[-1]) < NOW  # stopped early, before the newest window
-    assert len(fake.calls) < 40
+    assert len(fake.calls) <= adapter.list_budget < 25  # hard: the list phase leaves room for re-checks
 
 
 async def test_hh_adapter_detail_gone_and_present():
@@ -460,3 +460,136 @@ async def test_osonish_adapter_wraps_upstream_errors():
     with pytest.raises(SourceError):
         await collect(adapter, None, NOW)
     assert adapter.stats["errors"] == 1
+
+
+# ---------------------------------------------------------------- review fixes
+
+
+async def test_hh_budget_is_hard_across_list_retries_and_rechecks():
+    from src.ingest.base import BudgetExhausted
+
+    fake = FakeHH([hh_item(i, NOW - 60 * i) for i in range(1, 2501)])
+    # Every list request is answered 429 twice before it succeeds: retries spend the budget too.
+    real_call = fake.__call__
+    attempts: dict[tuple, int] = {}
+
+    async def flaky(url, params, headers):
+        key = (url, params.get("page"), params.get("date_from"), params.get("date_to"))
+        attempts[key] = attempts.get(key, 0) + 1
+        if not url.rsplit("/", 1)[-1].isdigit() and attempts[key] <= 2:
+            fake.calls.append((url, dict(params), dict(headers)))
+            return HttpResponse(429, None, {})
+        return await real_call(url, params, headers)
+
+    adapter = HHAdapter(token="t", client=make_client(flaky), max_requests_per_run=12, recheck_reserve=3)
+    await collect(adapter, str(NOW - 2 * 86_400), NOW)
+    assert len(fake.calls) <= adapter.list_budget == 9
+    # Re-checks get what is left, then the run is over.
+    fake.details.update({str(100000 + i): HttpResponse(200, {k: v for k, v in hh_item(i, NOW).items() if k != "_ts"},
+                                                           {}) for i in range(1, 50)})
+    done = 0
+    with pytest.raises(BudgetExhausted):
+        for i in range(1, 50):
+            await adapter.fetch_detail(str(100000 + i))
+            done += 1
+    assert len(fake.calls) == 12 and done == 12 - adapter.list_budget
+
+
+async def test_runner_stops_rechecks_at_budget_without_recording_failures(tmp_path):
+    import aiosqlite
+
+    from src.db.connection import apply_pragmas
+    from src.db.migrate import run_migrations
+    from src.ingest import repo
+    from src.ingest.runner import IngestRunner
+
+    fake = FakeHH([hh_item(i, NOW - 60 * i) for i in range(1, 6)])
+    for i in range(1, 6):
+        fake.details[str(100000 + i)] = HttpResponse(
+            200, {k: v for k, v in hh_item(i, NOW - 60 * i).items() if k != "_ts"}, {})
+    adapter = HHAdapter(token="t", client=make_client(fake), max_requests_per_run=4, recheck_reserve=1)
+    async with aiosqlite.connect(tmp_path / "b.sqlite3") as conn:
+        await apply_pragmas(conn)
+        await run_migrations(conn)
+        result = await IngestRunner([adapter], clock=lambda: NOW).run_once(conn)
+        assert len(fake.calls) == 4  # 1 list page + 3 re-checks, never more
+        assert result["hh"]["checked"] == 3 and result["hh"]["detail_failed"] == 0
+        cur = await conn.execute("SELECT COUNT(*) FROM vacancies WHERE detail_failures > 0")
+        assert (await cur.fetchone())[0] == 0
+        assert (await repo.get_cursor(conn, "hh"))["last_error"] is None
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [(None, 1.0), ("", 1.0), ("1,5", 1.5), ("0.5", 0.5), ("abc", 1.0), ("0", 0.2), ("-3", 0.2), ("100", 2.0),
+     ("nan", 1.0), ("inf", 1.0)],
+)
+def test_hh_rate_from_env_is_defensive(monkeypatch, raw, expected):
+    if raw is None:
+        monkeypatch.delenv("HH_RATE_PER_SECOND", raising=False)
+    else:
+        monkeypatch.setenv("HH_RATE_PER_SECOND", raw)
+    assert hh_mod.rate_from_env() == expected
+    assert HHClient("t").rate.interval == pytest.approx(1 / expected)
+
+
+def test_build_adapters_skips_a_broken_factory():
+    from src.ingest import runner
+
+    def broken():
+        raise ValueError("bad config")
+
+    adapters = runner.build_adapters((broken, runner._osonish))
+    assert [a.name for a in adapters] == ["osonish"]
+    assert [a.name for a in runner.build_adapters()] == ["osonish", "hh"]
+
+
+async def test_hh_detail_unparseable_raises_detail_unusable():
+    from src.ingest.base import DetailUnusable
+
+    fake = FakeHH()
+    fake.details["100001"] = HttpResponse(200, {"id": "100001", "name": "No date"}, {})
+    adapter = HHAdapter(token="t", client=make_client(fake))
+    with pytest.raises(DetailUnusable):
+        await adapter.fetch_detail("100001")
+
+
+async def test_osonish_pace_spaces_requests_and_fails_fast_when_queue_is_long(monkeypatch):
+    clock = {"t": 1000.0}
+    slept: list[float] = []
+
+    async def sleep(s):
+        slept.append(round(s, 3))
+
+    monkeypatch.setattr(scraping, "_pace_clock", lambda: clock["t"])
+    monkeypatch.setattr(scraping, "_pace_sleep", sleep)
+    monkeypatch.setattr(scraping, "_osonish_next_at", 0.0)
+    monkeypatch.setattr(scraping, "OSONISH_MAX_QUEUE_SECONDS", 2.5)
+    for _ in range(3):
+        await scraping.osonish_pace()  # concurrent callers: the clock does not move
+    assert slept == [1.0, 2.0]  # each caller got its own slot, 1 s apart
+    with pytest.raises(scraping.UpstreamError):
+        await scraping.osonish_pace()
+    clock["t"] += 10
+    slept.clear()
+    await scraping.osonish_pace()
+    assert slept == []
+
+
+async def test_request_json_paces_only_osonish_hosts(monkeypatch, osonish_server):
+    calls: list[str] = []
+
+    async def pace():
+        calls.append("pace")
+        raise scraping.UpstreamError("rate_limited")  # stops before any real request
+
+    monkeypatch.setattr(scraping, "osonish_pace", pace)
+    with pytest.raises(scraping.UpstreamError):
+        await scraping.request_json("https://osonish.uz/api/v1/vacancies/1")
+    with pytest.raises(scraping.UpstreamError):
+        await scraping.request_json("https://api.osonish.uz/x")
+    assert calls == ["pace", "pace"]
+    routes, _seen = osonish_server
+    routes["/api/v1/regions"] = (200, {"data": [1]})
+    assert await scraping.request_json(scraping.OSONISH_BASE + "/regions") == (200, {"data": [1]})
+    assert calls == ["pace", "pace"]  # the local stand-in is not osonish.uz

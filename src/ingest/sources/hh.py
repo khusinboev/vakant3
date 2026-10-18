@@ -2,7 +2,8 @@
 
 Enabled only when ``HH_APP_TOKEN`` is set (vacancy search answers 403 without
 an application token). Requests go out at most ``HH_RATE_PER_SECOND`` per
-second; 429 / 5xx / transport errors back off exponentially (``Retry-After``
+second (0.2-2.0, default 1.0) and at most ``MAX_REQUESTS_PER_RUN`` per run,
+retries and detail re-checks included; 429 / 5xx / transport errors back off exponentially (``Retry-After``
 wins when present); 400 and 401/403 fail fast.
 
 Incremental: the cursor is the end of the last fully processed publication
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,7 +26,9 @@ from urllib.parse import urlsplit
 import aiohttp
 
 from src.core.timeutil import TZ
-from src.ingest.base import Batch, NormalizedVacancy, RateLimiter, SourceError, new_stats, parse_ts
+from src.ingest.base import (
+    Batch, BudgetExhausted, DetailUnusable, NormalizedVacancy, RateLimiter, SourceError, new_stats, parse_ts,
+)
 from src.ingest.regions import hh_area_to_region
 from src.ingest.text import clean_line, html_to_text
 
@@ -42,6 +46,13 @@ FIRST_RUN_LOOKBACK = 30 * 86_400
 TIMEOUT_SECONDS = 20
 MAX_BACKOFF_SECONDS = 60.0
 _ALLOWED_URL_HOSTS = ("hh.uz", "hh.ru")
+DEFAULT_RATE_PER_SECOND = 1.0
+MIN_RATE_PER_SECOND = 0.2
+MAX_RATE_PER_SECOND = 2.0
+#: Requests per run (list pages, retries and detail re-checks together).
+MAX_REQUESTS_PER_RUN = 80
+#: Part of the run budget the list phase leaves for detail re-checks.
+RECHECK_RESERVE = 20
 
 
 @dataclass
@@ -75,6 +86,19 @@ def user_agent_from_env() -> str:
     return (os.getenv("HH_USER_AGENT") or "").strip() or DEFAULT_USER_AGENT
 
 
+def rate_from_env() -> float:
+    """``HH_RATE_PER_SECOND`` as a float in [0.2, 2.0]; default 1.0 when unset or unparseable ("1,5" = 1.5)."""
+    raw = (os.getenv("HH_RATE_PER_SECOND") or "").strip().replace(",", ".")
+    try:
+        value = float(raw) if raw else DEFAULT_RATE_PER_SECOND
+    except ValueError:
+        logger.warning("hh: HH_RATE_PER_SECOND=%r is not a number, using %.1f", raw, DEFAULT_RATE_PER_SECOND)
+        return DEFAULT_RATE_PER_SECOND
+    if not math.isfinite(value):
+        return DEFAULT_RATE_PER_SECOND
+    return min(MAX_RATE_PER_SECOND, max(MIN_RATE_PER_SECOND, value))
+
+
 def _retry_after(headers: Mapping[str, str]) -> Optional[float]:
     for key, value in headers.items():
         if key.lower() == "retry-after":
@@ -101,11 +125,20 @@ class HHClient:
         self.token = token
         self.user_agent = user_agent
         self.transport = transport or aiohttp_transport
-        self.rate = rate or RateLimiter(float(os.getenv("HH_RATE_PER_SECOND") or 1.5))
+        self.rate = rate or RateLimiter(rate_from_env())
         self.sleep = sleep
         self.max_retries = max_retries
         self.base_delay = base_delay
         self.stats = stats if stats is not None else new_stats()
+        #: Requests left in this run (``None`` = unlimited); every attempt, retries included, spends one.
+        self.budget: Optional[int] = None
+
+    def _spend(self) -> None:
+        if self.budget is None:
+            return
+        if self.budget <= 0:
+            raise BudgetExhausted()
+        self.budget -= 1
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -120,6 +153,7 @@ class HHClient:
         query = {"host": HH_HOST, **params}
         attempt = 0
         while True:
+            self._spend()
             await self.rate.wait()
             self.stats["requests"] += 1
             retry_reason: str
@@ -291,10 +325,6 @@ def normalize(item: Any, *, detail: bool = False) -> Optional[NormalizedVacancy]
     )
 
 
-class _BudgetExhausted(Exception):
-    pass
-
-
 class HHAdapter:
     name = "hh"
     interval_seconds = 600
@@ -307,21 +337,24 @@ class HHAdapter:
         user_agent: str | None = None,
         *,
         client: HHClient | None = None,
-        max_requests_per_run: int = 80,
+        max_requests_per_run: int = MAX_REQUESTS_PER_RUN,
+        recheck_reserve: int = RECHECK_RESERVE,
     ) -> None:
         self.token = token if token is not None else token_from_env()
         self.stats = new_stats()
         self.client = client or HHClient(self.token, user_agent or user_agent_from_env(), stats=self.stats)
         self.client.stats = self.stats
         self.max_requests_per_run = max_requests_per_run
-        self._run_start_requests = 0
+        # The list phase stops early enough to leave a share for re-checks.
+        self.list_budget = max(1, max_requests_per_run - min(recheck_reserve, max_requests_per_run // 4))
 
     def enabled(self) -> bool:
         return bool(self.token)
 
     def _check_budget(self) -> None:
-        if self.stats["requests"] - self._run_start_requests >= self.max_requests_per_run:
-            raise _BudgetExhausted
+        budget = self.client.budget
+        if budget is not None and self.max_requests_per_run - budget >= self.list_budget:
+            raise BudgetExhausted()
 
     async def iter_new(self, cursor: Optional[str], now: int) -> AsyncIterator[Batch]:
         try:
@@ -329,11 +362,12 @@ class HHAdapter:
         except ValueError:
             start = now - FIRST_RUN_LOOKBACK
         start = max(start, now - FIRST_RUN_LOOKBACK)
-        self._run_start_requests = self.stats["requests"]
+        # A hard budget for the whole run: list pages, retries and the re-checks that follow.
+        self.client.budget = self.max_requests_per_run
         try:
             async for batch in self._window(start, now):
                 yield batch
-        except _BudgetExhausted:
+        except BudgetExhausted:
             logger.info("hh: request budget for this run used up; continuing next run")
 
     async def _window(self, lo: int, hi: int) -> AsyncIterator[Batch]:
@@ -366,6 +400,7 @@ class HHAdapter:
             if last:
                 return
             page += 1
+            self._check_budget()
             body = await self.client.search(lo, hi, page)
 
     async def fetch_detail(self, source_id: str) -> Optional[NormalizedVacancy]:
@@ -374,4 +409,7 @@ class HHAdapter:
         body = await self.client.vacancy(source_id)
         if body is None:
             return None
-        return normalize(body, detail=True)
+        vacancy = normalize(body, detail=True)
+        if vacancy is None:
+            raise DetailUnusable(f"hh {source_id}: unparseable detail")
+        return vacancy
