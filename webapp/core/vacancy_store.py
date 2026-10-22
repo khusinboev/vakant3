@@ -181,6 +181,7 @@ async def search_page(
                 "source": str(row.get("source") or ""),
                 "source_label": SOURCE_LABELS.get(str(row.get("source") or ""), str(row.get("source") or "")),
                 "url": str(row.get("url") or "") or None,
+                "openings": int(row.get("openings") or 1),
             }
         )
 
@@ -217,6 +218,7 @@ def detail_payload(row: dict[str, Any], lang: str) -> dict[str, Any]:
             "source_label": normalized["source_label"],
             "url": normalized["url"],
             "status": row.get("status"),
+            "openings": int(row.get("openings") or 1),
             "normalized": normalized,
         }
     )

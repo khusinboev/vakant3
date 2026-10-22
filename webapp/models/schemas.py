@@ -31,6 +31,8 @@ class VacancyItem(BaseModel):
     source: str = "osonish"
     source_label: str | None = None
     url: str | None = None
+    #: Open vacancies collapsed into this card by dedup (1 when alone).
+    openings: int = 1
 
 
 class JobsSearchResponse(BaseModel):
