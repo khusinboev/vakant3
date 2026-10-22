@@ -147,6 +147,7 @@ STRINGS: dict[str, str] = {
     "vacancy.label.education": "Образование",
     "vacancy.label.experience": "Опыт",
     "vacancy.label.gender": "Пол",
+    "vacancy.openings": "Мест: {n}",
     "vacancy.label.count": "Количество мест",
     "vacancy.label.hours": "Рабочее время",
     "vacancy.label.posted": "Дата публикации",
