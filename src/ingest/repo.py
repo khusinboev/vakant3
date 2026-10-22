@@ -369,6 +369,29 @@ def _to_dict(row: Any) -> dict[str, Any]:
     return out
 
 
+async def _attach_openings(conn, items: Sequence[dict[str, Any]]) -> None:
+    """Set ``openings`` on each item: open rows in its dedup group (1 without a group).
+
+    One grouped query over the page's groups (``idx_vacancies_dedup_group``).
+    ``+status`` keeps the planner on the dedup_group index (status has few values).
+    A duplicate collapsed into a canonical card counts as one more opening;
+    closed members never count, so a lone open row is always 1.
+    """
+    groups = sorted({str(i["dedup_group"]) for i in items if i.get("dedup_group")})
+    counts: dict[str, int] = {}
+    for part in _chunks(groups, 500):
+        marks = ",".join("?" * len(part))
+        cur = await conn.execute(
+            f"SELECT dedup_group, COUNT(*) FROM vacancies WHERE dedup_group IN ({marks}) AND +status = 'open' "
+            "GROUP BY dedup_group",
+            list(part),
+        )
+        counts.update({str(r[0]): int(r[1]) for r in await cur.fetchall()})
+    for item in items:
+        group = item.get("dedup_group")
+        item["openings"] = max(1, counts.get(str(group), 1)) if group else 1
+
+
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 #: Same set the FTS view strips (``m025_ingest_hardening.APOSTROPHES``): o'qituvchi = oʻqituvchi.
 _APOSTROPHES = str.maketrans("", "", "ʻʼ'`‘’")
@@ -495,6 +518,7 @@ async def search(
         item.pop("_id", None)
         item.pop("_key", None)
         items.append(item)
+    await _attach_openings(conn, items)
     next_cursor = _encode_cursor(int(rows[-1]["_key"] or 0), rows[-1]["_id"]) if has_more and rows else None
     return {"items": items, "next_cursor": next_cursor, "total": total}
 
@@ -518,6 +542,7 @@ async def get(conn, uid: str, *, with_raw: bool = False) -> Optional[dict[str, A
         except ValueError:
             raw = {}
         out["raw"] = raw if isinstance(raw, dict) else {}
+    await _attach_openings(conn, [out])
     return out
 
 
@@ -574,4 +599,6 @@ async def freshest_for_post(
             ORDER BY v.published_at DESC, v.quality_score DESC LIMIT ?""",
         (*params, max(1, int(limit))),
     )
-    return [_to_dict(row) for row in await cur.fetchall()]
+    items = [_to_dict(row) for row in await cur.fetchall()]
+    await _attach_openings(conn, items)
+    return items

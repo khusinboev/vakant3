@@ -276,3 +276,20 @@ async def test_hh_saves_count_toward_the_free_limit(api):
     assert over.status_code == 403 and over.json()["detail"] == {
         "code": "SAVE_LIMIT_REACHED", "limit": 5, "current": 5,
     }
+
+
+# ---------------------------------------------------------------- openings
+
+
+async def test_list_and_detail_carry_the_number_of_openings(api):
+    await put(*(vac("osonish", str(900000000700 + i), title="Sanitarka", employer="Shifoxona") for i in range(3)),
+              vac("hh", "900000000799", title="Kassir", employer="Boshqa"))
+    body = await search(api)
+    by_title = {v["title"]: v for v in body["vacancies"]}
+    assert len(body["vacancies"]) == 2
+    assert by_title["Sanitarka"]["openings"] == 3 and by_title["Kassir"]["openings"] == 1
+    for uid in (by_title["Sanitarka"]["uid"], by_title["Kassir"]["uid"]):
+        response = await api.get(f"/api/jobs/{uid}", headers=HEADERS)
+        assert response.status_code == 200, response.text
+        expected = 3 if uid.startswith("osonish_") else 1
+        assert response.json()["data"]["openings"] == expected

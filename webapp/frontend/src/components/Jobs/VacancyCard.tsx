@@ -2,6 +2,7 @@ import { Heart, Lock, MapPin } from "lucide-react";
 
 import { useT } from "../../i18n/useT";
 import type { VacancyItem } from "../../types";
+import OpeningsBadge from "./OpeningsBadge";
 import SourceBadge from "./SourceBadge";
 
 type Props = {
@@ -48,6 +49,7 @@ export default function VacancyCard({ item, onOpen, onToggleSave }: Props) {
             <span className={`rounded-full px-2 py-1 font-semibold ${item.is_pro_locked ? "bg-warning/15 text-warning" : "bg-primary/10 text-primary"}`}>
               {item.salary_text || t("vacancy.salary.negotiable")}
             </span>
+            {!item.is_pro_locked && <OpeningsBadge count={item.openings} />}
             <span className="inline-flex items-center gap-1">
               <MapPin size={14} /> {location}
             </span>

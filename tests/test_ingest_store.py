@@ -657,3 +657,50 @@ async def test_fts_index_stays_consistent_and_m025_reapply_rebuilds(conn):
     await conn.execute("INSERT INTO vacancies_fts (vacancies_fts) VALUES ('integrity-check')")
     assert [i["uid"] for i in (await repo.search(conn, query="o'qituvchi"))["items"]] == ["hh_1"]
     assert (await repo.search(conn, query="tilini"))["total"] == 1
+
+
+# ---------------------------------------------------------------- openings (collapsed duplicates)
+
+
+async def _same_position(conn, n, *, source="osonish", employer="Shifoxona"):
+    await repo.upsert_batch(
+        conn, [vac(source=source, sid=str(900000000100 + i), title="Sanitarka", employer=employer) for i in range(n)], NOW
+    )
+
+
+async def test_openings_counts_open_rows_of_the_canonical_group(conn):
+    await _same_position(conn, 4)
+    await repo.upsert_batch(conn, [vac(sid="solo", title="Kassir", employer="Boshqa")], NOW)
+    page = await repo.search(conn)
+    by_title = {i["title"]: i for i in page["items"]}
+    assert len(page["items"]) == 2  # four duplicates collapsed into one card
+    assert by_title["Sanitarka"]["openings"] == 4
+    assert by_title["Kassir"]["openings"] == 1  # a row in its own (single-member) group
+    canonical = by_title["Sanitarka"]["uid"]
+    assert (await repo.get(conn, canonical))["openings"] == 4
+    # A collapsed duplicate reports its group's count too.
+    dup = next(u for u in (f"osonish_{900000000100 + i}" for i in range(4)) if u != canonical)
+    assert (await repo.get(conn, dup))["openings"] == 4
+
+
+async def test_openings_ignores_closed_members_and_ungrouped_rows(conn):
+    await _same_position(conn, 3)
+    page = await repo.search(conn)
+    canonical = page["items"][0]["uid"]
+    closed = next(f"osonish_{900000000100 + i}" for i in range(3) if f"osonish_{900000000100 + i}" != canonical)
+    await repo.close(conn, [closed], "gone", NOW)
+    assert (await repo.search(conn))["items"][0]["openings"] == 2
+    # No group at all (legacy row): exactly one opening.
+    await conn.execute("UPDATE vacancies SET dedup_group = NULL, dup_of = NULL WHERE uid = ?", (canonical,))
+    await conn.commit()
+    assert (await repo.get(conn, canonical))["openings"] == 1
+
+
+async def test_openings_is_one_indexed_query_for_a_page(conn):
+    for k in range(5):
+        await _same_position(conn, 3, employer=f"Org {k}")
+    plans = await _plans_of_traced(conn, lambda: repo.search(conn, limit=5))
+    grouped = [(s, p) for s, p in plans.items() if "GROUP BY dedup_group" in s]
+    assert len(grouped) == 1, list(plans)
+    assert "idx_vacancies_dedup_group" in grouped[0][1], grouped[0][1]
+    assert all(i["openings"] == 3 for i in (await repo.search(conn, limit=5))["items"])

@@ -314,7 +314,12 @@ def normalize_store_vacancy(
     uid = str(row.get("uid") or f"{row.get('source')}_{row.get('source_id')}")
     source = str(row.get("source") or "")
     url = str(row.get("url") or "")
-    extra = {"source": source, "source_label": SOURCE_LABELS.get(source, source), "url": url}
+    extra = {
+        "source": source,
+        "source_label": SOURCE_LABELS.get(source, source),
+        "url": url,
+        "openings": max(1, _to_int(row.get("openings")) or 1),
+    }
 
     detail = osonish_store_detail(row)
     if detail is not None:
@@ -464,12 +469,18 @@ def format_vacancy_message_html(
     def ic(key: str) -> str:
         return _icon(key, plain=plain)
 
+    # Store rows collapsed by dedup: "👥 54 ta o'rin" (a plain emoji, no custom-emoji key).
+    openings = _to_int(normalized.get("openings")) or 1
+    openings_line = f"👥 {_esc(t(lang, 'vacancy.openings', n=openings))}" if openings > 1 else ""
+
     if compact:
         lines = [t(lang, "notify.header", plain_emoji=plain), ""]
         lines.append(f"{ic('position')} <b>{esc('title')}</b>")
         if normalized.get("company"):
             lines.append(f"{ic('company')} {esc('company')}")
         lines.append(f"{ic('salary')} {esc('salary')}")
+        if openings_line:
+            lines.append(openings_line)
         location = normalized.get("region") or normalized.get("address")
         if location:
             lines.append(f"{ic('location')} {_esc(location)}")
@@ -497,6 +508,8 @@ def format_vacancy_message_html(
     if normalized.get("company"):
         lines.append(f"{ic('company')} <b>{_esc(t(lang, 'vacancy.label.company'))}:</b> {esc('company')}")
     lines.append(f"{ic('salary')} <b>{_esc(t(lang, 'vacancy.label.salary'))}:</b> {esc('salary')}")
+    if openings_line:
+        lines.append(openings_line)
 
     for field, icon, label_key in field_rows:
         if normalized.get(field):

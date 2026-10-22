@@ -425,3 +425,28 @@ async def test_deeplink_to_an_unknown_hh_vacancy_says_not_found(ux):
 async def test_deeplink_with_a_bad_uid_is_rejected(ux):
     await ux.send(USER, "/start vacancy_hh_12a")
     assert ux.session.of(SendMessage)[-1].text == t("uz", "start.bad_vacancy_link")
+
+
+# ---------------------------------------------------------------- openings line
+
+
+@pytest.mark.parametrize("lang", ["uz", "ru", "en"])
+@pytest.mark.parametrize("compact", [False, True])
+def test_post_and_notification_show_the_number_of_openings(lang, compact):
+    row = {"uid": "osonish_900000000801", "source": "osonish", "source_id": "900000000801", "title": "Sanitarka",
+           "employer": "Shifoxona", "salary_min": 3_000_000, "salary_max": None, "currency": "UZS",
+           "region_soato": "1726", "description_text": "x", "url": "https://osonish.uz/vacancy/900000000801"}
+    many = format_vacancy_message_html(row["uid"], {**row, "openings": 54}, lang, compact=compact, plain=True)
+    assert "👥 " + t(lang, "vacancy.openings", n=54) in many
+    for alone in ({**row, "openings": 1}, row):
+        assert "👥" not in format_vacancy_message_html(row["uid"], alone, lang, compact=compact, plain=True)
+    assert t("uz", "vacancy.openings", n=54) == "54 ta o'rin"
+    assert normalize_store_vacancy({**row, "openings": 54}, lang)["openings"] == 54
+    assert normalize_store_vacancy(row, lang)["openings"] == 1
+
+
+async def test_store_candidates_feed_the_openings_into_the_post(conn):
+    await put(conn, *(vac("osonish", str(900000000810 + i), title="Sanitarka") for i in range(3)))
+    rows = await repo.freshest_for_post(conn, since=0)
+    assert [r["openings"] for r in rows] == [3]
+    assert "3 ta o'rin" in format_vacancy_message_html(rows[0]["uid"], rows[0], "uz", plain=True)

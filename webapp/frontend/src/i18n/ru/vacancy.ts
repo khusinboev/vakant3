@@ -5,6 +5,7 @@ const vacancy: Record<keyof VacancyDict, string> = {
   "vacancy.fallbackTitle": "Вакансия",
   "vacancy.hidden": "Скрыто",
   "vacancy.open": "Подробнее",
+  "vacancy.openings": "Мест: {n}",
   "vacancy.openPro": "Подробнее (Pro)",
   "vacancy.save": "Сохранить",
   "vacancy.saved": "Сохранено",

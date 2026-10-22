@@ -12,6 +12,7 @@ const vacancy = {
   "vacancy.fallbackTitle": "Vakansiya",
   "vacancy.hidden": "Yashirilgan",
   "vacancy.open": "Batafsil ko'rish",
+  "vacancy.openings": "{n} ta o'rin",
   "vacancy.openPro": "Batafsil ko'rish (Pro)",
   "vacancy.save": "Saqlash",
   "vacancy.saved": "Saqlangan",
