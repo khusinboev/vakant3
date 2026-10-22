@@ -21,6 +21,8 @@ export type VacancyItem = {
   source?: string;
   source_label?: string | null;
   url?: string | null;
+  /** Open vacancies collapsed into this card by dedup (1 when alone). */
+  openings?: number;
 };
 
 /** Raw integer codes from osonish.uz — render them with `useVacancyCodeLabel`. */

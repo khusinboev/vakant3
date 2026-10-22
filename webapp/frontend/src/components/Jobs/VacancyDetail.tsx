@@ -2,6 +2,7 @@ import { ExternalLink, Lock, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import BottomSheet from "../ui/BottomSheet";
+import OpeningsBadge from "./OpeningsBadge";
 import SourceBadge from "./SourceBadge";
 import { botDeepLink, openExternalLink, openTelegramLink } from "../../lib/constants";
 import { useT, useVacancyCodeLabel } from "../../i18n/useT";
@@ -213,9 +214,12 @@ export default function VacancyDetail({
         </button>
       </div>
 
-      <span className="inline-block rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
-        {salary}
-      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-block rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
+          {salary}
+        </span>
+        <OpeningsBadge count={typeof d.openings === "number" ? d.openings : null} />
+      </div>
 
       <div className="mt-4 space-y-2">
         <Row label={t("vacancy.row.address")} value={address || [district, region].filter(Boolean).join(", ") || null} />
