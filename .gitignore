@@ -1,0 +1,42 @@
+# Environment secrets
+.env
+.env.local
+.claude
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDEs
+.idea/
+.vscode/
+
+# Database
+*.sqlite3
+*.sqlite
+*.db
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend build output and deps
+webapp/frontend/node_modules/
+webapp/frontend/dist/
+webapp/frontend/.vite/
+webapp/frontend/tsconfig.tsbuildinfo
+
+# Bot log
+bot.log
+ops/loadtest-results/*
+!ops/loadtest-results/.gitkeep

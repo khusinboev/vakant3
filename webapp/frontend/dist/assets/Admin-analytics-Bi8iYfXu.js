@@ -1,0 +1,1 @@
+function i(t,n){return t.length===0?0:t.reduce((u,r)=>u+(Number(r[n])||0),0)/t.length}function c(t,n){return!Number.isFinite(t)||!Number.isFinite(n)?null:n===0?t===0?0:null:(t-n)/n*100}function l(t){return t.length>=5?t.slice(5):t}function o(t){return Math.max(0,Math.ceil(t/6)-1)}export{l as a,c,i as s,o as t};
