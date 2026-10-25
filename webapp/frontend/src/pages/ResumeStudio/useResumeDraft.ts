@@ -16,9 +16,10 @@ import {
   type ResumeProfileData,
   type ResumeProfileResponse,
 } from "./types";
+import { USER_SCOPED_KEY_PREFIXES } from "../../lib/authPlan";
 
-const DRAFT_KEY = "resume_wizard_draft_v2";
-const PHOTO_KEY = "resume_wizard_photo_v1";
+// Purged for the previous account on an account switch (hooks/useTelegramAuth).
+const [DRAFT_KEY, PHOTO_KEY] = USER_SCOPED_KEY_PREFIXES;
 const SAVE_DEBOUNCE_MS = 900;
 
 // localStorage is shared by every Telegram account that opens the Mini App on

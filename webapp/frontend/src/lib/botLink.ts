@@ -9,11 +9,9 @@
  *    renders or any `?go=` dispatch rewrites the URL), and removed from the
  *    address bar right away with `history.replaceState`, so it is never kept
  *    in the history/back stack nor copied by a "share link";
- *  - a link alone never signs in. Anyone can put our URL with HIS token into
- *    his own bot's keyboard (a genuine Telegram webview with empty initData):
- *    a silent login would put the victim in the attacker's account. The API
- *    answers 409 `BOT_LINK_CONFIRM{name}` and we ask «<name> sifatida
- *    kirasizmi?» first (ported from SlaydX `MiniAppBridge`).
+ *  - a valid link signs in directly, with no confirmation prompt, and
+ *    replaces any session cached on this device (owner rule: the app always
+ *    opens as the current Telegram account; see `lib/authPlan.ts`).
  */
 import { createT, ensureDictionary } from "../i18n";
 import { currentLang } from "../store/lang";
@@ -34,9 +32,9 @@ export function botLinkFromSearch(search: string): string | null {
 }
 
 /**
- * The user id inside a version-1 token, UNVERIFIED. Only a UX input («this
- * link is the account already signed in: skip the exchange»); the server
- * verifies the MAC.
+ * The user id inside a version-1 token, UNVERIFIED. Only decides whether a
+ * stored session of that same user may be kept as a fallback when the
+ * exchange fails; the server verifies the MAC.
  */
 export function botLinkUserId(token: string): number | null {
   try {
@@ -100,8 +98,7 @@ export function peekBotLink(): string | null {
  * `telegram-web-app.js` reports `platform = "unknown"` in any normal browser;
  * Telegram passes its platform in the launch parameters (persisted by the
  * script in sessionStorage across reloads). A crafted URL can fake this, but
- * it only shows the app shell: signing in still needs a valid link plus the
- * user's explicit confirmation.
+ * it only shows the app shell: signing in still needs a valid signed link.
  */
 export function isKeyboardLaunch(): boolean {
   const wa = typeof window !== "undefined" ? window.Telegram?.WebApp : undefined;
@@ -112,43 +109,6 @@ export function isKeyboardLaunch(): boolean {
   } catch {
     return false;
   }
-}
-
-type PopupParams = {
-  message: string;
-  buttons: { id: string; type: "default" | "cancel"; text?: string }[];
-};
-type PopupCapable = { showPopup?: (params: PopupParams, cb?: (id: string) => void) => void };
-
-/** «<name> sifatida kirasizmi?» with a «Kirish» button; resolves true only on that button. */
-export async function askBotLinkLogin(name: string): Promise<boolean> {
-  const lang = currentLang();
-  await ensureDictionary(lang);
-  const t = createT(lang);
-  const message = name.trim()
-    ? t("auth.botLink.confirm", { name: name.trim() })
-    : t("auth.botLink.confirmNoName");
-  const wa = window.Telegram?.WebApp as (TelegramWebApp & PopupCapable) | undefined;
-  return new Promise<boolean>((resolve) => {
-    try {
-      if (wa?.showPopup && wa.isVersionAtLeast?.("6.2")) {
-        wa.showPopup(
-          {
-            message,
-            buttons: [
-              { id: "login", type: "default", text: t("auth.botLink.login") },
-              { id: "cancel", type: "cancel" },
-            ],
-          },
-          (id) => resolve(id === "login"),
-        );
-        return;
-      }
-    } catch {
-      // Fall through to the browser dialog.
-    }
-    resolve(window.confirm(message));
-  });
 }
 
 /** Tell the user the link is dead and how to get a new one. */
