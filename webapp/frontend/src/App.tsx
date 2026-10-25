@@ -12,7 +12,7 @@ import useTelegramAuth, { isTelegramWebApp } from "./hooks/useTelegramAuth";
 import useTelegramBackButton from "./hooks/useTelegramBackButton";
 import useTheme from "./hooks/useTheme";
 import { useT } from "./i18n/useT";
-import { consumeStartParam, resolveEntryTarget, VACANCY_QUERY_KEY } from "./lib/deepLink";
+import { consumeStartParam, resolveEntryTarget, vacancyToken, VACANCY_QUERY_KEY } from "./lib/deepLink";
 import type { GateState } from "./lib/entryGate";
 import { gateBlockReason } from "./lib/entryGate";
 import { useAuthStore } from "./store/auth";
@@ -41,7 +41,7 @@ function PageFallback() {
 /**
  * A vacancy deep link (`?go=` / `start_param` = a vacancy token, see lib/deepLink) lands
  * on the job list with that vacancy's sheet open as its own history entry:
- * `/app` (replace) then `/app?vacancy=<uid>` (push), so Back closes the sheet
+ * `/app` (replace) then `/app?vacancy=<token>` (push), so Back closes the sheet
  * and leaves the list underneath.
  */
 function VacancyEntry({ uid }: { uid: string }) {
@@ -51,7 +51,7 @@ function VacancyEntry({ uid }: { uid: string }) {
     if (done.current) return;
     done.current = true;
     navigate("/app", { replace: true });
-    navigate(`/app?${VACANCY_QUERY_KEY}=${encodeURIComponent(uid)}`, { state: { vacancySheet: true } });
+    navigate(`/app?${VACANCY_QUERY_KEY}=${vacancyToken(uid) ?? ""}`, { state: { vacancySheet: true } });
   }, [navigate, uid]);
   return null;
 }

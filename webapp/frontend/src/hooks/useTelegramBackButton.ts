@@ -29,7 +29,7 @@ export default function useTelegramBackButton() {
   useEffect(() => {
     const btn = window.Telegram?.WebApp?.BackButton;
 
-    // An open vacancy sheet on Home (`/app?vacancy=<uid>`) is one level deep:
+    // An open vacancy sheet on Home (`/app?vacancy=<token>`) is one level deep:
     // Home's interceptor closes it.
     const overlay =
       hasOpenSheet(location) ||
