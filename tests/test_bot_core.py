@@ -239,7 +239,7 @@ def test_format_localizes_labels():
 def test_format_compact_is_notification_shape():
     text = format_vacancy_message_html("osonish_7", _DETAIL, "uz", compact=True)
     assert "Siz uchun ish tavsiyasi" in text
-    assert "start=vacancy_osonish_7" in text
+    assert "start=vo7" in text
     assert "Tavsif" not in text
 
 

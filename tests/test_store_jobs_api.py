@@ -315,3 +315,36 @@ async def test_list_and_detail_carry_the_number_of_openings(api):
         assert response.status_code == 200, response.text
         expected = 3 if uid.startswith("osonish_") else 1
         assert response.json()["data"]["openings"] == expected
+
+
+# ---------------------------------------------------------------- vacancy_gov uids
+
+
+async def test_vacancy_gov_detail_and_save_roundtrip(api):
+    gov = NormalizedVacancy(
+        source="vacancy_gov", source_id="900000000701", title="Inspektor", employer="Synthetic Agency",
+        region_soato="1726", salary_min=4_000_000, salary_max=6_000_000, currency="UZS",
+        published_at=int(time.time()) - HOUR, description_text="Talablar: yuqori malaka. " * 10,
+        url="https://vacancy.example.test/900000000701",
+    )
+    await put(gov, detail=True)
+    uid = "vacancy_gov_900000000701"
+
+    detail = await api.get(f"/api/jobs/{uid}", headers=HEADERS)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["data"]["normalized"]["title"] == "Inspektor"
+
+    saved = await api.post(f"/api/saves/{uid}", headers=HEADERS)
+    assert saved.status_code == 200 and saved.json()["saved"] is True
+    rows = await _sql("SELECT save_id FROM saves WHERE user_id = ?", (USER_ID,))
+    assert [r["save_id"] for r in rows] == [uid]
+    listing = (await api.get("/api/saves", headers=HEADERS)).json()
+    assert [i["uid"] for i in listing["items"]] == [uid]
+
+    unknown = await api.post("/api/saves/vacancy_gov_900000000799", headers=HEADERS)
+    assert unknown.status_code == 400 and unknown.json()["detail"]["code"] == "INVALID_UID"
+    assert (await api.get("/api/jobs/vacancy_gov_900000000799", headers=HEADERS)).status_code == 404
+
+    removed = await api.delete(f"/api/saves/{uid}", headers=HEADERS)
+    assert removed.status_code == 200
+    assert await _sql("SELECT save_id FROM saves WHERE user_id = ?", (USER_ID,)) == []

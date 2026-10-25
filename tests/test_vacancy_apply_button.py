@@ -21,6 +21,7 @@ from src.buttons.buttuns import channel_vacancy_kb, open_app_kb
 from src.functions import auto_post_scheduler as ap
 from src.functions import notification_scheduler as notif
 from src.functions.vacancy_format import format_vacancy_message_html, vacancy_apply_url
+from src.functions.vacancy_token import encode_vacancy_token
 from src.i18n import t
 from src.i18n.en import STRINGS as EN
 from src.i18n.ru import STRINGS as RU
@@ -138,7 +139,7 @@ async def test_channel_post_has_one_apply_button_and_names_no_source(conn, premi
     buttons = _inline(kwargs["reply_markup"])
     host = "hh.uz" if source == "hh" else "osonish.uz"
     assert [b.url for b in buttons] == [
-        f"https://t.me/bandlikuzbot?start=vacancy_{source}_900000000601",
+        f"https://t.me/bandlikuzbot?start={encode_vacancy_token(f'{source}_900000000601')}",
         f"https://{host}/vacancy/900000000601",
     ]
     apply = buttons[1]
@@ -193,7 +194,7 @@ async def test_notification_is_premium_names_no_source_and_has_apply(premium, la
     assert text.count("<tg-emoji") >= 4  # bell, position, company, salary, location, link
     assert_no_source(kwargs["reply_markup"], text)
     app, apply = _inline(kwargs["reply_markup"])
-    assert app.web_app.url.endswith("?go=vacancy_hh_900000000603")
+    assert app.web_app.url.endswith("?go=vhbhgcrgwr")
     assert apply.url == "https://hh.uz/vacancy/900000000603"
     assert (apply.text, apply.icon_custom_emoji_id) == (APPLY[lang], ICONS["description"].id)
     assert "https://" not in visible(text)

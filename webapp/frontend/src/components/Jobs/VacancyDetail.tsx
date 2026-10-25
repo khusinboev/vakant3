@@ -9,6 +9,7 @@ import type { TranslationKey } from "../../i18n";
 import { useLocale } from "../../i18n/useLocale";
 import { apiErrorMessage } from "../../lib/parseApiError";
 import { originalUrl } from "../../lib/vacancySource";
+import { vacancyToken } from "../../lib/deepLink";
 import type { VacancyCodes, VacancyDetailResponse, VacancyHhCodes } from "../../types";
 
 type Props = {
@@ -178,7 +179,7 @@ export default function VacancyDetail({
       return;
     }
     // Unlocked: open the bot, which posts the full vacancy with contacts.
-    openTelegramLink(botDeepLink(`vacancy_${data.uid}`));
+    openTelegramLink(botDeepLink(vacancyToken(data.uid) ?? undefined));
     window.Telegram?.WebApp?.close?.();
   };
 

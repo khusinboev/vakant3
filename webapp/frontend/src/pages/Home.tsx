@@ -11,7 +11,7 @@ import { useJobDetail, useJobs } from "../hooks/useJobs";
 import { useSaves } from "../hooks/useSaves";
 import { useT } from "../i18n/useT";
 import { FREE_SAVE_LIMIT } from "../lib/constants";
-import { isVacancyUid, VACANCY_QUERY_KEY } from "../lib/deepLink";
+import { isVacancyUid, vacancyToken, vacancyUidFromQuery, VACANCY_QUERY_KEY } from "../lib/deepLink";
 import { useAuthStore } from "../store/auth";
 
 function SkeletonCard() {
@@ -38,20 +38,20 @@ export default function Home() {
     sort_key: "",
     sort_type: "",
   });
-  // The open vacancy lives in the URL (`/app?vacancy=<uid>`, see lib/deepLink):
+  // The open vacancy lives in the URL (`/app?vacancy=<token>`, see lib/deepLink):
   // opening pushes a history entry, so Telegram's BackButton, the system back
   // gesture and the sheet's own close all undo exactly that one step.
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const requestedUid = searchParams.get(VACANCY_QUERY_KEY) || "";
-  const activeUid = isVacancyUid(requestedUid) ? requestedUid : "";
+  const activeUid = vacancyUidFromQuery(requestedUid);
   const sheetWasPushed = Boolean((location.state as { vacancySheet?: boolean } | null)?.vacancySheet);
 
   const openVacancy = useCallback(
     (uid: string) => {
       if (!isVacancyUid(uid)) return;
       navigate(
-        { pathname: location.pathname, search: `?${VACANCY_QUERY_KEY}=${encodeURIComponent(uid)}` },
+        { pathname: location.pathname, search: `?${VACANCY_QUERY_KEY}=${vacancyToken(uid)}` },
         { state: { vacancySheet: true } },
       );
     },
