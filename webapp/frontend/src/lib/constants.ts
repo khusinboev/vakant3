@@ -15,7 +15,7 @@ export function botDeepLink(startParam?: string): string {
 }
 
 /**
- * Open an external https page (e.g. the original posting on hh.uz) in the
+ * Open an external https page (e.g. the original vacancy page) in the
  * in-app browser via Telegram `openLink`, otherwise a new tab. The Mini App
  * stays where it is, so the back stack is untouched.
  */

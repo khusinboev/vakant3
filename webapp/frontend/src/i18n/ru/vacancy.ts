@@ -18,9 +18,7 @@ const vacancy: Record<keyof VacancyDict, string> = {
   "vacancy.goPro": "Перейти на Pro",
   "vacancy.opening": "Открываем...",
   "vacancy.unknownCode": "Код {code}",
-  "vacancy.openOriginal": "Исходное объявление",
-  "vacancy.openOn": "Открыть на {site}",
-  "vacancy.source": "Источник: {site}",
+  "vacancy.apply": "Откликнуться",
 
   // ── Detail rows ────────────────────────────────────────────────────────────
   "vacancy.row.address": "Адрес",

@@ -29,7 +29,7 @@ BUTTON_ICONS: dict[str, str] = {
     "start.btn.subscribed": "success",
     "start.btn.open_app": "app",
     "start.btn.open_in_bot": "job",
-    "start.btn.open_original": "link",
+    "start.btn.apply": "description",
     "referral.btn.share": "share",
     "content.laws.read_more": "link",
     "btn.admin.stats": "stats",
@@ -305,22 +305,36 @@ def main_menu_kb(
 # The Mini App has no per-vacancy entry yet (App.tsx only knows ?go=profile|saves
 # and start_param profile|saves|home), so "open in app" opens its home screen.
 
-def open_app_kb(lang: str, webapp_url: str) -> InlineKeyboardMarkup:
-    """One primary inline web_app button (private chats only: carries initData)."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[key_inline(lang, "start.btn.open_app", web_app=webapp_url, style="primary")]]
-    )
+def _apply_button(lang: str, apply_url: str | None, *, plain: bool) -> InlineKeyboardButton | None:
+    """The neutral "Apply" URL button, or ``None`` without an https link."""
+    if apply_url and apply_url.startswith("https://"):
+        return key_inline(lang, "start.btn.apply", url=apply_url, plain=plain)
+    return None
 
 
-def channel_vacancy_kb(lang: str, deeplink: str, original_url: str | None = None) -> InlineKeyboardMarkup:
+def open_app_kb(lang: str, webapp_url: str, apply_url: str | None = None) -> InlineKeyboardMarkup:
+    """Primary inline web_app button (private chats only: carries initData).
+
+    ``apply_url`` (an https link to the vacancy page) adds the neutral "Apply"
+    button in a second row; the source site is never named.
+    """
+    rows = [[key_inline(lang, "start.btn.open_app", web_app=webapp_url, style="primary")]]
+    apply_button = _apply_button(lang, apply_url, plain=False)
+    if apply_button is not None:
+        rows.append([apply_button])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def channel_vacancy_kb(lang: str, deeplink: str, apply_url: str | None = None) -> InlineKeyboardMarkup:
     """URL buttons under a channel post: plain emoji (no custom emoji in channels).
 
-    ``original_url`` (an https link to the source posting, e.g. hh.uz) adds a
-    second row with the original.
+    ``apply_url`` (an https link to the vacancy page) adds a second row with the
+    neutral "Apply" button, for every source.
     """
     rows = [[key_inline(lang, "start.btn.open_in_bot", url=deeplink, plain=True)]]
-    if original_url and original_url.startswith("https://"):
-        rows.append([key_inline(lang, "start.btn.open_original", url=original_url, plain=True)])
+    apply_button = _apply_button(lang, apply_url, plain=True)
+    if apply_button is not None:
+        rows.append([apply_button])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

@@ -145,3 +145,62 @@ def test_production_bot_has_the_middleware():
     import config
 
     assert any(isinstance(m, PremiumEmojiFallback) for m in config.bot.session.middleware._middlewares)
+
+
+# ── per chat type kill switch ────────────────────────────────────────────
+
+CHANNEL_ID = -1001234567890
+
+
+async def test_channel_rejection_never_disables_premium_for_private_chats(fb, caplog):
+    bot, session = fb
+    text = f"{emoji.e('job')} Ish"
+    await bot.send_message(CHANNEL_ID, text)
+    assert len(session.rejected) == 1
+    assert session.of(SendMessage)[-1].text == "💼 Ish"  # healed with the plain retry
+    assert emoji.channels_plain() is True
+    assert emoji.premium_enabled() is True  # private chats keep premium
+    assert "channel chats" in [r.getMessage() for r in caplog.records if "premium emoji rejected" in r.message][0]
+
+    # Private messages are still built premium.
+    assert "<tg-emoji" in t("uz", "start.greeting", name="Ali")
+
+
+@pytest.mark.parametrize(
+    ("chat_id", "scope"),
+    [
+        (-1001234567890, emoji.CHANNEL),
+        ("-1001234567890", emoji.CHANNEL),
+        ("@somechannel", emoji.CHANNEL),
+        (900000000301, emoji.PRIVATE),
+        ("900000000301", emoji.PRIVATE),
+        (None, emoji.PRIVATE),
+    ],
+)
+def test_chat_scope(chat_id, scope):
+    from src.ui.emoji_fallback import chat_scope
+
+    assert chat_scope(SendMessage(chat_id=chat_id or 1, text="x") if chat_id else AnswerCallbackQuery(callback_query_id="1")) == scope
+
+
+async def test_negative_string_chat_id_is_a_channel(fb):
+    bot, session = fb
+    await bot.send_message("-1009999", f"{emoji.e('job')} Ish")
+    assert emoji.channels_plain() is True and emoji.premium_enabled() is True
+
+
+async def test_known_channel_plain_skips_the_failing_attempt(fb):
+    bot, session = fb
+    await bot.send_message(CHANNEL_ID, f"{emoji.e('job')} Ish")
+    assert len(session.rejected) == 1
+    await bot.send_message(CHANNEL_ID, f"{emoji.e('job')} Ish", reply_markup=_premium_markup())
+    assert len(session.rejected) == 1  # sent plain at once, no second rejection
+    assert not has_custom_emoji(session.requests[-1])
+    assert emoji.premium_enabled() is True
+
+
+async def test_private_rejection_disables_premium_but_not_the_channel_flag(fb):
+    bot, session = fb
+    await bot.send_message(CHAT, f"{emoji.e('job')} Ish")
+    assert emoji.premium_enabled() is False
+    assert emoji.channels_plain() is False

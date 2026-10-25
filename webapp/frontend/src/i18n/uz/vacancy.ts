@@ -25,9 +25,7 @@ const vacancy = {
   "vacancy.goPro": "Pro tarifga o'tish",
   "vacancy.opening": "Ochilmoqda...",
   "vacancy.unknownCode": "Kod {code}",
-  "vacancy.openOriginal": "Asl e'lon",
-  "vacancy.openOn": "{site} da ochish",
-  "vacancy.source": "Manba: {site}",
+  "vacancy.apply": "Ariza topshirish",
 
   // ── Detail rows ────────────────────────────────────────────────────────────
   "vacancy.row.address": "Manzil",
