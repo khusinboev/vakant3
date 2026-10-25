@@ -64,6 +64,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run lint
       - run: npm run build
+      - name: nav + auth planner checks
+        run: node scripts/nav-check.mjs && node scripts/auth-check.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
