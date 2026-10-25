@@ -360,6 +360,36 @@ async def test_notification_matching_on_store_rows(tmp_path):
         await c.close()
 
 
+async def test_notification_category_matches_the_canonical_id(tmp_path):
+    c = await _notif_db(tmp_path)
+    try:
+        await put(
+            c,
+            vac(sid="900000000311", title="Python developer", category_id=12),
+            vac("vacancy_gov", "900000000312", title="Vrach", employer="V", category_id=47),
+            vac("osonish", "900000000313", title="Noma'lum", employer="N"),
+        )
+        candidates = await notif._load_candidates(c)
+        pool = lambda f: sorted(u for u, d in candidates if notif._matches_filters(d, f))  # noqa: E731
+        # Another category is excluded; a row without a category still passes (as before).
+        assert pool({"specs": "spec:12"}) == ["hh_900000000311", "osonish_900000000313"]
+        assert pool({"specs": "47"}) == ["osonish_900000000313", "vacancy_gov_900000000312"]
+        assert pool({"specs": "22,322,323,324"}) == ["osonish_900000000313", "vacancy_gov_900000000312"]
+        assert len(pool({})) == 3
+    finally:
+        await c.close()
+
+
+def test_notification_category_of_cache_rows_uses_the_osonish_payload():
+    it_row = {"title": "Ishchi", "mmk_group_field_id": 12}
+    nurse = {"title": "Hamshira"}
+    unknown = {"title": "Xyz"}
+    match = lambda d, spec: notif._matches_filters(d, {"specs": spec})  # noqa: E731
+    assert match(it_row, "spec:12") and not match(it_row, "spec:47")
+    assert match(nurse, "spec:47") and not match(nurse, "spec:12")
+    assert match(unknown, "spec:12") and match(unknown, "spec:47")
+
+
 async def test_notification_tick_from_store_keeps_bounded_queries(tmp_path):
     c = await _notif_db(tmp_path)
     try:

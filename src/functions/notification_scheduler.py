@@ -4,8 +4,10 @@ Pro foydalanuvchilar uchun, kuniga max MAX_PER_DAY ta, deterministik random vaqt
 Candidates come from the vacancy store (``src/ingest/``: open canonical rows of
 every source published in the last ``STORE_FRESH_SECONDS``, newest first);
 when the store has none (ingestion off) the old ``vacancy_cache`` rows are used.
-Matching rules are unchanged (region, salary floor; a vacancy without a
-category passes a category filter, as before).
+Matching: region, salary floor and the category, compared as the canonical
+id of ``src/ingest/categories.py`` (store rows carry ``category_id``; cache
+rows are classified from their osonish payload). A vacancy without a category
+passes a category filter, as before.
 
 Vaqt mantig'i: har bir foydalanuvchi uchun bugungi kunga MAX_PER_DAY ta slot
 deterministik hisoblanadi. Vaqti o'tgan slotlar soni bugun yuborilganlar sonidan
@@ -31,9 +33,11 @@ from config import bot
 from src.buttons.buttuns import open_app_kb
 from src.core.timeutil import now_tz, today_start_ts
 from src.db.connection import connect
+from src.functions.functions import normalize_osonish_field_id
 from src.functions.vacancy_format import format_vacancy_message_html, is_store_row, vacancy_app_url
 from src.i18n import DEFAULT_LANG, normalize_lang
 from src.ingest import repo as store
+from src.ingest.categories import osonish_category, spec_to_category
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +183,14 @@ async def _load_sent_uids(
     return sent
 
 
+def _vacancy_category(data: dict) -> int | None:
+    """Canonical category of a candidate: the store's ``category_id``, else classified from the osonish payload."""
+    if is_store_row(data):
+        return spec_to_category(data.get("category_id"))
+    legacy = spec_to_category(data.get("specialization_id") or data.get("spec_id"))
+    return legacy if legacy is not None else osonish_category(data)
+
+
 def _matches_filters(data: dict, filters: dict) -> bool:
     region_soato = filters.get("region_soato") or filters.get("region")
     specs = filters.get("specs")
@@ -192,10 +204,10 @@ def _matches_filters(data: dict, filters: dict) -> bool:
         if vac_region and vac_region != str(region_soato):
             return False
 
-    if specs:
-        vac_spec = str(data.get("specialization_id") or data.get("spec_id") or "")
-        spec_val = str(specs).replace("spec:", "")
-        if vac_spec and vac_spec != spec_val:
+    wanted = spec_to_category(normalize_osonish_field_id(str(specs))) if specs else None
+    if wanted is not None:
+        vac_category = _vacancy_category(data)
+        if vac_category is not None and vac_category != wanted:
             return False
 
     # Maoshi ko'rsatilmagan vakansiya ham pol talabidan o'tmaydi.
