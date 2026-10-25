@@ -75,7 +75,9 @@ class BotLinkRequest(BaseModel):
     # Generous cap: a real token is 39 characters; anything else is refused
     # below with BOT_LINK_INVALID rather than a 422.
     token: str = Field(max_length=256)
-    confirm: bool = False
+    # Ignored. Builds before Oct 2026 sent ``confirm`` (false first, then true
+    # after a «Kirish» popup); it is still accepted so those requests validate.
+    confirm: bool | None = None
 
 
 @router.post("/bot-link", response_model=AuthResponse)
@@ -86,12 +88,9 @@ async def bot_link_login(request: Request, payload: BotLinkRequest, db=Depends(g
     A reply-keyboard ``web_app`` button opens the Mini App with empty initData;
     the bot puts a personal token into its URL (``src/functions/webapp_link.py``).
 
-    A link alone is not intent: anyone can put our URL with HIS token into his
-    own bot's keyboard or a chat message, and a silent login would sign the
-    victim into the attacker's account (login CSRF). So without
-    ``confirm: true`` a valid link only answers 409 ``BOT_LINK_CONFIRM{name}``
-    and creates nothing; the Mini App asks «<name> sifatida kirasizmi?» and
-    repeats the call after «Kirish».
+    A valid link signs in directly, with no confirmation step: the owner's rule
+    is that the Mini App always opens as the current Telegram account. The
+    client replaces any cached session with the one returned here.
 
     Identity rules match the initData login: the user must exist (the bot
     created the row at /start), a ban is not refused here — the entry gate
@@ -113,9 +112,6 @@ async def bot_link_login(request: Request, payload: BotLinkRequest, db=Depends(g
     if row is None or is_revoked(link, row["bot_links_before"]):
         raise errors.api_error(401, errors.BOT_LINK_INVALID)
     user = dict(row)
-
-    if not payload.confirm:
-        raise errors.api_error(409, errors.BOT_LINK_CONFIRM, name=str(user.get("first_name") or ""))
 
     session_token, _exp = await create_session(db, link.user_id)
     await db.commit()
