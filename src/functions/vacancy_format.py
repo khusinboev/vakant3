@@ -17,6 +17,7 @@ from typing import Any, Callable, Mapping
 
 from config import BOT_USERNAME, WEBAPP_URL
 from src.core.timeutil import TZ
+from src.functions.vacancy_token import encode_vacancy_token
 from src.i18n import DEFAULT_LANG, t
 from src.ingest.regions import REGION_SOATO
 from src.ingest.text import excerpt as _excerpt
@@ -441,21 +442,25 @@ def vacancy_apply_url(uid: str, detail: Any) -> str | None:
 
 
 def vacancy_deeplink(uid: str) -> str:
-    """``t.me`` link that opens the vacancy card in the bot (``/start vacancy_<uid>``)."""
-    return f"https://t.me/{BOT_USERNAME}?start=vacancy_{uid}"
+    """``t.me`` link that opens the vacancy card in the bot (``/start <token>``).
+
+    The opaque token (``vacancy_token``) hides the vacancy source; an unexpected
+    uid falls back to the plain bot link.
+    """
+    token = encode_vacancy_token(uid)
+    return f"https://t.me/{BOT_USERNAME}?start={token}" if token else f"https://t.me/{BOT_USERNAME}"
 
 
 def vacancy_app_url(uid: str) -> str:
     """Mini App URL that opens this vacancy's detail sheet.
 
     For an inline ``web_app`` button (private chats only: it carries
-    initData). ``App.tsx`` reads ``?go=vacancy_<uid>``; no Mini App short
+    initData). ``App.tsx`` reads ``?go=<token>``; no Mini App short
     name is configured, so a ``t.me/<bot>/<app>?startapp=`` link is not used.
     An unexpected uid falls back to the plain app URL.
     """
-    if not _APP_UID_RE.match(uid or ""):
-        return WEBAPP_URL
-    return f"{WEBAPP_URL}?go=vacancy_{uid}"
+    token = encode_vacancy_token(uid) if _APP_UID_RE.match(uid or "") else None
+    return f"{WEBAPP_URL}?go={token}" if token else WEBAPP_URL
 
 
 def format_vacancy_message_html(

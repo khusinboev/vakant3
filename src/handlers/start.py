@@ -30,6 +30,7 @@ from src.functions.vacancy_format import (
     vacancy_app_url,
     vacancy_apply_url,
 )
+from src.functions.vacancy_token import uid_from_start_param
 from src.i18n import DEFAULT_LANG, LANGS, normalize_lang, t
 from src.ingest import repo as store
 from src.ui.emoji import clip
@@ -114,9 +115,10 @@ async def welcome(
         )
         return
 
-    # ── Vakansiya deeplink: /start vacancy_osonish_12345 | vacancy_hh_123 ──
-    if start_param.startswith("vacancy_"):
-        uid = start_param[len("vacancy_"):]   # "osonish_12345" / "hh_123"
+    # ── Vakansiya deeplink: /start <token> (vh2a3f9k) | legacy vacancy_<uid> ──
+    token_uid = uid_from_start_param(start_param)
+    if token_uid is not None or start_param.startswith("vacancy_"):
+        uid = token_uid or ""
         parsed = parse_vacancy_uid(uid)
         if parsed is None:
             await message.answer(t(lang, "start.bad_vacancy_link"))

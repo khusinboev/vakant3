@@ -138,7 +138,7 @@ def test_a_huge_title_is_clipped(lang, compact):
     visible = _telegram_visible(text)
     # Clipping the title keeps the normal layout: the deep link / footer survive.
     if compact:
-        assert "start=vacancy_osonish_1" in text
+        assert "start=vo1" in text
     else:
         assert visible.rstrip().endswith("@bandlikuzbot")
     assert "<b>" in text and "..." in visible

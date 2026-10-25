@@ -221,7 +221,7 @@ async def test_vacancy_deeplink_has_an_open_in_app_button(ux, premium):
     assert "Dasturchi &lt;senior&gt;" in card.text
     assert '<tg-emoji emoji-id="' in card.text  # private chat: premium emoji allowed
     button = _inline(card.reply_markup)[0]
-    assert button.web_app.url == f"{WEBAPP}?go=vacancy_osonish_123" and button.style == "primary"
+    assert button.web_app.url == f"{WEBAPP}?go=vo3f" and button.style == "primary"
 
 
 # ─── /lang ──────────────────────────────────────────────────────────────────
@@ -271,7 +271,7 @@ async def test_notification_has_an_open_in_app_button(premium):
     assert kwargs["text"].startswith(f'<tg-emoji emoji-id="{ICONS["bell"].id}">')
     button = _inline(kwargs["reply_markup"])[0]
     # Opens this vacancy's detail sheet in the Mini App, not just the app.
-    assert button.web_app.url == f"{WEBAPP}?go=vacancy_osonish_7"
+    assert button.web_app.url == f"{WEBAPP}?go=vo7"
     assert (button.text, button.icon_custom_emoji_id) == (t("en", "start.btn.open_app"), ICONS["app"].id)
 
 
@@ -294,7 +294,7 @@ async def test_channel_post_is_plain_and_links_back_to_the_bot(tmp_path, premium
     kwargs = mock_bot.send_message.call_args.kwargs
     assert "tg-emoji" not in kwargs["text"] and "💼" in kwargs["text"]
     button = _inline(kwargs["reply_markup"])[0]
-    assert button.url == "https://t.me/bandlikuzbot?start=vacancy_osonish_42"
+    assert button.url == "https://t.me/bandlikuzbot?start=vo16"
     assert button.icon_custom_emoji_id is None
     assert button.text == f"{ICONS['job'].fallback} {t('ru', 'start.btn.open_in_bot')}"  # job has a custom id: plain mode matters
     assert button.web_app is None  # web_app buttons do not work in channels
@@ -375,11 +375,11 @@ def test_vacancy_app_url_is_a_valid_start_param_or_the_plain_app():
     from src.functions.vacancy_format import vacancy_app_url
 
     url = vacancy_app_url("osonish_900000000123")
-    assert url == f"{WEBAPP}?go=vacancy_osonish_900000000123"
+    assert url == f"{WEBAPP}?go=vobhgcrgjf"
     go = url.split("?go=", 1)[1]
     # Same value must also work as a Telegram start_param.
     assert re.fullmatch(r"[A-Za-z0-9_-]{1,64}", go)
     # Store sources other than osonish deep-link too (hh.uz since the vacancy store).
-    assert vacancy_app_url("hh_5") == f"{WEBAPP}?go=vacancy_hh_5"
+    assert vacancy_app_url("hh_5") == f"{WEBAPP}?go=vh5"
     for bad in ("", "osonish_", "osonish_12a", "hh_", "hh_5a", "zz_5", "osonish_1&go=admin", "osonish_" + "9" * 16):
         assert vacancy_app_url(bad) == WEBAPP, bad

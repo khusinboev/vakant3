@@ -39,7 +39,7 @@ function PageFallback() {
 }
 
 /**
- * A vacancy deep link (`?go=` / `start_param` = `vacancy_osonish_<id>`) lands
+ * A vacancy deep link (`?go=` / `start_param` = a vacancy token, see lib/deepLink) lands
  * on the job list with that vacancy's sheet open as its own history entry:
  * `/app` (replace) then `/app?vacancy=<uid>` (push), so Back closes the sheet
  * and leaves the list underneath.

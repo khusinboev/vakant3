@@ -167,7 +167,7 @@ async def test_autopost_picks_fresh_quality_rows_with_salary_and_employer(conn):
     kwargs = mock.send_message.call_args.kwargs
     buttons = _inline(kwargs["reply_markup"])
     assert [b.url for b in buttons] == [
-        "https://t.me/bandlikuzbot?start=vacancy_hh_900000000005", "https://hh.uz/vacancy/900000000005",
+        "https://t.me/bandlikuzbot?start=vhbhgcrgg5", "https://hh.uz/vacancy/900000000005",
     ]
     assert buttons[1].text == "📝 Ariza topshirish"  # was: the "Asl e'lon" original-posting label
     # Excluded once posted.
@@ -444,7 +444,7 @@ async def test_deeplink_to_an_hh_vacancy_renders_it_from_the_store(ux, premium):
     card = ux.session.of(SendMessage)[-1]
     assert "Dasturchi &lt;hh&gt;" in card.text and "Synthetic LLC" in card.text
     button = _inline(card.reply_markup)[0]
-    assert button.web_app.url.endswith("?go=vacancy_hh_900000000901")
+    assert button.web_app.url.endswith("?go=vhbhgcrh51")
 
 
 async def test_deeplink_to_an_unknown_hh_vacancy_says_not_found(ux):
