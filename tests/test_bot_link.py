@@ -1,7 +1,7 @@
 """Signed bot keyboard links (``?bt=``): the token, the URL builder and the exchange.
 
 ``src/functions/webapp_link.py`` signs/verifies; ``POST /api/auth/bot-link``
-turns a valid link into a Bearer session after an explicit confirm; a ban or
+turns a valid link into a Bearer session directly (no confirm step); a ban or
 an admin "revoke sessions" kills every link issued so far (m021 watermark).
 The endpoint tests run the real app through the b3 harness. Ids are synthetic.
 """
@@ -214,18 +214,33 @@ def _token(user_id: int = USER, now: float | None = None) -> str:
     return sign_bot_link(user_id, secret=get_settings().WEBAPP_SECRET, now=now)
 
 
-async def _exchange(h, token: str, confirm: bool = True, headers: dict | None = None):
-    return await h.http.post(
-        "/api/auth/bot-link", json={"token": token, "confirm": confirm}, headers=headers or {}
-    )
+_NO_CONFIRM = object()
 
 
-async def test_exchange_without_confirm_creates_nothing(harness):
+async def _exchange(h, token: str, confirm=_NO_CONFIRM, headers: dict | None = None):
+    body: dict = {"token": token}
+    if confirm is not _NO_CONFIRM:
+        body["confirm"] = confirm
+    return await h.http.post("/api/auth/bot-link", json=body, headers=headers or {})
+
+
+async def test_exchange_signs_in_directly_without_any_confirm_step(harness):
+    """Owner rule: a valid link logs in at once — no 409 «X sifatida kirasizmi?»."""
     await harness.execute("UPDATE users SET first_name = 'Ali' WHERE user_id = ?", (USER,))
-    response = await _exchange(harness, _token(), confirm=False)
-    assert response.status_code == 409
-    assert response.json()["detail"] == {"code": "BOT_LINK_CONFIRM", "name": "Ali"}
-    assert await harness.sessions_of(USER) == 0
+    response = await _exchange(harness, _token())
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["user"]["user_id"] == USER and body["session_token"]
+    assert await harness.sessions_of(USER) == 1
+
+
+@pytest.mark.parametrize("confirm", [False, True, None])
+async def test_exchange_accepts_the_legacy_confirm_field(harness, confirm):
+    """Old builds still send ``confirm``: any value is ignored, the link signs in."""
+    response = await _exchange(harness, _token(), confirm=confirm)
+    assert response.status_code == 200, response.text
+    assert response.json()["user"]["user_id"] == USER
+    assert await harness.sessions_of(USER) == 1
 
 
 async def test_exchange_happy_path_issues_a_working_session(harness):
@@ -271,7 +286,7 @@ async def test_exchange_rejects_other_secret_expired_and_unknown_user(harness):
         _token(900_000_000_999),  # never started the bot
     ]
     for token in cases:
-        for confirm in (False, True):
+        for confirm in (_NO_CONFIRM, False, True):
             response = await _exchange(harness, token, confirm=confirm)
             assert response.status_code == 401, response.text
             assert response.json()["detail"] == {"code": "BOT_LINK_INVALID"}

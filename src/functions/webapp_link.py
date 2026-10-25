@@ -3,8 +3,8 @@
 A ``web_app`` button on a REPLY keyboard opens the Mini App with EMPTY
 initData, so the usual initData login cannot run there. The bot therefore puts
 a per-user signed token into every such URL; the Mini App exchanges it for the
-normal Bearer session at ``POST /api/auth/bot-link`` (after the user taps
-«Kirish», see ``webapp/routers/auth.py``) and removes it from the address bar.
+normal Bearer session at ``POST /api/auth/bot-link`` (directly, no confirmation
+step, see ``webapp/routers/auth.py``) and removes it from the address bar.
 Ported from SlaydX ``lib/server/bot-link.ts``.
 
 Token (version 1), base64url without padding, exactly 39 characters::
