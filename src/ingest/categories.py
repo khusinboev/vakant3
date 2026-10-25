@@ -85,8 +85,9 @@ HH_ROLE_CATEGORY: dict[str, int] = {
 
 # --------------------------------------------------------- keyword classifier
 
+#: Agriculture precedes healthcare so a "veterinariya vrachi" is not a doctor.
 _CATEGORY_ORDER = (
-    IT, HEALTHCARE, EDUCATION_CULTURE_SPORT, AGRICULTURE, FINANCE_MANAGEMENT, SALES_MARKETING, CONSTRUCTION,
+    IT, AGRICULTURE, HEALTHCARE, EDUCATION_CULTURE_SPORT, FINANCE_MANAGEMENT, SALES_MARKETING, CONSTRUCTION,
     TRANSPORT, SERVICES, INDUSTRY,
 )
 
@@ -236,8 +237,8 @@ _SECTORS: dict[int, tuple[str, ...]] = {
     ),
     FINANCE_MANAGEMENT: (
         "moliya", "молия", "финанс", "bank", "банк", "soliq", "солик", "налог", "sugurta", "страхов", "audit",
-        "аудит", "hokim", "хоким", "vazirlig", "вазирлиг", "министерств", "qomita", "кумита", "комитет",
-        "boshqarma", "бошкарма", "управлени", "inspeksiya", "инспекци", "agentlig", "агентлиг", "агентств",
+        "аудит", "hokim", "хоким", "vazirlik", "vazirlig", "вазирлиг", "министерств", "qomita", "кумита", "комитет",
+        "boshqarma", "бошкарма", "управлени", "inspeksiya", "инспекци", "agentlik", "agentlig", "агентлиг", "агентств",
         "departament", "департамент", "devon", "девон", "adliya", "адлия", "юстиц", "prokuratura", "прокурат",
         "sud=", "суд=", "kengash", "кенгаш", "gaznachilik", "газначилик", "казначейств", "statistika",
         "статистик", "davlat xizmat", "государственн", "markaziy apparat", "apparati", "palata",

@@ -72,8 +72,10 @@ def test_spec_to_category(raw, expected):
     ("Qurilish ustasi", cat.CONSTRUCTION),
     ("Oshpaz yordamchisi", cat.SERVICES),
     ("Agronom", cat.AGRICULTURE),
-    # "java" must be a whole word: "javobgar" (responsible) is not IT.
-    ("Javobgar kotib", cat.FINANCE_MANAGEMENT),
+    ("Veterinariya vrachi", cat.AGRICULTURE),
+    # "agent" is a whole word: an "agentlik" (state agency) post is not a sales agent.
+    ("Agentlik bosh mutaxassisi", cat.FINANCE_MANAGEMENT),
+    ("Sug'urta agenti", cat.SALES_MARKETING),
 ])
 def test_classify_text_titles(title, expected):
     assert cat.classify_text(title) == expected
