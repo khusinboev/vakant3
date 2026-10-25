@@ -13,6 +13,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Mapping, Optional
 from src.functions import scraping
 from src.functions.vacancy_format import extract_codes
 from src.ingest.base import Batch, DetailUnusable, NormalizedVacancy, RateLimiter, SourceError, new_stats, parse_ts
+from src.ingest.categories import osonish_category
 from src.ingest.regions import osonish_region
 from src.ingest.text import clean_line, html_to_text
 
@@ -59,10 +60,11 @@ def normalize(item: Mapping[str, Any], region_names: Mapping[str, str] | None = 
     description = ""
     if detail:
         description = html_to_text(item.get("info") or item.get("description") or item.get("requirements"))
+    title = clean_line(item.get("title") or "")
     return NormalizedVacancy(
         source="osonish",
         source_id=str(raw_id),
-        title=clean_line(item.get("title") or ""),
+        title=title,
         published_at=published,
         employer=clean_line(company.get("name") or item.get("company_name") or ""),
         salary_min=_int_or_none(item.get("min_salary")),
@@ -75,6 +77,7 @@ def normalize(item: Mapping[str, Any], region_names: Mapping[str, str] | None = 
         category=clean_line(
             (item.get("mmk_position") or {}).get("name", "") if isinstance(item.get("mmk_position"), Mapping) else ""
         ),
+        category_id=osonish_category(item, title),
         experience=_code(codes, "experience"),
         employment=_code(codes, "busyness_type"),
         schedule=_code(codes, "work_type"),

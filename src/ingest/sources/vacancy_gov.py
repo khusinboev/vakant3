@@ -41,6 +41,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Mapping, Optional
 import aiohttp
 
 from src.ingest.base import Batch, NormalizedVacancy, RateLimiter, SourceError, new_stats, parse_ts
+from src.ingest.categories import vacancy_gov_category
 from src.ingest.regions import REGION_SOATO
 from src.ingest.text import clean_line, html_to_text
 
@@ -241,6 +242,7 @@ def normalize(
         district_soato=None,
         region_name=region_name,
         category=clean_line(position_type, 120) if isinstance(position_type, str) else "",
+        category_id=vacancy_gov_category(item, title),
         experience=str(experience) if experience else "",
         employment="",
         schedule=clean_line(item.get("position_conditions") or "", 120),

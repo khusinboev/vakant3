@@ -29,6 +29,7 @@ from src.core.timeutil import TZ
 from src.ingest.base import (
     Batch, BudgetExhausted, DetailUnusable, NormalizedVacancy, RateLimiter, SourceError, new_stats, parse_ts,
 )
+from src.ingest.categories import hh_category
 from src.ingest.regions import hh_area_to_region
 from src.ingest.text import clean_line, html_to_text
 
@@ -313,6 +314,7 @@ def normalize(item: Any, *, detail: bool = False) -> Optional[NormalizedVacancy]
         district_soato=None,
         region_name=clean_line(area.get("name") or "", 120),
         category=clean_line(roles[0].get("name") or "", 120) if roles else "",
+        category_id=hh_category(item, title),
         experience=_id_of(item.get("experience")),
         employment=_id_of(item.get("employment")),
         schedule=_id_of(item.get("schedule")),

@@ -60,6 +60,8 @@ class NormalizedVacancy:
     district_soato: Optional[str] = None
     region_name: str = ""
     category: str = ""
+    #: Canonical Mini App category (``src/ingest/categories.py``), ``None`` when unknown.
+    category_id: Optional[int] = None
     experience: str = ""
     employment: str = ""
     schedule: str = ""

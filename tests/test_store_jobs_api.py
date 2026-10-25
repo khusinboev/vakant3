@@ -126,20 +126,42 @@ async def test_search_filters_map_onto_the_store(api):
     assert uids(oldest)[0] == "hh_900000000203"
 
 
-async def test_category_filter_keeps_the_live_osonish_search(api, monkeypatch):
-    await put(vac(sid="900000000301"))
+async def test_category_filter_reads_the_store_across_sources(api):
+    # ``api`` makes any live osonish call fail the test: a category no longer leaves the store.
+    await put(
+        vac("hh", "900000000301", title="Python developer", category_id=12, age=HOUR),
+        vac("osonish", "900000000302", title="Dasturchi", category_id=12, age=2 * HOUR),
+        vac("vacancy_gov", "900000000303", title="Axborot texnologiyalari mutaxassisi", category_id=12, age=3 * HOUR),
+        vac("hh", "900000000304", title="Врач", category_id=47, age=HOUR),
+        vac("osonish", "900000000305", title="Noma'lum", age=HOUR),
+    )
+    body = await search(api, specs="spec:12")
+    assert [v["uid"] for v in body["vacancies"]] == [
+        "hh_900000000301", "osonish_900000000302", "vacancy_gov_900000000303",
+    ]
+    assert body["total_estimate"] == 3
+    assert [v["uid"] for v in (await search(api, specs="47"))["vacancies"]] == ["hh_900000000304"]
+    # A legacy bot spec code maps onto its field id (``"22,322,323,324"`` -> 47).
+    assert [v["uid"] for v in (await search(api, specs="22,322,323,324"))["vacancies"]] == ["hh_900000000304"]
+    # The category combines with the other filters; no category = everything.
+    assert [v["uid"] for v in (await search(api, specs="spec:12", q="dasturchi"))["vacancies"]] == ["osonish_900000000302"]
+    assert (await search(api))["total_estimate"] == 5
+    # An id outside the taxonomy matches nothing instead of falling back to osonish.
+    assert (await search(api, specs="spec:999"))["vacancies"] == []
+
+
+async def test_category_filter_on_an_empty_store_uses_the_live_search(client, monkeypatch):
     calls = []
 
     async def fake_list(**kwargs):
         calls.append(kwargs)
-        return [_vacancy(900000000302)], 1
+        return [_vacancy(900000000306)], 1
 
     monkeypatch.setattr(jobs_router, "fetch_osonish_list", fake_list)
-    body = await search(api, specs="spec:12")
+    body = (await client.get("/api/jobs/search", params={"specs": "spec:12"}, headers=HEADERS)).json()
     assert calls and calls[0]["mmk_group_field_id"] == 12
-    assert [v["uid"] for v in body["vacancies"]] == ["osonish_900000000302"]  # hh rows are not in a category
-    assert body["vacancies"][0]["source"] == "osonish"
-    assert body["vacancies"][0]["url"] == "https://osonish.uz/vacancies/900000000302"
+    assert [v["uid"] for v in body["vacancies"]] == ["osonish_900000000306"]
+    assert body["vacancies"][0]["url"] == "https://osonish.uz/vacancies/900000000306"
 
 
 async def test_empty_store_keeps_the_live_osonish_search(client, monkeypatch):
