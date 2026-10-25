@@ -4,10 +4,12 @@ Source of truth is the vacancy store (``src/ingest/``, osonish + hh.uz, see
 ``webapp/core/vacancy_store.py``):
 
 * ``/jobs/search`` reads the store (FTS ``q``, region, district, UZS salary
-  floor, sort, cursor pagination). Two cases keep the live osonish.uz search:
-  a category filter (``specs`` = osonish field id; the store has no osonish
-  field ids and hh roles are not mapped to our categories, so hh items appear
-  only without a category filter) and a store with no open rows yet.
+  floor, category, sort, cursor pagination). The category (``specs`` =
+  ``spec:<osonish field id>``) filters ``vacancies.category_id``, the canonical
+  id every source is mapped onto (``src/ingest/categories.py``), so hh.uz and
+  vacancy.gov.uz rows appear under a category too. Only a store with no open
+  rows yet keeps the live osonish.uz search (with the category as
+  ``mmk_group_field_id``).
 * ``/jobs/{uid}`` accepts any ``<source>_<id>``. hh rows come from the store
   only (excerpt + link, hh.uz terms). osonish rows use the stored detail when
   the ingest runner has checked them, else the cached live detail; the store
@@ -104,7 +106,7 @@ async def search_jobs(
     saved_uids = await vacancy_store.saved_uids(db, user_id)
     field_id = normalize_osonish_field_id(specs)
 
-    if field_id is None and await vacancy_store.store_ready(db):
+    if await vacancy_store.store_ready(db):
         page_data = await vacancy_store.search_page(
             db,
             lang=lang,
@@ -112,6 +114,7 @@ async def search_jobs(
             money=money,
             region_soato=region_soato,
             district_soato=district_soato,
+            category_id=field_id,
             sort_key=sort_key,
             sort_type=sort_type,
             page=page,

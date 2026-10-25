@@ -138,14 +138,19 @@ async def search_page(
     pro_min_salary: int,
     is_pro: bool,
     saved: set[str],
+    category_id: Optional[int] = None,
 ) -> dict[str, Any]:
-    """One Mini App page from the store, in the ``JobsSearchResponse`` shape."""
+    """One Mini App page from the store, in the ``JobsSearchResponse`` shape.
+
+    ``category_id`` is the canonical category (``spec:<id>`` without the prefix).
+    """
     page = max(1, int(page or 1))
     result = await store.search(
         db,
         query=q or None,
         region_soato=region_soato or None,
         district_soato=district_soato or None,
+        category_id=category_id,
         min_salary=max(0, int(money or 0)),
         limit=PAGE_SIZE,
         cursor=cursor or None,
