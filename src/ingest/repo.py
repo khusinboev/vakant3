@@ -79,7 +79,7 @@ def _row_values(v: NormalizedVacancy, now: int) -> tuple:
         v.url, int(v.published_at), now, now,
         None if v.is_open else now, None if v.is_open else "source_closed",
         "open" if v.is_open else "closed",
-        quality.score(v, now), keys["dedup_key"], _raw_json(v.raw),
+        quality.score(v, now), keys["dedup_key"], _raw_json(v.raw), v.category_id,
     )
 
 
@@ -87,9 +87,9 @@ _COLUMNS = (
     "uid, source, source_id, title, employer, employer_key, salary_min, salary_max, currency, salary_gross, "
     "region_soato, district_soato, region_name, category, experience, employment, schedule, description_text, "
     "skills_json, contacts_json, url, published_at, fetched_at, last_seen_at, closed_at, close_reason, status, "
-    "quality_score, dedup_key, raw_json"
+    "quality_score, dedup_key, raw_json, category_id"
 )
-_PLACEHOLDERS = ",".join("?" * 30)
+_PLACEHOLDERS = ",".join("?" * 31)
 
 # A list sighting refreshes the list fields; detail-only fields (description,
 # skills, contacts, category, raw) are kept once a detail check has filled them.
@@ -127,6 +127,7 @@ ON CONFLICT(uid) DO UPDATE SET
     category = CASE WHEN vacancies.checked_at IS NULL OR excluded.category != ''
         THEN excluded.category ELSE vacancies.category END,
     raw_json = CASE WHEN vacancies.checked_at IS NULL THEN excluded.raw_json ELSE vacancies.raw_json END,
+    category_id = COALESCE(excluded.category_id, vacancies.category_id),
     quality_score = CASE WHEN vacancies.checked_at IS NULL
         THEN excluded.quality_score ELSE MAX(vacancies.quality_score, excluded.quality_score) END
 """
@@ -146,7 +147,8 @@ ON CONFLICT(uid) DO UPDATE SET
     skills_json = excluded.skills_json, contacts_json = excluded.contacts_json, url = excluded.url,
     published_at = excluded.published_at, last_seen_at = excluded.last_seen_at,
     status = excluded.status, closed_at = excluded.closed_at, close_reason = excluded.close_reason,
-    quality_score = excluded.quality_score, dedup_key = excluded.dedup_key, raw_json = excluded.raw_json
+    quality_score = excluded.quality_score, dedup_key = excluded.dedup_key, raw_json = excluded.raw_json,
+    category_id = COALESCE(excluded.category_id, vacancies.category_id)
 """
 
 
@@ -352,7 +354,7 @@ _PUBLIC_COLUMNS = (
     "uid, source, source_id, title, employer, salary_min, salary_max, currency, salary_gross, region_soato, "
     "district_soato, region_name, category, experience, employment, schedule, description_text, skills_json, "
     "contacts_json, url, published_at, fetched_at, last_seen_at, checked_at, closed_at, close_reason, status, "
-    "quality_score, dedup_group, dup_of"
+    "quality_score, dedup_group, dup_of, category_id"
 )
 
 
@@ -427,6 +429,7 @@ def _filters(
     district_soato: Optional[str],
     min_salary: int,
     source: Optional[str],
+    category_id: Optional[int] = None,
 ) -> tuple[list[str], list[Any]]:
     where = ["v.status = 'open'", "v.dup_of IS NULL"]
     params: list[Any] = []
@@ -448,6 +451,10 @@ def _filters(
     if source:
         where.append("v.source = ?")
         params.append(source)
+    if category_id is not None:
+        # Served by idx_vacancies_open_category (m026, partial on the two conditions above).
+        where.append("v.category_id = ?")
+        params.append(int(category_id))
     return where, params
 
 
@@ -472,6 +479,7 @@ async def search(
     district_soato: Optional[str] = None,
     min_salary: int = 0,
     source: Optional[str] = None,
+    category_id: Optional[int] = None,
     limit: int = 20,
     cursor: Optional[str] = None,
     sort: str = "new",
@@ -481,6 +489,7 @@ async def search(
     """Open canonical vacancies: ``{items, next_cursor, total|None}``.
 
     ``sort`` is ``new`` (default), ``old`` or ``salary`` (UZS, highest first).
+    ``category_id`` keeps one canonical category (``src/ingest/categories.py``).
     ``total`` is counted for the first page (``cursor is None``) or when
     ``with_total`` is set. ``offset`` (only without a cursor) serves clients
     that page by number; the cursor is the normal way to page.
@@ -488,7 +497,8 @@ async def search(
     limit = max(1, min(int(limit), SEARCH_MAX_LIMIT))
     key_sql, direction = _SORTS.get(sort, _SORTS["new"])
     where, params = _filters(
-        query=query, region_soato=region_soato, district_soato=district_soato, min_salary=min_salary, source=source
+        query=query, region_soato=region_soato, district_soato=district_soato, min_salary=min_salary, source=source,
+        category_id=category_id,
     )
     total = None
     if cursor is None or with_total:
