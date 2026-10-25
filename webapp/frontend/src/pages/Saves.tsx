@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Trash2 } from "lucide-react";
 
 import LoginPrompt from "../components/LoginPrompt";
-import SourceBadge from "../components/Jobs/SourceBadge";
 import VacancyDetail from "../components/Jobs/VacancyDetail";
 import { useSaves } from "../hooks/useSaves";
 import { useT } from "../i18n/useT";
@@ -79,7 +78,6 @@ export default function Saves() {
           const location =
             [district, region].filter(Boolean).join(", ") || String(d.address || "") || text(n.address) || text(n.region);
           const salary = text(n.salary) || fmtSalary(d.min_salary, d.max_salary);
-          const source = text(n.source) || text(d.source);
 
           return (
             <article key={item.uid} className="card p-4">
@@ -87,7 +85,6 @@ export default function Saves() {
                 {company && (
                   <p className="min-w-0 truncate text-xs font-medium uppercase tracking-wide text-muted">{company}</p>
                 )}
-                <SourceBadge source={source || "osonish"} label={text(n.source_label) || null} />
               </div>
               <p className="mt-0.5 text-sm font-semibold leading-snug text-text line-clamp-2">
                 {String(d.title || text(n.title) || t("vacancy.fallbackTitle"))}

@@ -1,15 +1,14 @@
-import { ExternalLink, Lock, X } from "lucide-react";
+import { Lock, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import BottomSheet from "../ui/BottomSheet";
 import OpeningsBadge from "./OpeningsBadge";
-import SourceBadge from "./SourceBadge";
 import { botDeepLink, openExternalLink, openTelegramLink } from "../../lib/constants";
 import { useT, useVacancyCodeLabel } from "../../i18n/useT";
 import type { TranslationKey } from "../../i18n";
 import { useLocale } from "../../i18n/useLocale";
 import { apiErrorMessage } from "../../lib/parseApiError";
-import { originalUrl, sourceLabel } from "../../lib/vacancySource";
+import { originalUrl } from "../../lib/vacancySource";
 import type { VacancyCodes, VacancyDetailResponse, VacancyHhCodes } from "../../types";
 
 type Props = {
@@ -168,11 +167,8 @@ export default function VacancyDetail({
     str([d.working_time_from, d.working_time_to].filter(Boolean).join(" - "));
   const count = str(normalized.count) || str(d.count);
 
-  const source = str(normalized.source) || str(d.source);
-  const site = sourceLabel(source, str(normalized.source_label) || str(d.source_label));
-  // The original posting shows the contacts: never offered while Pro-locked.
+  // The "Apply" button opens the original page (it shows the contacts): never offered while Pro-locked.
   const original = isLocked ? null : originalUrl(normalized.url ?? d.url ?? normalized.source_url);
-  const originalText = source === "hh" && site ? t("vacancy.openOn", { site }) : t("vacancy.openOriginal");
 
   const primaryAction = () => {
     if (isLocked) {
@@ -201,7 +197,6 @@ export default function VacancyDetail({
           </div>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             {company && <p className="min-w-0 truncate text-sm font-medium text-primary">{company}</p>}
-            <SourceBadge source={source} label={site} />
           </div>
         </div>
         <button
@@ -313,8 +308,8 @@ export default function VacancyDetail({
           onClick={() => openExternalLink(original)}
           className="tap-target mt-2 flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-surface px-4 py-3 text-sm font-semibold text-text"
         >
-          <ExternalLink size={16} aria-hidden="true" />
-          {originalText}
+          <span aria-hidden="true">📝</span>
+          {t("vacancy.apply")}
         </button>
       )}
     </BottomSheet>

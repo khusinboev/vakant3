@@ -18,9 +18,7 @@ const vacancy: Record<keyof VacancyDict, string> = {
   "vacancy.goPro": "Upgrade to Pro",
   "vacancy.opening": "Opening...",
   "vacancy.unknownCode": "Code {code}",
-  "vacancy.openOriginal": "Original posting",
-  "vacancy.openOn": "Open on {site}",
-  "vacancy.source": "Source: {site}",
+  "vacancy.apply": "Apply",
 
   // ── Detail rows ────────────────────────────────────────────────────────────
   "vacancy.row.address": "Address",
