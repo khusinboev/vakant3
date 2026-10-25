@@ -27,7 +27,7 @@ STRINGS: dict[str, str] = {
     "start.subscribe_prompt": "To use the bot, please subscribe to the channels below:",
     "start.btn.open_app": "Open in the app",
     "start.btn.open_in_bot": "Details in the bot",
-    "start.btn.open_original": "Original posting",
+    "start.btn.apply": "Apply",
     "bot.menu_button": "App",
     "cmd.start": "Start the bot",
     "cmd.lang": "Change language",

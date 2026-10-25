@@ -424,6 +424,22 @@ def _clip_utf16(text: str, budget: int) -> str:
     return clipped + _ELLIPSIS if clipped else ""
 
 
+def vacancy_apply_url(uid: str, detail: Any) -> str | None:
+    """https page where a user applies (the original posting), else ``None``.
+
+    Store rows carry their ``url``; a raw osonish detail (``vacancy_cache`` /
+    live API) maps to its osonish page. The link is only ever a button target
+    and is never printed.
+    """
+    if is_store_row(detail):
+        url = str(detail.get("url") or "")
+    elif str(uid or "").startswith("osonish_"):
+        url = f"https://osonish.uz/vacancies/{str(uid)[len('osonish_'):]}"
+    else:
+        url = ""
+    return url if re.fullmatch(r"https://\S+", url) else None
+
+
 def vacancy_deeplink(uid: str) -> str:
     """``t.me`` link that opens the vacancy card in the bot (``/start vacancy_<uid>``)."""
     return f"https://t.me/{BOT_USERNAME}?start=vacancy_{uid}"
@@ -471,7 +487,7 @@ def format_vacancy_message_html(
 
     # Store rows collapsed by dedup: "👥 54 ta o'rin" (a plain emoji, no custom-emoji key).
     openings = _to_int(normalized.get("openings")) or 1
-    openings_line = f"👥 {_esc(t(lang, 'vacancy.openings', n=openings))}" if openings > 1 else ""
+    openings_line = f"{ic('group')} {_esc(t(lang, 'vacancy.openings', n=openings))}" if openings > 1 else ""
 
     if compact:
         lines = [t(lang, "notify.header", plain_emoji=plain), ""]

@@ -27,7 +27,7 @@ STRINGS: dict[str, str] = {
     "start.subscribe_prompt": "Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:",
     "start.btn.open_app": "Ilovada ochish",
     "start.btn.open_in_bot": "Botda batafsil",
-    "start.btn.open_original": "Asl e'lon",
+    "start.btn.apply": "Ariza topshirish",
     "bot.menu_button": "Ilova",
     "cmd.start": "Botni boshlash",
     "cmd.lang": "Tilni o'zgartirish",

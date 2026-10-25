@@ -169,7 +169,7 @@ async def test_autopost_picks_fresh_quality_rows_with_salary_and_employer(conn):
     assert [b.url for b in buttons] == [
         "https://t.me/bandlikuzbot?start=vacancy_hh_900000000005", "https://hh.uz/vacancy/900000000005",
     ]
-    assert buttons[1].text.endswith(t("uz", "start.btn.open_original"))
+    assert buttons[1].text == "📝 Ariza topshirish"  # was: the "Asl e'lon" original-posting label
     # Excluded once posted.
     again, _ = await _post(conn, min_salary=3_000_000, min_quality=0)
     assert again["status"] == "skipped" and again["error"] == "no_vacancy"

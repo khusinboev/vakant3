@@ -24,7 +24,12 @@ from src.functions.main_menu import send_main_menu
 from src.functions.functions import channel_row_target, functions, load_channel_rows
 from src.functions.referral_gate import get_referral_gate_state, referral_gate_message
 from src.functions.scraping import fetch_osonish_detail
-from src.functions.vacancy_format import format_vacancy_message_html, parse_vacancy_uid, vacancy_app_url
+from src.functions.vacancy_format import (
+    format_vacancy_message_html,
+    parse_vacancy_uid,
+    vacancy_app_url,
+    vacancy_apply_url,
+)
 from src.i18n import DEFAULT_LANG, LANGS, normalize_lang, t
 from src.ingest import repo as store
 from src.ui.emoji import clip
@@ -135,7 +140,7 @@ async def welcome(
             text,
             parse_mode="HTML",
             disable_web_page_preview=True,
-            reply_markup=open_app_kb(lang, vacancy_app_url(uid)),
+            reply_markup=open_app_kb(lang, vacancy_app_url(uid), vacancy_apply_url(uid, detail)),
         )
         return
     # ────────────────────────────────────────────────────────────────────

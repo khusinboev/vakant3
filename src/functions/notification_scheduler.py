@@ -34,7 +34,12 @@ from src.buttons.buttuns import open_app_kb
 from src.core.timeutil import now_tz, today_start_ts
 from src.db.connection import connect
 from src.functions.functions import normalize_osonish_field_id
-from src.functions.vacancy_format import format_vacancy_message_html, is_store_row, vacancy_app_url
+from src.functions.vacancy_format import (
+    format_vacancy_message_html,
+    is_store_row,
+    vacancy_app_url,
+    vacancy_apply_url,
+)
 from src.i18n import DEFAULT_LANG, normalize_lang
 from src.ingest import repo as store
 from src.ingest.categories import osonish_category, spec_to_category
@@ -279,7 +284,7 @@ async def _send_notification(user_id: int, lang: str, uid: str, data: dict) -> s
             text=text,
             parse_mode="HTML",
             disable_web_page_preview=True,
-            reply_markup=open_app_kb(lang, vacancy_app_url(uid)),
+            reply_markup=open_app_kb(lang, vacancy_app_url(uid), vacancy_apply_url(uid, data)),
         )
 
     try:

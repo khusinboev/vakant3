@@ -31,7 +31,7 @@ from src.db.settings import get_admin_settings, invalidate_settings_cache
 from src.functions.bot_jobs import register_job
 from src.functions.scraping import fetch_osonish_detail, fetch_osonish_list
 from src.buttons.buttuns import channel_vacancy_kb
-from src.functions.vacancy_format import format_vacancy_message_html, is_store_row, vacancy_deeplink
+from src.functions.vacancy_format import format_vacancy_message_html, vacancy_apply_url, vacancy_deeplink
 from src.i18n import DEFAULT_LANG, normalize_lang
 from src.ingest import repo as store
 
@@ -357,14 +357,14 @@ async def pick_and_post(
     try:
         # Channel post: plain emoji only (custom emoji need a Fragment username there).
         text = format_vacancy_message_html(picked_uid, data, lang, plain=True)
-        # hh.uz terms: an excerpt only, plus a link to the original posting.
-        original = str(data.get("url") or "") if is_store_row(data) and data.get("source") == "hh" else None
+        # One neutral "Apply" button to the vacancy page for every source (the source is never named).
+        apply_url = vacancy_apply_url(picked_uid, data)
         message = await bot.send_message(
             chat_id=channel,
             text=text,
             parse_mode="HTML",
             disable_web_page_preview=True,
-            reply_markup=channel_vacancy_kb(lang, vacancy_deeplink(picked_uid), original),
+            reply_markup=channel_vacancy_kb(lang, vacancy_deeplink(picked_uid), apply_url),
         )
         try:
             message_id = int(getattr(message, "message_id", None))
