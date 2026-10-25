@@ -124,27 +124,46 @@ CALLBACK_MAX_BYTES = 64
 STYLES = ("primary", "success", "danger")
 
 
-#: Process-wide kill switch, set by ``src/ui/emoji_fallback.py`` when Telegram
-#: rejected a request with custom emoji and its plain retry went through.
-_premium_killed = False
+#: Kill switches, set by ``src/ui/emoji_fallback.py`` when Telegram rejected a
+#: request with custom emoji and its plain retry went through. They are per chat
+#: type: a CHANNEL rejection (a bot without a Fragment username cannot use custom
+#: emoji there) must never turn premium off for private chats, where it works.
+PRIVATE = "private"
+CHANNEL = "channel"
+_premium_killed = False  # private chats (and any request without a chat id)
+_channels_plain = False
 
 
-def disable_premium() -> bool:
-    """Switch premium emoji off for this process. True if it was on before."""
-    global _premium_killed
+def disable_premium(scope: str = PRIVATE) -> bool:
+    """Switch premium emoji off for ``scope`` in this process. True if it was on before.
+
+    ``PRIVATE`` (default) stops :func:`premium_enabled`; ``CHANNEL`` only makes
+    :func:`channels_plain` true (channel code is plain anyway).
+    """
+    global _premium_killed, _channels_plain
+    if scope == CHANNEL:
+        was_on = not _channels_plain
+        _channels_plain = True
+        return was_on
     was_on = not _premium_killed
     _premium_killed = True
     return was_on
 
 
 def reset_premium_kill_switch() -> None:
-    """Tests only: undo :func:`disable_premium`."""
-    global _premium_killed
+    """Tests only: undo :func:`disable_premium` for every scope."""
+    global _premium_killed, _channels_plain
     _premium_killed = False
+    _channels_plain = False
+
+
+def channels_plain() -> bool:
+    """True once Telegram rejected custom emoji in a channel/supergroup request."""
+    return _channels_plain
 
 
 def premium_enabled() -> bool:
-    """True unless ``BOT_PREMIUM_EMOJI`` is switched off or the kill switch fired."""
+    """True unless ``BOT_PREMIUM_EMOJI`` is switched off or a private-chat rejection fired."""
     if _premium_killed:
         return False
     return (os.getenv("BOT_PREMIUM_EMOJI") or "1").strip().lower() not in _OFF_VALUES

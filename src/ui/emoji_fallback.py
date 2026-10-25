@@ -11,9 +11,12 @@ message with an icon would fail and the bot would stay dead until someone edits
   a keyboard button) -> it is rewritten to the plain form exactly as the
   non-premium path renders it (tag -> fallback emoji, icon id -> fallback
   prefix on the label, so ``TextKey`` matching still works) and retried ONCE;
-* the retry succeeds -> premium is switched off process-wide
-  (``emoji.disable_premium``), one WARNING is logged; later requests are built
-  plain from the start;
+* the retry succeeds -> the kill switch of that CHAT TYPE fires
+  (``emoji.disable_premium``), one WARNING is logged. A request to a channel or
+  supergroup (negative chat id or an ``@username``) only marks "channels plain"
+  (later channel requests are sent plain at once); premium for private chats is
+  untouched. A private chat (positive id) or a request without a chat id
+  switches premium off for private chats and later messages are built plain;
 * the retry fails -> its error is raised (the problem was not the emoji);
 * no custom emoji in the request -> the original error is re-raised unchanged.
 """
@@ -95,8 +98,31 @@ def plain_copy(method: Any) -> Any:
     return method.model_copy(update=update)
 
 
+def chat_scope(method: Any) -> str:
+    """``emoji.CHANNEL`` for a negative chat id or an ``@username``, else ``emoji.PRIVATE``.
+
+    Methods without a ``chat_id`` (callback answers, inline-message edits) count
+    as private: that is where premium emoji are used.
+    """
+    chat_id = getattr(method, "chat_id", None)
+    if isinstance(chat_id, str):
+        value = chat_id.strip()
+        if value.startswith("@"):
+            return emoji.CHANNEL
+        try:
+            chat_id = int(value)
+        except ValueError:
+            return emoji.PRIVATE
+    if isinstance(chat_id, int) and not isinstance(chat_id, bool) and chat_id < 0:
+        return emoji.CHANNEL
+    return emoji.PRIVATE
+
+
 class PremiumEmojiFallback(BaseRequestMiddleware):
     async def __call__(self, make_request, bot, method):
+        scope = chat_scope(method)
+        if scope == emoji.CHANNEL and emoji.channels_plain() and has_custom_emoji(method):
+            method = plain_copy(method)  # known to be rejected there: skip the failing attempt
         try:
             return await make_request(bot, method)
         except TelegramBadRequest as exc:
@@ -104,10 +130,11 @@ class PremiumEmojiFallback(BaseRequestMiddleware):
                 raise
             first_error = exc
         response = await make_request(bot, plain_copy(method))  # a failure here propagates
-        if emoji.disable_premium():
+        if emoji.disable_premium(scope):
             logger.warning(
-                "premium emoji rejected by Telegram (%s: %s); switched to plain emoji for this process",
+                "premium emoji rejected by Telegram (%s: %s); switched to plain emoji for %s chats",
                 type(method).__name__,
                 first_error,
+                scope,
             )
         return response
