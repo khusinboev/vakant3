@@ -5,8 +5,8 @@ The taxonomy is the Mini App's category filter (``/api/filters/specs``,
 Every source is mapped onto these ids so one indexed filter serves the whole
 store:
 
-* osonish: its own field id when the payload carries one (list or detail,
-  several shapes accepted), else the keyword classifier on the title and the
+* osonish: its own field id when the payload carries one (``mmk_group_field_ids``,
+  a list, in list items and details; singular/nested shapes as fallbacks), else the keyword classifier on the title and the
   osonish position/group names.
 * hh.uz: ``professional_roles`` ids through ``HH_ROLE_CATEGORY`` (the
   dictionary at ``api.hh.ru/professional_roles``, every role mapped to the one
@@ -358,9 +358,17 @@ def _int(value: Any) -> Optional[int]:
 
 
 def _field_ids(obj: Any, depth: int = 0) -> Iterable[Optional[int]]:
-    """Every place an osonish payload may carry its field id (``mmk_group_field_id`` filter)."""
+    """Every place an osonish payload may carry its field id (``mmk_group_field_id`` filter).
+
+    Real list items and details carry ``mmk_group_field_ids``, a list (``[3]``); the
+    singular keys and nested shapes are fallbacks.
+    """
     if not isinstance(obj, Mapping) or depth > 2:
         return
+    ids = obj.get("mmk_group_field_ids")
+    if isinstance(ids, (list, tuple)):
+        for value in ids:
+            yield _int(value)
     for key in ("mmk_group_field_id", "group_field_id", "field_id"):
         yield _int(obj.get(key))
     group_field = obj.get("mmk_group_field")
@@ -389,8 +397,8 @@ def osonish_category(item: Mapping[str, Any], title: str = "") -> Optional[int]:
     group = item.get("mmk_group") or (position.get("mmk_group") if isinstance(position, Mapping) else None)
     return classify_text(
         title or item.get("title"),
-        *_names(position, "name", "name_uz", "name_ru"),
-        *_names(group, "name_uz", "name", "name_ru"),
+        *_names(position, "position_name", "name", "name_uz", "name_ru"),
+        *_names(group, "cat3", "cat2", "cat1", "name_uz", "name", "name_ru"),
     )
 
 

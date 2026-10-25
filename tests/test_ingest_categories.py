@@ -107,7 +107,23 @@ def os_item(i: int, **over):
     return item
 
 
+#: The real osonish shape (prod raw_json): a LIST of field ids plus group/position objects.
+REAL_SHAPE = {
+    "mmk_group_id": 441, "mmk_position_id": 5168,
+    "mmk_position": {"id": 5168, "position_name": "Ishchi", "mmk_code": "9999"},
+    "mmk_group": {"id": 441, "cat1": "Xyz", "cat2": "Xyz", "cat3": "Xyz"},
+}
+
+
 @pytest.mark.parametrize("over, expected", [
+    ({**REAL_SHAPE, "mmk_group_field_ids": [12]}, 12),
+    # Several ids: the first one in our taxonomy wins (3 is not one of ours).
+    ({**REAL_SHAPE, "mmk_group_field_ids": [3, 47, 12]}, 47),
+    # Empty list / only foreign ids: keywords over title, position_name and cat1..cat3.
+    ({**REAL_SHAPE, "mmk_group_field_ids": []}, cat.INDUSTRY),
+    ({**REAL_SHAPE, "mmk_group_field_ids": [3], "mmk_position": {"position_name": "Haydovchi"}}, cat.TRANSPORT),
+    ({**REAL_SHAPE, "mmk_group_field_ids": [], "title": "Xyz",
+      "mmk_group": {"cat1": "Ta'lim", "cat2": "Xyz", "cat3": "Xyz"}}, cat.EDUCATION_CULTURE_SPORT),
     ({"mmk_group_field_id": 12}, 12),
     ({"mmk_group_field": {"id": 47, "name_uz": "Sog'liqni saqlash"}}, 47),
     ({"mmk_group": {"id": 501, "mmk_group_field_id": 41, "name_uz": "Quruvchilar"}}, 41),
@@ -250,7 +266,7 @@ async def _insert_legacy(conn, source, sid, title, label, raw):
 async def test_m026_backfills_from_raw_title_and_label_and_reapply_is_safe(conn):
     await _insert_legacy(conn, "hh", "1", "Lead", "Программист, разработчик",
                          {"professional_roles": [{"id": "96", "name": "Программист, разработчик"}]})
-    await _insert_legacy(conn, "osonish", "2", "Ishchi", "", {"mmk_group_field_id": 47})
+    await _insert_legacy(conn, "osonish", "2", "Ishchi", "", {"mmk_group_field_ids": [3, 47], "mmk_group_id": 441})
     await _insert_legacy(conn, "vacancy_gov", "3", "Bosh mutaxassis", "",
                          {"organization": "Synthetic tuman hokimligi"})
     await _insert_legacy(conn, "hh", "4", "Something", "Другое", {"professional_roles": [{"id": "40"}]})
