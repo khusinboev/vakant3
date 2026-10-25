@@ -16,23 +16,23 @@ export type EntryTarget =
   | { kind: "saves" }
   | { kind: "vacancy"; uid: string };
 
-/** Query key Home uses for the open vacancy sheet: `/app?vacancy=<source>_<id>`. */
+/** Query key Home uses for the open vacancy sheet: `/app?vacancy=<token>` (legacy `<source>_<id>` still read). */
 export const VACANCY_QUERY_KEY = "vacancy";
 
 // Same shape the API accepts (`src/functions/vacancy_format.py` _STORE_UID_RE).
-const VACANCY_UID_RE = /^(osonish|hh)_[1-9]\d{0,14}$/;
-const VACANCY_ENTRY_RE = /^vacancy_((?:osonish|hh)_[1-9]\d{0,14})$/;
+const VACANCY_UID_RE = /^(osonish|hh|vacancy_gov)_[1-9]\d{0,14}$/;
+const VACANCY_ENTRY_RE = /^vacancy_((?:osonish|hh|vacancy_gov)_[1-9]\d{0,14})$/;
 const VACANCY_TOKEN_RE = /^v([hog])([0-9a-z]{1,14})$/;
-const SOURCE_CODES: Record<string, string> = { hh: "h", osonish: "o" };
-const CODE_SOURCES: Record<string, string> = { h: "hh", o: "osonish" };
+const SOURCE_CODES: Record<string, string> = { hh: "h", osonish: "o", vacancy_gov: "g" };
+const CODE_SOURCES: Record<string, string> = { h: "hh", o: "osonish", g: "vacancy_gov" };
 
 /** `hh_138492163` -> `vh2a3f9k` (BigInt: ids reach 16 digits, past 2^53). */
 export function vacancyToken(uid: string): string | null {
-  const match = /^(osonish|hh)_([1-9]\d{0,14})$/.exec(uid);
+  const match = /^(osonish|hh|vacancy_gov)_([1-9]\d{0,14})$/.exec(uid);
   return match ? `v${SOURCE_CODES[match[1]]}${BigInt(match[2]).toString(36)}` : null;
 }
 
-function uidFromToken(value: string): string | null {
+export function uidFromToken(value: string): string | null {
   const match = VACANCY_TOKEN_RE.exec(value);
   const source = match ? CODE_SOURCES[match[1]] : undefined;
   if (!match || !source) return null;
@@ -40,6 +40,12 @@ function uidFromToken(value: string): string | null {
   for (const ch of match[2]) id = id * 36n + BigInt(parseInt(ch, 36));
   const uid = `${source}_${id}`;
   return VACANCY_UID_RE.test(uid) ? uid : null;
+}
+
+/** uid of a `?vacancy=` value: the opaque token, or an old-style uid. `""` when neither. */
+export function vacancyUidFromQuery(value: string): string {
+  const v = value.trim().toLowerCase();
+  return isVacancyUid(v) ? v : uidFromToken(v) ?? "";
 }
 
 /** True for a vacancy uid the API accepts (guards the `/jobs/<uid>` path). */

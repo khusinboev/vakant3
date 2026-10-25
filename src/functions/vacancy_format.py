@@ -26,10 +26,10 @@ from src.ui.emoji import e as _icon
 _TAG_RE = re.compile(r"<[^>]+>")
 #: A vacancy uid the Mini App can deep-link to (``vacancy_<uid>`` fits the
 #: 64-char ``[A-Za-z0-9_-]`` start_param alphabet).
-_APP_UID_RE = re.compile(r"^(osonish|hh)_\d{1,15}$")
+_APP_UID_RE = re.compile(r"^(osonish|hh|vacancy_gov)_\d{1,15}$")
 #: ``<source>_<id>`` of a vacancy in the store (``src/ingest/``): the sources
 #: we ingest, a positive decimal id without leading zeros.
-_STORE_UID_RE = re.compile(r"^(osonish|hh)_([1-9][0-9]{0,15})$")
+_STORE_UID_RE = re.compile(r"^(osonish|hh|vacancy_gov)_([1-9][0-9]{0,15})$")
 #: Display names of the store's sources (brand names, not translated).
 SOURCE_LABELS: dict[str, str] = {"osonish": "osonish.uz", "hh": "hh.uz"}
 #: hh.uz terms of use: we show a short excerpt and link to the original.

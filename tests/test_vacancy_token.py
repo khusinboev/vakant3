@@ -93,3 +93,47 @@ async def test_start_with_a_malformed_old_link_is_rejected(ux):
 
     await ux.send(USER, "/start vacancy_hh_12a")
     assert ux.session.of(SendMessage)[-1].text == t("uz", "start.bad_vacancy_link")
+
+
+# ---------------------------------------------------------------- vacancy_gov links
+
+
+def _gov_row(source_id: str, title: str):
+    import time
+
+    from src.ingest.base import NormalizedVacancy
+
+    return NormalizedVacancy(
+        source="vacancy_gov", source_id=source_id, title=title, employer="Synthetic Agency", region_soato="1726",
+        salary_min=4_000_000, salary_max=6_000_000, currency="UZS", published_at=int(time.time()) - 3600,
+        description_text="Talablar: yuqori malaka. " * 10, url=f"https://vacancy.example.test/{source_id}",
+    )
+
+
+def test_parse_vacancy_uid_accepts_vacancy_gov():
+    from src.functions.vacancy_format import parse_vacancy_uid
+
+    assert parse_vacancy_uid("vacancy_gov_900000000701") == ("vacancy_gov", "900000000701")
+    assert parse_vacancy_uid("vacancy_gov_0") is None and parse_vacancy_uid("vacancy_gov_1a") is None
+
+
+def test_vacancy_gov_links_are_opaque_and_resolve():
+    uid = "vacancy_gov_900000000701"
+    for link in (vacancy_deeplink(uid), vacancy_app_url(uid)):
+        assert not any(word in link.lower() for word in LEAKS), link
+    token = encode_vacancy_token(uid)
+    assert token[:2] == "vg" and uid_from_start_param(token) == uid
+    assert uid_from_start_param(f"vacancy_{uid}") == uid
+
+
+async def test_vacancy_gov_channel_token_opens_the_card_in_the_bot(ux):
+    from tests.test_store_consumers import _store_rows
+
+    await _store_rows(ux.db_path, _gov_row("900000000701", "Inspektor"))
+    token = vacancy_deeplink("vacancy_gov_900000000701").split("?start=", 1)[1]
+    await ux.send(USER, f"/start {token}")
+    card = ux.session.of(SendMessage)[-1]
+    assert "Inspektor" in card.text and "Synthetic Agency" in card.text
+    assert _inline(card.reply_markup)[0].web_app.url == f"{WEBAPP}?go={token}"
+    await ux.send(USER, "/start vacancy_vacancy_gov_900000000701")  # old form
+    assert "Inspektor" in ux.session.of(SendMessage)[-1].text
