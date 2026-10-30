@@ -28,13 +28,24 @@ export type PaymentsConfig = {
   bonus_percent: number;
 };
 
+export type PaynetInfo = {
+  enabled: boolean;
+  payer_id: string | null;
+  app_url: string | null;
+};
+
 export const paymentKeys = {
   config: ["payments", "config"] as const,
+  paynet: ["payments", "paynet"] as const,
   order: (id: string) => ["payments", "order", id] as const,
 };
 
 export async function getPaymentsConfig(): Promise<PaymentsConfig> {
   return (await client.get<PaymentsConfig>("/payments/config")).data;
+}
+
+export async function getPaynetInfo(): Promise<PaynetInfo> {
+  return (await client.get<PaynetInfo>("/payments/paynet/info")).data;
 }
 
 export async function createOrder(amount: number, method: ClickMethod) {
