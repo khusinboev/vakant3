@@ -95,18 +95,19 @@ MESSAGES = {
     INVALID_PARAMS: "Invalid params",
     INTERNAL_ERROR: "Internal error",
     METHOD_NOT_ALLOWED: "Method not allowed",
-    CANNOT_CANCEL: "Невозможно отменить транзакцию",
+    # Paynet's own wording (UWS_JSON spec, "Общие ошибки").
+    CANNOT_CANCEL: "Недостаточно средств на счету клиента для отмены платежа",
     TRANSACTION_EXISTS: "Транзакция уже существует",
     TRANSACTION_NOT_FOUND: "Транзакция не найдена",
     CLIENT_NOT_FOUND: "Клиент не найден",
     SERVICE_NOT_FOUND: "Услуга не найдена",
-    CLIENT_FORMAT: "Неверный формат идентификатора клиента",
-    CLIENT_MISSING: "Не указан идентификатор клиента",
+    CLIENT_FORMAT: "Ошибка валидации параметра 1",
+    CLIENT_MISSING: "Не заданы один или несколько обязательных параметров",
     BAD_CREDENTIALS: "Неверный логин или пароль",
     BAD_AMOUNT: "Неверная сумма",
-    BAD_DATE: "Неверный формат даты",
-    AMOUNT_TOO_LARGE: "Сумма превышает максимальную",
-    CLIENT_BLOCKED: "Клиент заблокирован",
+    BAD_DATE: "Неверный формат даты и времени",
+    AMOUNT_TOO_LARGE: "Сумма превышает максимальный лимит",
+    CLIENT_BLOCKED: "Транзакции запрещены для данного плательщика",
 }
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
@@ -430,12 +431,15 @@ async def check_transaction(db, cfg: PaynetConfig, params: dict[str, Any], ctx: 
 
 
 async def cancel_transaction(db, cfg: PaynetConfig, params: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
-    """Payments are final (owner policy): never cancels, never changes anything."""
+    """Payments are final (owner policy): never cancels, never changes anything.
+
+    ``timestamp`` is required but NOT format-checked: Paynet's spec example sends it
+    as ``DD.MM.YYYY HH:mm:ss`` here (unlike CheckTransaction) and we never use it.
+    """
     _require(params, "serviceId", "transactionId", "timestamp")
     _check_service(cfg, params["serviceId"], ctx)
     transaction_id = parse_transaction_id(params["transactionId"])
     ctx["txn"] = str(transaction_id)
-    parse_time(params["timestamp"])
     row = await _find_paid(db, transaction_id)
     if row is None:
         raise RpcError(TRANSACTION_NOT_FOUND)

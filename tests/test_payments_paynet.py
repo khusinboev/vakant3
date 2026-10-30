@@ -598,11 +598,19 @@ async def test_check_found_and_unknown(harness, paynet_on):
     ["", "2026-10-30", "2026-10-30T12:00:00", "2026-10-30 12:00", "2026-13-01 00:00:00", "2026-02-30 10:00:00",
      "2026-10-30 25:00:00", "2026-10-30 12:00:60", "yesterday", 1761800000, None, True, "2026-10-30 12:00:00 "],
 )
-async def test_check_and_cancel_validate_timestamp_414(harness, paynet_on, stamp):
+async def test_check_validates_timestamp_414(harness, paynet_on, stamp):
+    await perform(harness, 9010)
+    assert err_code(await check(harness, 9010, timestamp=stamp)) == 414
+
+
+@pytest.mark.parametrize("stamp", ["16.06.2021 12:44:57", "2026-10-30 12:00:00", "garbage", 1761800000, None])
+async def test_cancel_accepts_any_timestamp_format(harness, paynet_on, stamp):
+    """Paynet's spec sends Cancel's timestamp as DD.MM.YYYY: it must not turn 77/203 into 414."""
     h = harness
-    await perform(h, 9010)
-    assert err_code(await check(h, 9010, timestamp=stamp)) == 414
-    assert err_code(await rpc(h, "CancelTransaction", {"serviceId": SERVICE, "transactionId": 9010, "timestamp": stamp})) == 414
+    await perform(h, 9011)
+    base = {"serviceId": SERVICE, "timestamp": stamp}
+    assert err_code(await rpc(h, "CancelTransaction", {**base, "transactionId": 9011})) == 77
+    assert err_code(await rpc(h, "CancelTransaction", {**base, "transactionId": 9012})) == 203
 
 
 async def test_check_and_cancel_param_rules(harness, paynet_on):
