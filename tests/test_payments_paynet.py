@@ -233,12 +233,13 @@ async def test_unknown_method_and_change_password(harness, paynet_on):
 
 
 async def test_body_cap_64kb(harness, paynet_on):
-    padding = "x" * (paynet.MAX_BODY_BYTES + 10)
+    assert paynet.MAX_BODY_BYTES == 64 * 1024
+    padding = "x" * (64 * 1024 + 10)  # literal: the cap itself must not be edited away unnoticed
     out = (await post_raw(harness, json.dumps({"jsonrpc": "2.0", "method": "GetInformation", "id": 1, "params": {"p": padding}}))).json()
     assert out["error"]["code"] == -32600
     # Just under the cap still parses.
     small = json.dumps({"jsonrpc": "2.0", "method": "GetInformation", "id": 1, "params": {"p": "x" * 60_000}})
-    assert len(small) < paynet.MAX_BODY_BYTES
+    assert len(small) < 64 * 1024
     out = (await post_raw(harness, small)).json()
     assert out["error"]["code"] == -32602  # parsed; GetInformation lacks its params
 
