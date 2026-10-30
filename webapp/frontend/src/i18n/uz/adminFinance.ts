@@ -60,6 +60,7 @@ const adminFinance = {
   "adminFinance.method.card": "Karta",
   "adminFinance.method.phone": "Telefon",
   "adminFinance.method.app": "Click ilovasi",
+  "adminFinance.method.paynet": "Paynet",
 };
 export type AdminFinanceDict = typeof adminFinance;
 export default adminFinance;

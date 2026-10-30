@@ -20,7 +20,7 @@ from src.i18n import t
 
 DAY = 86_400
 LEDGER_KINDS = ("topup", "topup_bonus", "pro_activation", "referral_reward")
-PAY_METHODS = ("page", "card", "phone", "app")
+PAY_METHODS = ("page", "card", "phone", "app", "paynet")
 PERIODS = ("today", "d7", "d30", "all")
 
 

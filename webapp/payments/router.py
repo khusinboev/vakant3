@@ -22,8 +22,15 @@ from webapp.core.auth import current_user
 from webapp.core.database import get_db
 from webapp.core.entry_gate import require_entry
 from webapp.core.limiter import limiter
-from webapp.payments import service, shop
-from webapp.payments.config import MAX_TOPUP_SOUM, MIN_TOPUP_SOUM, payments_enabled
+from webapp.payments import paynet, service, shop
+from webapp.payments.config import (
+    MAX_TOPUP_SOUM,
+    MIN_TOPUP_SOUM,
+    paynet_app_url,
+    paynet_enabled,
+    paynet_payer_id,
+    payments_enabled,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -54,6 +61,14 @@ async def click_callback(request: Request, db=Depends(get_db)) -> JSONResponse:
     params = await _read_params(request)
     body = await shop.handle_click(db, params)
     return JSONResponse(status_code=200, content=body)
+
+
+@callback_router.api_route(
+    "/paynet", methods=["POST", "GET", "PUT", "PATCH", "DELETE"], include_in_schema=False
+)
+async def paynet_callback(request: Request, db=Depends(get_db)) -> JSONResponse:
+    """Paynet's JSON-RPC provider endpoint (relayed by SlaydX); Basic auth, see :mod:`webapp.payments.paynet`."""
+    return await paynet.handle_request(request, db)
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +118,19 @@ async def _config(db) -> PaymentsConfigResponse:
 @limiter.limit("60/minute")
 async def get_payments_config(request: Request, db=Depends(get_db)) -> PaymentsConfigResponse:
     return await _config(db)
+
+
+@router.get("/paynet/info")
+@limiter.limit("60/minute")
+async def paynet_info(request: Request, user=Depends(current_user)) -> dict:
+    """The wallet card: the user's Paynet payer id (``vk-<id>``), only when Paynet is configured."""
+    if not paynet_enabled():
+        return {"enabled": False, "payer_id": None, "app_url": None}
+    return {
+        "enabled": True,
+        "payer_id": paynet_payer_id(int(user["user_id"])),
+        "app_url": paynet_app_url(),
+    }
 
 
 @router.get("/orders")

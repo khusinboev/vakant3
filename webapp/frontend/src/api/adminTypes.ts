@@ -437,7 +437,7 @@ export type FinanceTotals = {
 
 /** `GET /admin/finance/payments` — Click top-up orders (read-only). */
 export type PaymentOrderState = "created" | "pending" | "paid" | "cancelled";
-export type PaymentMethod = "page" | "card" | "phone" | "app";
+export type PaymentMethod = "page" | "card" | "phone" | "app" | "paynet";
 
 export type FinancePaymentItem = {
   id: string;

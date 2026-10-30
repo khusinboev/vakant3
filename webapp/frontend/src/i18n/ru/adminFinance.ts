@@ -61,5 +61,6 @@ const adminFinance: Record<keyof AdminFinanceDict, string> = {
   "adminFinance.method.card": "Карта",
   "adminFinance.method.phone": "Телефон",
   "adminFinance.method.app": "Приложение Click",
+  "adminFinance.method.paynet": "Paynet",
 };
 export default adminFinance;

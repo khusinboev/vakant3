@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     CLICK_MERCHANT_ID: str = ""
     CLICK_SECRET_KEY: str = ""
     CLICK_MERCHANT_USER_ID: str = ""
+    # Paynet provider endpoint (shared with SlaydX: same service, same Basic
+    # login/password). Username, password and service ids all set -> enabled
+    # (webapp/payments/config.py). PAYNET_SERVICE_IDS is a comma list.
+    PAYNET_USERNAME: str = ""
+    PAYNET_PASSWORD: str = ""
+    PAYNET_SERVICE_IDS: str = ""
+    PAYNET_CLIENT_PARAM: str = "client_id"
+    PAYNET_APP_URL: str = ""
 
     @property
     def admin_ids_set(self) -> set[int]:

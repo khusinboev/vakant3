@@ -15,7 +15,7 @@ export type PaymentOrder = {
   purpose: "topup";
   amount: number;
   state: OrderState;
-  method: ClickMethod | null;
+  method: ClickMethod | "paynet" | null;
   bonus_amount: number;
   created_at: number;
   paid_at: number | null;
