@@ -241,6 +241,7 @@ STRINGS: dict[str, str] = {
     "stats2.method.card": "Karta",
     "stats2.method.phone": "Telefon",
     "stats2.method.app": "Ilova",
+    "stats2.method.paynet": "Paynet",
     "stats2.method.unknown": "Boshqa",
     "stats2.wallet.topup": "To'ldirishlar",
     "stats2.wallet.topup_bonus": "To'ldirish bonuslari",

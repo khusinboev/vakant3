@@ -605,7 +605,7 @@ async def list_finance_referrals(
 # --------------------------------------------------------------------------
 
 PAYMENT_STATES: tuple[str, ...] = ("created", "pending", "paid", "cancelled")
-PAYMENT_METHODS: tuple[str, ...] = ("page", "card", "phone", "app")
+PAYMENT_METHODS: tuple[str, ...] = ("page", "card", "phone", "app", "paynet")
 
 
 class FinancePaymentItem(BaseModel):

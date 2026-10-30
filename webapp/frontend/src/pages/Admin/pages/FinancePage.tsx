@@ -85,6 +85,7 @@ const METHOD_LABEL: Record<PaymentMethod, TranslationKey> = {
   card: "adminFinance.method.card",
   phone: "adminFinance.method.phone",
   app: "adminFinance.method.app",
+  paynet: "adminFinance.method.paynet",
 };
 
 /** Own URL keys (`p*`) so they never collide with the transactions filters. */

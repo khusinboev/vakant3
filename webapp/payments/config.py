@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
+from urllib.parse import urlsplit
 
 from webapp.core.config import get_settings
 
@@ -146,3 +147,59 @@ def normalize_phone(value: str) -> str | None:
 def normalize_sms_code(value: str) -> str | None:
     d = digits_of(value)
     return d if 4 <= len(d) <= 8 else None
+
+
+# ---------------------------------------------------------------------------
+# Paynet provider endpoint (webapp/payments/paynet.py)
+# ---------------------------------------------------------------------------
+
+#: The payer id a user types at a Paynet agent is ``vk-<user id>`` (``vk_`` is
+#: accepted too). Same prefix family as Click's ``vk-<order uuid>``.
+PAYNET_PAYER_PREFIXES = ("vk-", "vk_")
+
+#: Our ``providerTrnId`` = this + ``payment_orders.seq``. SlaydX numbers its own
+#: Paynet transactions from 1, and Paynet sees both statements merged.
+PAYNET_TRN_OFFSET = 1_000_000_000
+
+
+@dataclass(frozen=True)
+class PaynetConfig:
+    username: str
+    password: str
+    service_ids: frozenset[int]
+    client_param: str
+
+
+def paynet_config() -> PaynetConfig | None:
+    """Credentials + service ids, or None when any is missing (every call is then a 401)."""
+    settings = get_settings()
+    username = str(getattr(settings, "PAYNET_USERNAME", "") or "")
+    password = str(getattr(settings, "PAYNET_PASSWORD", "") or "")
+    raw_ids = str(getattr(settings, "PAYNET_SERVICE_IDS", "") or "")
+    service_ids = frozenset(
+        int(item) for item in (part.strip() for part in raw_ids.split(",")) if item.isascii() and item.isdigit()
+    )
+    client_param = str(getattr(settings, "PAYNET_CLIENT_PARAM", "") or "").strip() or "client_id"
+    if not username or not password or not service_ids:
+        return None
+    return PaynetConfig(username, password, service_ids, client_param)
+
+
+def paynet_enabled() -> bool:
+    return paynet_config() is not None
+
+
+def paynet_app_url() -> str | None:
+    """``PAYNET_APP_URL`` when it is a plain ``https://`` URL, else None (button hidden)."""
+    raw = str(getattr(get_settings(), "PAYNET_APP_URL", "") or "").strip()
+    if not raw or any(ch.isspace() for ch in raw):
+        return None
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return None
+    return raw if parts.scheme == "https" and parts.hostname else None
+
+
+def paynet_payer_id(user_id: int) -> str:
+    return f"{PAYNET_PAYER_PREFIXES[0]}{int(user_id)}"

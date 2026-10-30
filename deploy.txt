@@ -289,3 +289,20 @@ O'chirish:    touch /home/vakant/.deploy/auto-deploy.disabled   (yoqish: faylni 
 Qayta deploy: /home/vakant/ops/auto_deploy.sh --force
 Qo'lda deploy (zaxira yo'l, toza local daraxtdan): bash deploy_safe.sh
 Batafsil:     .claude/deploy.md (lokal) yoki ops/auto_deploy.sh boshidagi izoh.
+
+
+========================================================
+  12. PAYNET (hamyonni Paynet agent orqali to'ldirish)
+========================================================
+
+Endpoint: POST https://<Bandlik domeni>/api/payments/paynet  (SlaydX shu manzilga `vk-` ID'li so'rovlarni uzatadi).
+Batafsil: docs/PAYNET.md.
+
+Serverdagi /home/vakant/.env ga (qiymatlarni egasi o'zi yozadi, SlaydX'dagilar bilan bir xil):
+  PAYNET_USERNAME=...
+  PAYNET_PASSWORD=...
+  PAYNET_SERVICE_IDS=...        # SlaydX ishlatadigan Paynet serviceId
+  PAYNET_APP_URL=...            # ixtiyoriy, faqat https://
+So'ng:  systemctl restart vakant-api     (boshqa hech narsa emas; bot kerak emas)
+Tekshirish: Mini App -> Hamyon'da "Paynet orqali to'ldirish" kartasi chiqadi; /api/health yashil.
+Oxirgi qadam: SlaydX serverida PAYNET_SHARED_WITH_VAKANT=true ni yoqish (Bandlik endpoint'i tirik bo'lgach).

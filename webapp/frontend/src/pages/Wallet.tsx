@@ -4,7 +4,8 @@ import { CheckCircle2, Crown, Link as LinkIcon, Plus, Wallet } from "lucide-reac
 import { useNavigate } from "react-router-dom";
 
 import client from "../api/client";
-import { getPaymentsConfig, paymentKeys } from "../api/payments";
+import { getPaymentsConfig, getPaynetInfo, paymentKeys } from "../api/payments";
+import PaynetCard from "../components/Payments/PaynetCard";
 import TopUpSheet from "../components/Payments/TopUpSheet";
 import BottomSheet from "../components/ui/BottomSheet";
 import { clearBackInterceptor, setBackInterceptor } from "../hooks/useBackInterceptor";
@@ -36,6 +37,14 @@ export default function WalletPage() {
   const payments = useQuery({
     queryKey: paymentKeys.config,
     queryFn: getPaymentsConfig,
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  // Paynet payer id card: hidden unless the server has Paynet configured.
+  const paynet = useQuery({
+    queryKey: paymentKeys.paynet,
+    queryFn: getPaynetInfo,
     staleTime: 60_000,
     retry: false,
   });
@@ -162,6 +171,10 @@ export default function WalletPage() {
 
       {payments.data?.enabled && (
         <TopUpSheet open={topUpOpen} onClose={() => setTopUpOpen(false)} config={payments.data} />
+      )}
+
+      {paynet.data?.enabled && (
+        <PaynetCard info={paynet.data} bonusPercent={payments.data?.bonus_percent ?? 0} />
       )}
 
       {/* Pro tariff quick info and activation */}

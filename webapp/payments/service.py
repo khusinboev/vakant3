@@ -245,6 +245,54 @@ def check_click_complete(order: Order, params: dict[str, str]) -> str | None:
     return None
 
 
+async def credit_topup(db, order: Order, *, reference: str, note: str) -> tuple[int, int]:
+    """Credit a paid order to the wallet, plus the payment bonus. Caller commits.
+
+    Shared by the Click Shop API and the Paynet provider endpoint. The caller has
+    already moved the order to ``paid`` (or inserted it as ``paid``) in the same
+    transaction. ``reference`` (``click:<txn>`` / ``paynet:<txn>``) is the unique
+    ledger key, the second guard against crediting one payment twice. Returns
+    ``(bonus credited, balance after everything)``.
+    """
+    result = await ledger.apply_balance_change(
+        db,
+        user_id=order.user_id,
+        amount=order.amount_soum,
+        kind="topup",
+        note=note,
+        reference=reference,
+    )
+    balance_after = int(result["balance_after"])
+    # The percent in force when the order SETTLES, read inside this transaction.
+    percent = int((await get_admin_settings(db)).get("payment_bonus_percent") or 0)
+    bonus = payment_bonus_amount(order.amount_soum, percent)
+    paid_bonus = 0
+    if bonus > 0:
+        await db.execute("SAVEPOINT payment_bonus")
+        try:
+            bonus_result = await ledger.apply_balance_change(
+                db,
+                user_id=order.user_id,
+                amount=bonus,
+                kind="topup_bonus",
+                note=f"{percent}%",
+                reference=f"payment-bonus:{order.id}",
+            )
+            await db.execute("RELEASE SAVEPOINT payment_bonus")
+            paid_bonus = bonus
+            balance_after = int(bonus_result["balance_after"])
+        except sqlite3.IntegrityError:
+            # Already written by another path: drop only the bonus, keep the top-up.
+            await db.execute("ROLLBACK TO SAVEPOINT payment_bonus")
+            await db.execute("RELEASE SAVEPOINT payment_bonus")
+            _log.info("[payment-bonus] already written order=%s", order.id)
+    await db.execute(
+        "UPDATE payment_orders SET bonus_percent = ?, bonus_amount = ? WHERE id = ?",
+        (percent if paid_bonus else 0, paid_bonus, order.id),
+    )
+    return paid_bonus, balance_after
+
+
 async def settle_order(db, order_id: str, perform_time: int) -> tuple[str, Order | None]:
     """Credit the order once. Returns (paid | already_paid | cancelled | not_found, order)."""
     now = int(time.time())
@@ -268,39 +316,8 @@ async def settle_order(db, order_id: str, perform_time: int) -> tuple[str, Order
 
         order = await find_order(db, order_id)
         assert order is not None
-        await ledger.apply_balance_change(
-            db,
-            user_id=order.user_id,
-            amount=order.amount_soum,
-            kind="topup",
-            note="click",
-            reference=f"click:{order.provider_txn or order.id}",
-        )
-        # The percent in force when the order SETTLES, read inside this transaction.
-        percent = int((await get_admin_settings(db)).get("payment_bonus_percent") or 0)
-        bonus = payment_bonus_amount(order.amount_soum, percent)
-        paid_bonus = 0
-        if bonus > 0:
-            await db.execute("SAVEPOINT payment_bonus")
-            try:
-                await ledger.apply_balance_change(
-                    db,
-                    user_id=order.user_id,
-                    amount=bonus,
-                    kind="topup_bonus",
-                    note=f"{percent}%",
-                    reference=f"payment-bonus:{order.id}",
-                )
-                await db.execute("RELEASE SAVEPOINT payment_bonus")
-                paid_bonus = bonus
-            except sqlite3.IntegrityError:
-                # Already written by another path: drop only the bonus, keep the top-up.
-                await db.execute("ROLLBACK TO SAVEPOINT payment_bonus")
-                await db.execute("RELEASE SAVEPOINT payment_bonus")
-                _log.info("[payment-bonus] already written order=%s", order.id)
-        await db.execute(
-            "UPDATE payment_orders SET bonus_percent = ?, bonus_amount = ? WHERE id = ?",
-            (percent if paid_bonus else 0, paid_bonus, order.id),
+        paid_bonus, _ = await credit_topup(
+            db, order, reference=f"click:{order.provider_txn or order.id}", note="click"
         )
         await db.commit()
     except Exception:
@@ -371,7 +388,14 @@ def _clip(value: Any) -> str | None:
 
 
 async def record_payment_event(
-    db, *, method: str, order_id: Any, provider_txn: Any, payload: Any, response_code: int | None
+    db,
+    *,
+    method: str,
+    order_id: Any,
+    provider_txn: Any,
+    payload: Any,
+    response_code: int | None,
+    provider: str = "click",
 ) -> None:
     """Never raises: the answer to Click must not depend on the audit insert."""
     try:
@@ -380,8 +404,16 @@ async def record_payment_event(
             text = json.dumps({"truncated": True, "head": text[:MAX_PAYLOAD_CHARS]})
         await db.execute(
             "INSERT INTO payment_events (provider, method, order_id, provider_txn, payload, "
-            "response_code, received_at) VALUES ('click', ?, ?, ?, ?, ?, ?)",
-            (_clip(method) or "?", _clip(order_id), _clip(provider_txn), text, response_code, int(time.time())),
+            "response_code, received_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                provider,
+                _clip(method) or "?",
+                _clip(order_id),
+                _clip(provider_txn),
+                text,
+                response_code,
+                int(time.time()),
+            ),
         )
         await db.commit()
     except Exception as exc:
