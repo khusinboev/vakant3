@@ -41,12 +41,14 @@ import re
 import sqlite3
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from webapp.core.request_ip import client_ip
 from webapp.payments import service
 from webapp.payments.config import (
     MAX_TOPUP_SOUM,
@@ -64,6 +66,16 @@ MAX_BODY_BYTES = 64 * 1024
 STATEMENT_MAX_ROWS = 100_000
 #: Largest integer a JSON client (Paynet is JavaScript-side) represents exactly.
 MAX_SAFE_INTEGER = 2**53 - 1
+#: Longest we wait for the SQLite write lock in PerformTransaction. Paynet's budget is
+#: ~500 ms and CheckTransaction is a lock-free read: a Perform that waited seconds would
+#: commit AFTER Paynet already saw "not found" and gave up. Failing fast (-32603, nothing
+#: written) keeps Check and Perform consistent; Paynet retries.
+PERFORM_LOCK_WAIT_MS = 400
+#: Failed Basic logins tolerated per client IP and window before every call from it is
+#: refused without even comparing (online guessing of the shared password; per worker).
+AUTH_FAIL_LIMIT = 30
+AUTH_FAIL_WINDOW_SECONDS = 60
+_AUTH_FAILS: dict[str, deque[float]] = {}
 #: GMT+5 all year (Asia/Tashkent has no DST).
 TASHKENT = timezone(timedelta(hours=5))
 
@@ -110,7 +122,7 @@ MESSAGES = {
     CLIENT_BLOCKED: "Транзакции запрещены для данного плательщика",
 }
 
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", re.ASCII)
 
 
 class RpcError(Exception):
@@ -135,7 +147,10 @@ def _err(rpc_id: Any, code: int) -> dict[str, Any]:
 
 
 def _valid_id(value: Any) -> bool:
-    return isinstance(value, (str, int, float)) and not isinstance(value, bool)
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return False
+    # ``1e400`` parses to inf, which the JSON encoder refuses to echo back.
+    return not isinstance(value, float) or math.isfinite(value)
 
 
 def _reject_constant(_: str) -> None:
@@ -191,6 +206,24 @@ def authorized(header: str | None, cfg: PaynetConfig) -> bool:
     user_ok = hmac.compare_digest(_digest(username), _digest(cfg.username))
     pass_ok = hmac.compare_digest(_digest(password), _digest(cfg.password))
     return user_ok & pass_ok
+
+
+def _auth_blocked(ip: str, now: float) -> bool:
+    fails = _AUTH_FAILS.get(ip)
+    if not fails:
+        return False
+    while fails and now - fails[0] > AUTH_FAIL_WINDOW_SECONDS:
+        fails.popleft()
+    if not fails:
+        _AUTH_FAILS.pop(ip, None)
+        return False
+    return len(fails) >= AUTH_FAIL_LIMIT
+
+
+def _note_auth_failure(ip: str, now: float) -> None:
+    if len(_AUTH_FAILS) > 10_000:  # bounded memory under a spray of source addresses
+        _AUTH_FAILS.clear()
+    _AUTH_FAILS.setdefault(ip, deque()).append(now)
 
 
 def _unauthorized() -> JSONResponse:
@@ -345,6 +378,14 @@ def _provider_trn_id(seq: int) -> int:
     return PAYNET_TRN_OFFSET + int(seq)
 
 
+async def _set_lock_wait(db, wait_ms: int) -> int:
+    """Set ``busy_timeout`` on this connection and return the previous value."""
+    cursor = await db.execute("PRAGMA busy_timeout")
+    row = await cursor.fetchone()
+    await db.execute(f"PRAGMA busy_timeout={int(wait_ms)}")
+    return int(row[0]) if row else 5000
+
+
 # ---------------------------------------------------------------------------
 # Methods
 # ---------------------------------------------------------------------------
@@ -375,7 +416,13 @@ async def perform_transaction(db, cfg: PaynetConfig, params: dict[str, Any], ctx
     order_id = str(uuid.uuid4())
     now_ms = _now_ms()
     now = now_ms // 1000
-    await db.execute("BEGIN IMMEDIATE")
+    previous_wait = await _set_lock_wait(db, PERFORM_LOCK_WAIT_MS)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+    except BaseException:
+        await _set_lock_wait(db, previous_wait)
+        raise
+    await _set_lock_wait(db, previous_wait)  # only the BEGIN may wait that short
     try:
         if await _find_paid(db, transaction_id) is not None:
             raise RpcError(TRANSACTION_EXISTS)
@@ -548,7 +595,13 @@ async def handle_request(request: Request, db) -> JSONResponse:
     if request.method != "POST":
         return JSONResponse(status_code=200, content=_err(None, METHOD_NOT_ALLOWED))
     cfg = paynet_config()
-    if cfg is None or not authorized(request.headers.get("authorization"), cfg):
+    ip = client_ip(request) or "unknown"
+    if cfg is None:
+        return _unauthorized()
+    if _auth_blocked(ip, started):
+        return _unauthorized()
+    if not authorized(request.headers.get("authorization"), cfg):
+        _note_auth_failure(ip, started)
         return _unauthorized()
 
     ctx: dict[str, Any] = {"method": "invalid", "payload": {}, "rpc_id": None}
@@ -566,15 +619,21 @@ async def handle_request(request: Request, db) -> JSONResponse:
             pass
         body, code = _err(ctx["rpc_id"], INTERNAL_ERROR), INTERNAL_ERROR
 
-    await service.record_payment_event(
-        db,
-        provider="paynet",
-        method=ctx["method"],
-        order_id=ctx.get("order_id"),
-        provider_txn=ctx.get("txn"),
-        payload=ctx["payload"],
-        response_code=code,
-    )
+    # The trail must never delay the answer: under a held write lock the row is dropped
+    # after PERFORM_LOCK_WAIT_MS instead of waiting for the pool's 5 s busy_timeout.
+    previous_wait = await _set_lock_wait(db, PERFORM_LOCK_WAIT_MS)
+    try:
+        await service.record_payment_event(
+            db,
+            provider="paynet",
+            method=ctx["method"],
+            order_id=ctx.get("order_id"),
+            provider_txn=ctx.get("txn"),
+            payload=ctx["payload"],
+            response_code=code,
+        )
+    finally:
+        await _set_lock_wait(db, previous_wait)
     _log.info(
         "[paynet] method=%s service=%s code=%s ms=%d",
         ctx["method"],

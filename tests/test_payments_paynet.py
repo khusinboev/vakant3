@@ -40,6 +40,9 @@ def paynet_on(monkeypatch):
     monkeypatch.setattr(settings, "PAYNET_SERVICE_IDS", f"{SERVICE}, 9002", raising=False)
     monkeypatch.setattr(settings, "PAYNET_CLIENT_PARAM", "client_id", raising=False)
     monkeypatch.setattr(settings, "PAYNET_APP_URL", "", raising=False)
+    paynet._AUTH_FAILS.clear()
+    yield
+    paynet._AUTH_FAILS.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -809,12 +812,13 @@ async def test_handler_is_fast(harness, paynet_on):
     h = harness
     await perform(h, 51)
     timings = []
-    for i in range(5):
+    for i in range(7):
         started = time.monotonic()
         await perform(h, 600 + i)
         await check(h, 51)
         timings.append(time.monotonic() - started)
-    assert min(timings) < 0.5, timings
+    timings.sort()
+    assert timings[len(timings) // 2] < 0.3, timings  # median of Perform + Check
 
 
 # ---------------------------------------------------------------------------
@@ -952,3 +956,78 @@ async def test_m027_rebuilds_orders_and_events_keeping_rows_and_is_idempotent(tm
         assert {"idx_payment_orders_txn", "idx_payment_orders_user_created", "idx_payment_orders_paynet_perform"} <= names
         names = {r[1] for r in await (await conn.execute("PRAGMA index_list(payment_events)")).fetchall()}
         assert {"idx_payment_events_order", "idx_payment_events_txn", "idx_payment_events_received"} <= names
+
+
+# ---------------------------------------------------------------------------
+# Hardening found by the independent review
+# ---------------------------------------------------------------------------
+
+
+async def test_non_finite_rpc_id_is_not_echoed_and_never_breaks_a_credited_reply(harness, paynet_on):
+    h = harness
+    body = (
+        '{"jsonrpc":"2.0","method":"PerformTransaction","id":1e400,"params":{"serviceId":%d,'
+        '"transactionId":81,"amount":100000,"fields":{"client_id":"vk-%d"}}}' % (SERVICE, USER)
+    )
+    response = await post_raw(h, body)
+    assert response.status_code == 200
+    assert response.json()["error"]["code"] == -32600 and response.json()["id"] is None
+    assert await orders(h) == [] and await h.balance(USER) == 0  # refused BEFORE any credit
+
+
+async def test_failed_logins_are_rate_limited_per_ip_and_do_not_reach_a_handler(harness, paynet_on):
+    h = harness
+    body = json.dumps({"jsonrpc": "2.0", "method": "GetInformation", "id": 1,
+                       "params": {"serviceId": SERVICE, "fields": payer()}})
+    for _ in range(paynet.AUTH_FAIL_LIMIT):
+        assert (await post_raw(h, body, basic(USERNAME, "guess"))).status_code == 401
+    # Over the limit even the RIGHT password is refused for this IP until the window passes ...
+    assert (await post_raw(h, body)).status_code == 401
+    assert len(paynet._AUTH_FAILS) == 1
+    # ... the window is sliding, then service resumes.
+    ip = next(iter(paynet._AUTH_FAILS))
+    paynet._AUTH_FAILS[ip] = type(paynet._AUTH_FAILS[ip])(
+        t - paynet.AUTH_FAIL_WINDOW_SECONDS - 1 for t in paynet._AUTH_FAILS[ip]
+    )
+    assert (await post_raw(h, body)).status_code == 200
+
+
+async def test_successful_calls_never_count_as_failures(harness, paynet_on):
+    for i in range(paynet.AUTH_FAIL_LIMIT + 5):
+        out = await rpc(harness, "GetInformation", {"serviceId": SERVICE, "fields": payer()})
+        assert "result" in out
+    assert paynet._AUTH_FAILS == {}
+
+
+async def test_perform_fails_fast_when_the_write_lock_is_held_and_writes_nothing(harness, paynet_on):
+    h = harness
+    async with h.conn() as blocker:
+        await blocker.execute("BEGIN IMMEDIATE")  # e.g. a bot batch holding the write lock
+        started = time.monotonic()
+        out = await perform(h, 91)
+        waited = time.monotonic() - started
+        await blocker.rollback()
+    assert err_code(out) == -32603
+    assert waited < 2.0, waited  # PERFORM_LOCK_WAIT_MS, not the pool's 5 s busy_timeout
+    assert await orders(h) == [] and await h.balance(USER) == 0
+    assert "result" in await perform(h, 91)  # nothing was burned: the retry credits once
+    assert await h.balance(USER) == 1_000
+
+
+async def test_statement_refuses_to_send_a_malformed_row(harness, paynet_on, monkeypatch):
+    h = harness
+    await seed_paid(h, 95, ms("2026-10-30 12:00:00"))
+    monkeypatch.setattr(paynet, "_provider_trn_id", lambda seq: 0)
+    out = await statement(h, "2026-10-30 00:00:00", "2026-10-30 23:59:59")
+    assert err_code(out) == -32603  # never a partial / invalid list: SlaydX fails the whole merge on one bad row
+
+
+async def test_statement_dates_must_be_ascii_digits(harness, paynet_on):
+    out = await statement(harness, "\u0662\u0660\u0662\u0666-10-30 00:00:00", "2026-10-30 23:59:59")
+    assert err_code(out) == 414
+
+
+async def test_head_and_options_get_the_rpc_error_not_a_405(harness, paynet_on):
+    for verb in ("head", "options"):
+        response = await getattr(harness.http, verb)("/api/payments/paynet", headers=basic())
+        assert response.status_code == 200, verb

@@ -64,7 +64,7 @@ async def click_callback(request: Request, db=Depends(get_db)) -> JSONResponse:
 
 
 @callback_router.api_route(
-    "/paynet", methods=["POST", "GET", "PUT", "PATCH", "DELETE"], include_in_schema=False
+    "/paynet", methods=["POST", "GET", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"], include_in_schema=False
 )
 async def paynet_callback(request: Request, db=Depends(get_db)) -> JSONResponse:
     """Paynet's JSON-RPC provider endpoint (relayed by SlaydX); Basic auth, see :mod:`webapp.payments.paynet`."""
