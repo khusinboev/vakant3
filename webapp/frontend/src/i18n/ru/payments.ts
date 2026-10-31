@@ -22,6 +22,8 @@ const payments: Record<keyof PaymentsDict, string> = {
   "payments.method.app": "Приложение Click",
   "payments.method.appHint": "Откройте приложение и подтвердите оплату",
   "payments.method.page": "Оплатить на странице Click",
+  "payments.method.paynet": "Через Paynet",
+  "payments.method.paynetHint": "Приложение, терминал или киоск Paynet",
   "payments.total": "К оплате:",
   "payments.opening": "Открываем...",
   "payments.back": "Назад",

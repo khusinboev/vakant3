@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronRight, CreditCard, Phone, Smartphone, type LucideIcon } from "lucide-react";
+import { ChevronRight, CreditCard, Phone, Smartphone, Store, type LucideIcon } from "lucide-react";
 
-import { createOrder, type ClickMethod, type PaymentsConfig } from "../../api/payments";
+import { createOrder, type ClickMethod, type PaymentsConfig, type PaynetInfo } from "../../api/payments";
 import BottomSheet from "../ui/BottomSheet";
 import { clearBackInterceptor, setBackInterceptor } from "../../hooks/useBackInterceptor";
 import { useLocale } from "../../i18n/useLocale";
@@ -9,11 +9,12 @@ import { useT } from "../../i18n/useT";
 import type { TranslationKey } from "../../i18n";
 import { DEFAULT_TOPUP, TOPUP_PRESETS, openClickApp, topupAmountError } from "../../lib/clickInput";
 import CardStep from "./CardStep";
+import PaynetCard from "./PaynetCard";
 import PhoneStep from "./PhoneStep";
 import WaitStep, { type WaitSource } from "./WaitStep";
 import { fieldError, inputCls, paymentErrorMessage, textBtn } from "./shared";
 
-type View = "home" | "card" | "phone" | "wait";
+type View = "home" | "card" | "phone" | "wait" | "paynet";
 type Order = { id: string; amount: number; method: ClickMethod; checkoutUrl: string };
 
 const TITLES: Record<View, TranslationKey> = {
@@ -21,6 +22,7 @@ const TITLES: Record<View, TranslationKey> = {
   card: "payments.card.title",
   phone: "payments.phone.title",
   wait: "payments.wait.title",
+  paynet: "payments.paynet.title",
 };
 
 /** Longest typed amount: 10 000 000 has 8 digits; one spare lets the error show. */
@@ -30,8 +32,11 @@ const MAX_DIGITS = 9;
  * Wallet top-up (port of SlaydX `PayDialog`): free amount, then one of three
  * Click methods — card (our form: one-time token + SMS), phone (invoice to the
  * Click app), Click app (deeplink via `Telegram.WebApp.openLink`); the Click
- * page stays as a fallback link. This sheet NEVER credits: it creates an order,
- * starts the payment and waits for the order (credited by Click's Shop API).
+ * page stays as a fallback link. Below them sits «Paynet» (when configured):
+ * it opens the payer id with the steps, nothing is created there. This sheet
+ * NEVER credits: it creates an order, starts the payment and waits for the
+ * order (credited by Click's Shop API); Paynet credits through its own provider
+ * call. With Click off and Paynet on, the sheet opens straight on the Paynet view.
  *
  * Back (Telegram BackButton, Esc, backdrop): one level at a time — SMS step ->
  * card form -> method choice -> closed.
@@ -40,10 +45,13 @@ export default function TopUpSheet({
   open,
   onClose,
   config,
+  paynet,
 }: {
   open: boolean;
   onClose: () => void;
-  config: PaymentsConfig;
+  /** Null while Click is not configured; then only Paynet can be offered. */
+  config: PaymentsConfig | null;
+  paynet?: PaynetInfo | null;
 }) {
   const t = useT();
   const { formatMoney, formatNumber } = useLocale();
@@ -58,16 +66,19 @@ export default function TopUpSheet({
   const [busy, setBusy] = useState<ClickMethod | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const paynetOn = Boolean(paynet?.enabled && paynet.payer_id);
+  const firstView: View = config ? "home" : "paynet";
+
   // Every opening starts clean (card details live in the unmounted step).
   useEffect(() => {
     if (!open) return;
     setError(null);
     setBusy(null);
-    setView("home");
+    setView(firstView);
     setCardStage("form");
     setOrder(null);
     setWaitInitial("polling");
-  }, [open]);
+  }, [open, firstView]);
 
   const back = () => {
     setError(null);
@@ -75,8 +86,8 @@ export default function TopUpSheet({
       setCardStage("form");
       return;
     }
-    if (view !== "home") {
-      setView("home");
+    if (view !== firstView) {
+      setView(firstView);
       setCardStage("form");
       return;
     }
@@ -97,9 +108,11 @@ export default function TopUpSheet({
     return () => clearBackInterceptor();
   }, [open]);
 
-  const amountErrKey = topupAmountError(amount, config.min_amount, config.max_amount);
+  const minAmount = config?.min_amount ?? 0;
+  const maxAmount = config?.max_amount ?? 0;
+  const amountErrKey = config ? topupAmountError(amount, minAmount, maxAmount) : null;
   const amountErr = amountErrKey
-    ? t(amountErrKey, { min: formatNumber(config.min_amount), max: formatNumber(config.max_amount) })
+    ? t(amountErrKey, { min: formatNumber(minAmount), max: formatNumber(maxAmount) })
     : null;
   const showAmountErr = amountErr !== null && (amount > 0 || amountTouched);
 
@@ -113,7 +126,7 @@ export default function TopUpSheet({
   }
 
   async function start(method: ClickMethod) {
-    if (amountErrKey || busy) return;
+    if (!config || amountErrKey || busy) return;
     setError(null);
     setBusy(method);
     try {
@@ -179,7 +192,11 @@ export default function TopUpSheet({
         />
       )}
 
-      {view === "home" && (
+      {view === "paynet" && paynet && (
+        <PaynetCard info={paynet} bonusPercent={config?.bonus_percent ?? 0} />
+      )}
+
+      {view === "home" && config && (
         <>
           <p className="mb-4 text-sm text-muted">{t("payments.topup.intro")}</p>
           {config.bonus_percent > 0 && (
@@ -246,8 +263,8 @@ export default function TopUpSheet({
             ) : (
               <p className="mt-1.5 text-[13px] text-muted">
                 {t("payments.amount.range", {
-                  min: formatNumber(config.min_amount),
-                  max: formatNumber(config.max_amount),
+                  min: formatNumber(minAmount),
+                  max: formatNumber(maxAmount),
                 })}
               </p>
             )}
@@ -282,6 +299,20 @@ export default function TopUpSheet({
               disabled={busy !== null || amountErrKey !== null}
               onClick={() => void start("app")}
             />
+            {paynetOn && (
+              <MethodRow
+                icon={Store}
+                title={t("payments.method.paynet")}
+                hint={t("payments.method.paynetHint")}
+                loading={false}
+                loadingText=""
+                disabled={busy !== null}
+                onClick={() => {
+                  setError(null);
+                  setView("paynet");
+                }}
+              />
+            )}
           </div>
           <div className="mt-1 flex justify-center">
             <button

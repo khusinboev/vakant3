@@ -22,6 +22,8 @@ const payments: Record<keyof PaymentsDict, string> = {
   "payments.method.app": "Click app",
   "payments.method.appHint": "Open the app and confirm the payment",
   "payments.method.page": "Pay on the Click page",
+  "payments.method.paynet": "Via Paynet",
+  "payments.method.paynetHint": "Paynet app, terminal or kiosk",
   "payments.total": "To pay:",
   "payments.opening": "Opening...",
   "payments.back": "Back",

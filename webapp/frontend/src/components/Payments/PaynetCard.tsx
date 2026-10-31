@@ -9,7 +9,8 @@ import { copyToClipboard } from "../../lib/share";
  * Wallet card for paying at a Paynet agent (app, terminal, kiosk). Nothing is
  * created or credited from here: the user enters the payer id `vk-<id>` at the
  * agent and Paynet's provider call (`POST /api/payments/paynet`) credits the
- * wallet. Rendered only while the server reports Paynet as configured.
+ * wallet. Rendered only while the server reports Paynet as configured. Lives
+ * inside the top-up sheet as one of the payment methods (`TopUpSheet`).
  */
 export default function PaynetCard({ info, bonusPercent }: { info: PaynetInfo; bonusPercent: number }) {
   const t = useT();
@@ -24,9 +25,8 @@ export default function PaynetCard({ info, bonusPercent }: { info: PaynetInfo; b
   const steps = [t("payments.paynet.step1"), t("payments.paynet.step2"), t("payments.paynet.step3")];
 
   return (
-    <section className="card p-4">
-      <h3 className="text-sm font-semibold text-text">💳 {t("payments.paynet.title")}</h3>
-      <p className="mt-1 text-xs text-muted">{t("payments.paynet.intro")}</p>
+    <div>
+      <p className="text-sm text-muted">{t("payments.paynet.intro")}</p>
       {bonusPercent > 0 && (
         <p className="mt-2 rounded-xl bg-success/10 px-3 py-2 text-[13px] font-medium text-success">
           🎁 {t("payments.topup.bonusHint", { percent: bonusPercent })}
@@ -70,6 +70,6 @@ export default function PaynetCard({ info, bonusPercent }: { info: PaynetInfo; b
           {t("payments.paynet.open")}
         </a>
       )}
-    </section>
+    </div>
   );
 }

@@ -21,6 +21,8 @@ const payments = {
   "payments.method.app": "Click ilovasi",
   "payments.method.appHint": "Ilovani ochib, to'lovni tasdiqlaysiz",
   "payments.method.page": "Click sahifasi orqali to'lash",
+  "payments.method.paynet": "Paynet orqali",
+  "payments.method.paynetHint": "Paynet ilovasi, terminali yoki kioski",
   "payments.total": "To'lanadi:",
   "payments.opening": "Ochilmoqda...",
   "payments.back": "Orqaga",

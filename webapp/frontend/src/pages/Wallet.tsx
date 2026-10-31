@@ -5,7 +5,6 @@ import { useNavigate } from "react-router-dom";
 
 import client from "../api/client";
 import { getPaymentsConfig, getPaynetInfo, paymentKeys } from "../api/payments";
-import PaynetCard from "../components/Payments/PaynetCard";
 import TopUpSheet from "../components/Payments/TopUpSheet";
 import BottomSheet from "../components/ui/BottomSheet";
 import { clearBackInterceptor, setBackInterceptor } from "../hooks/useBackInterceptor";
@@ -33,7 +32,7 @@ export default function WalletPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [topUpOpen, setTopUpOpen] = useState(false);
 
-  // Hidden entirely while Click is not configured on the server (PAYMENTS_DISABLED).
+  // Click is hidden while it is not configured on the server (PAYMENTS_DISABLED).
   const payments = useQuery({
     queryKey: paymentKeys.config,
     queryFn: getPaymentsConfig,
@@ -41,7 +40,7 @@ export default function WalletPage() {
     retry: false,
   });
 
-  // Paynet payer id card: hidden unless the server has Paynet configured.
+  // Paynet is a method inside the top-up sheet; hidden unless the server has it configured.
   const paynet = useQuery({
     queryKey: paymentKeys.paynet,
     queryFn: getPaynetInfo,
@@ -86,6 +85,10 @@ export default function WalletPage() {
   });
 
   const w = wallet.data;
+
+  // Click and Paynet are methods of the same top-up sheet; either one is enough to show it.
+  const clickEnabled = Boolean(payments.data?.enabled);
+  const topUpAvailable = clickEnabled || Boolean(paynet.data?.enabled);
 
   const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
   const refUserId = tgUser?.id ?? authUser?.user_id;
@@ -151,7 +154,7 @@ export default function WalletPage() {
               {t("wallet.freePlan")}
             </div>
           )}
-          {payments.data?.enabled && (
+          {topUpAvailable && (
             <button
               type="button"
               className="tap-target mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-surface px-4 py-3 text-sm font-semibold text-primary"
@@ -169,12 +172,13 @@ export default function WalletPage() {
         </div>
       </section>
 
-      {payments.data?.enabled && (
-        <TopUpSheet open={topUpOpen} onClose={() => setTopUpOpen(false)} config={payments.data} />
-      )}
-
-      {paynet.data?.enabled && (
-        <PaynetCard info={paynet.data} bonusPercent={payments.data?.bonus_percent ?? 0} />
+      {topUpAvailable && (
+        <TopUpSheet
+          open={topUpOpen}
+          onClose={() => setTopUpOpen(false)}
+          config={clickEnabled ? (payments.data ?? null) : null}
+          paynet={paynet.data}
+        />
       )}
 
       {/* Pro tariff quick info and activation */}
