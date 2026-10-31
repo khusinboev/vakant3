@@ -1,0 +1,24 @@
+# /var/log is group-writable on Ubuntu; without `su` logrotate skips these files when run on this file alone.
+/var/log/vakant-bot.log {
+    weekly
+    rotate 8
+    size 20M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su root adm
+}
+
+/var/log/vakant-deploy.log /var/log/vakant-health.log /var/log/vakant-backup.log {
+    monthly
+    rotate 6
+    size 5M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su root adm
+}
